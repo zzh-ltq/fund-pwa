@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fund-pwa-v1';
+const CACHE_NAME = 'fund-pwa-v2';
 const urlsToCache = [
   './index.html',
   './manifest.json'

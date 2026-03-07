@@ -6,22 +6,20 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>养鸡小能手</title>
+  <title>养鸡小能手 PWA</title>
   
   <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1692.0.min.js"></script>
 
   <style>
     /* ========== 全局样式与变量 ========== */
     :root {
-      /* 将安全距离稍微收紧，避免在部分机型上算得过大导致沉底 */
       --safe-top: env(safe-area-inset-top, 0px);
       --safe-bottom: max(env(safe-area-inset-bottom, 15px), 15px);
       --bg-color: #f4f6fb;
       --blue: #3b82f6; --red: #ef4444; --green: #16a34a;
       --text-main: #0b1b32; --text-sub: #4b587c;
     }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: pan-y; }
     body {
       margin: 0; padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
@@ -35,7 +33,6 @@
 
     .app-container { max-width: 800px; margin: 0 auto; height: 100vh; position: relative; background: transparent; display: flex; flex-direction: column; }
 
-    /* 留出底部导航栏的安全距离 */
     .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; padding-bottom: calc(65px + var(--safe-bottom));}
     .page-view.active { display: flex; }
     .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; background: var(--bg-color); z-index: 200; }
@@ -55,26 +52,23 @@
 
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 15px; }
 
-    /* ========== 底部 TabBar (修复太靠下的问题) ========== */
+    /* ========== 底部 TabBar (抛弃外部图片，用纯CSS Emoji) ========== */
     .tab-bar {
       position: absolute; bottom: 0; left: 0; width: 100%;
-      height: calc(55px + var(--safe-bottom)); /* 适当抬高 */
-      padding-bottom: var(--safe-bottom);
+      height: calc(55px + var(--safe-bottom)); padding-bottom: var(--safe-bottom);
       background: rgba(255,255,255,0.95); backdrop-filter: blur(20px);
       border-top: 1px solid rgba(0,0,0,0.05);
       display: flex; justify-content: space-around; align-items: center; z-index: 150;
     }
-    .tab-item { text-align: center; color: #8f9fc0; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; padding-top: 5px;}
+    .tab-item { text-align: center; color: #8f9fc0; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; padding-top:5px;}
     .tab-item.active { color: var(--blue); }
-    /* 图片图标大小调整 */
-    .tab-icon { width: 24px; height: 24px; display: block; margin: 0 auto 3px; object-fit: contain;}
+    .tab-icon { font-size: 22px; display: block; margin-bottom: 2px; filter: grayscale(100%) opacity(0.6); transition: all 0.2s;}
+    .tab-item.active .tab-icon { filter: none; transform: scale(1.1);}
 
-    /* ========== 首页 Tabs (赋能电脑端鼠标拖拽) ========== */
+    /* ========== 首页 Tabs ========== */
     .tabs-wrapper { display: flex; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #e9ecf5; margin-bottom: 15px; position: relative;}
     .tabs-scroll { flex: 1; overflow-x: auto; white-space: nowrap; display: flex; align-items: center; -webkit-overflow-scrolling: touch; padding-bottom: 4px; cursor: grab;}
-    .tabs-scroll:active { cursor: grabbing; }
     .tabs-scroll::-webkit-scrollbar { display: none; }
-    
     .action-pill { flex-shrink: 0; display: inline-flex; align-items: center; background: #e8ecf4; color: var(--text-sub); padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; margin-right: 10px; cursor: pointer; transition: all 0.2s;}
     .action-pill.active { background: var(--text-main); color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1);}
     
@@ -131,12 +125,14 @@
 
     .red { color: var(--red); } .green { color: var(--green); }
 
-    /* ========== 分组管理页面 (精调按钮与拖拽) ========== */
+    /* ========== 分组管理页面 (彻底解决拖拽卡顿) ========== */
     .mgr-header { display: flex; padding: 15px 20px; font-size: 12px; color: #9aa9c2; font-weight: 500;}
-    /* 拖拽容器必须设置 touch-action: none 禁用原生滑动，否则手机端拖不动！ */
+    
+    /* 核心：为整个拖拽区加上绝对禁止 touch 操作的 CSS，让系统不再干扰 JS 的滑动 */
     .mgr-list-wrap { flex: 1; position: relative; margin: 0 10px; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.03); touch-action: none;}
-    .mgr-item { position: absolute; left: 0; width: 100%; height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #fff; border-bottom: 1px solid #f8faff; transition: top 0.2s; box-sizing: border-box;}
-    .mgr-item.dragging { transition: none; background: #ffffff; box-shadow: 0 5px 15px rgba(37,99,235,0.1); border-radius: 12px; transform: scale(0.98); z-index: 99;}
+    
+    .mgr-item { position: absolute; left: 0; width: 100%; height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #fff; border-bottom: 1px solid #f8faff; transition: top 0.2s cubic-bezier(0.25,0.8,0.25,1); box-sizing: border-box; z-index: 1;}
+    .mgr-item.dragging { transition: none; background: #ffffff; box-shadow: 0 10px 25px rgba(37,99,235,0.15); border-radius: 12px; transform: scale(0.98); z-index: 99 !important; border:1px solid #eef2ff;}
     
     .m-left { display: flex; align-items: center; gap: 10px; }
     .m-del { width: 20px; height: 20px; border-radius: 50%; background: #ef4444; position: relative; cursor: pointer;}
@@ -145,12 +141,13 @@
     .m-del.disabled::after { display: none;}
     
     .m-actions { display: flex; width: 120px; justify-content: space-between; align-items: center;}
-    /* 修改图标内部字号，由 13px 调为 10px 或直接使用 emoji，外圈28px保持不变 */
     .m-btn { width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer;}
     .m-btn.disabled { opacity: 0; pointer-events: none;}
-    .drag-handle { cursor: grab; font-size: 16px; color: #cbd5e1; display:flex; align-items:center; justify-content:center; width:28px; height:28px;}
+    .drag-handle { cursor: grab; font-size: 18px; color: #cbd5e1; display:flex; align-items:center; justify-content:center; width:34px; height:34px;}
 
-    /* 通用基础元素 */
+    /* 底部固定区修复，给下方增加巨量安全留白防遮挡 */
+    .mgr-bottom-bar { position: absolute; bottom:0; left:0; width: 100%; padding: 20px 20px calc(20px + var(--safe-bottom)); background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 20%); z-index: 100;}
+
     input { width: 100%; padding: 12px; border: 1px solid #e9ecf5; border-radius: 10px; outline: none; margin-bottom: 10px; font-size: 14px;}
     .btn-primary { width: 100%; background: var(--blue); color: #fff; padding: 12px; border-radius: 10px; font-size: 15px; font-weight: bold; border: none; cursor: pointer; margin-bottom: 10px;}
     .btn-success { background: #10b981; }
@@ -283,23 +280,15 @@
     </div>
   </div>
 
-  <!-- ================= 底部菜单栏 (支持真实图片) ================= -->
+  <!-- ================= 底部菜单栏 (纯Emoji图标) ================= -->
   <div class="tab-bar">
-    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home">
-      <img src="icons/tab_home.png" class="tab-icon" id="icon-home"><br>自选
-    </div>
-    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank">
-      <img src="icons/tab_rank.png" class="tab-icon" id="icon-rank"><br>排名
-    </div>
-    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector">
-      <img src="icons/tab_sector.png" class="tab-icon" id="icon-sector"><br>板块
-    </div>
-    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync">
-      <img src="icons/tab_setting.png" class="tab-icon" id="icon-sync"><br>设置
-    </div>
+    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span>自选</div>
+    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span>排名</div>
+    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span>板块</div>
+    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span>设置</div>
   </div>
 
-  <!-- ================= 弹窗：分组管理 (纯H5原生拖拽) ================= -->
+  <!-- ================= 弹窗：分组管理 (深度修复的拖拽引擎) ================= -->
   <div id="modal-group-mgr" class="modal-view" style="z-index: 210; background:#f4f6fb;">
     <div class="nav-bar">
       <div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div>
@@ -312,11 +301,13 @@
         <span>修改</span><span>清空</span><span>排序</span>
       </div>
     </div>
-    <div class="mgr-list-wrap" id="mgr-scroll-box" style="overflow-y:auto;">
+    
+    <div class="mgr-list-wrap" id="mgr-scroll-box">
       <div id="group-mgr-list" style="position:relative;"></div>
     </div>
-    <div style="padding:20px;">
-      <button class="btn-primary" onclick="app.createGroup()">＋ 新建账户</button>
+    
+    <div class="mgr-bottom-bar">
+      <button class="btn-primary" style="border-radius:30px; box-shadow:0 5px 15px rgba(59,130,246,0.3);" onclick="app.createGroup()">＋ 新建账户</button>
     </div>
   </div>
 
@@ -420,16 +411,15 @@ const app = {
   masterFundList: [], searchTimer: null,
 
   init() {
-    const local = localStorage.getItem('fund_pwa_v4');
+    const local = localStorage.getItem('fund_pwa_v5');
     if (local) this.data = JSON.parse(local);
     this.initS3();
     this.processGroupRisks();
     this.renderHomeGroups();
     this.renderHome();
-    this.enablePCMouseScroll(); // 为电脑端开启鼠标拖拽滚动Tabs
+    this.enablePCMouseScroll();
   },
 
-  // 为电脑端 Tabs 赋能鼠标拖拽滑动功能
   enablePCMouseScroll() {
     const sliders = document.querySelectorAll('.tabs-scroll');
     sliders.forEach(slider => {
@@ -446,7 +436,7 @@ const app = {
   },
 
   saveData() {
-    localStorage.setItem('fund_pwa_v4', JSON.stringify(this.data));
+    localStorage.setItem('fund_pwa_v5', JSON.stringify(this.data));
     this.processGroupRisks();
   },
 
@@ -455,15 +445,6 @@ const app = {
     document.getElementById('view-' + tabId).classList.add('active');
     document.getElementById('tab-btn-' + tabId).classList.add('active');
     
-    // 图标激活态切换
-    const tabs = ['home','rank','sector','sync'];
-    const settingMap = {sync:'setting'}; // 映射文件名
-    tabs.forEach(t => {
-       const img = document.getElementById('icon-'+t);
-       const tName = settingMap[t] || t;
-       if(img) img.src = (tabId === t) ? `icons/tab_${tName}_active.png` : `icons/tab_${tName}.png`;
-    });
-
     if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); }
     if(tabId === 'rank') this.renderRank();
     if(tabId === 'sector') this.renderSector();
@@ -645,6 +626,7 @@ const app = {
     container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true);
   },
 
+  // 修复：删除其他分组内的基金，不再同步删除全部分组的数据
   removeFundFromGroup(code) {
     if(confirm('确定从该分组移除吗？')) {
       const g = this.data.groups.find(g => g.id === this.currentGroupId);
@@ -757,7 +739,7 @@ const app = {
     if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
   },
 
-  // ========== 账户管理 (手写拖拽排序) ==========
+  // ========== 彻底重写 H5 无卡顿拖拽引擎 ==========
   openGroupMgr() {
     this.openModal('group-mgr');
     this.renderGroupMgrList();
@@ -788,18 +770,27 @@ const app = {
       
       let left = g.id==='default' ? `<div class="m-del disabled"></div><b>${g.name}</b>` : `<div class="m-del" onclick="app.delGroup('${g.id}')"></div><b>${g.name}</b>`;
       let right = g.id==='default' ? `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" style="opacity:0;">☰</div>` 
-                : `<div class="m-btn" style="background:#eef2ff; color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" ontouchstart="app.ds(event, ${i})" onmousedown="app.ds(event, ${i})">☰</div>`;
+                : `<div class="m-btn" style="background:#eef2ff; color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`;
       
       return `<div class="${cls}" style="top:${top}px; z-index:${z};">
                 <div class="m-left">${left}</div><div class="m-actions">${right}</div>
               </div>`;
     }).join('');
     box.innerHTML = html;
+    
+    // 重新绑定拖拽事件 (使用被动监听以阻断原生滚动)
+    setTimeout(() => {
+      document.querySelectorAll('.drag-handle').forEach(el => {
+        el.onmousedown = (e) => app.ds(e, parseInt(e.currentTarget.dataset.idx));
+        el.ontouchstart = (e) => app.ds(e, parseInt(e.currentTarget.dataset.idx));
+      });
+    }, 50);
   },
 
   ds(e, i) {
-    if(i===0) return;
-    e.preventDefault(); // 防止网页原生滚动触发
+    if(i===0) return; // 全部组不能拖
+    if(e.type === 'touchstart') e.preventDefault(); // 阻断手机端系统滚动！这是防卡顿的关键！
+    
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const boxTop = document.getElementById('mgr-scroll-box').getBoundingClientRect().top;
     const scrollY = document.getElementById('mgr-scroll-box').scrollTop;
@@ -809,18 +800,20 @@ const app = {
     this.dragState.startY = clientY - boxTop + scrollY - (this.dragState.itemHeight/2);
     this.dragState.currentY = this.dragState.startY;
     
-    const moveFn = (ev) => this.dm(ev);
-    const endFn = () => { this.de(); document.removeEventListener('mousemove', moveFn); document.removeEventListener('mouseup', endFn); document.removeEventListener('touchmove', moveFn); document.removeEventListener('touchend', endFn);};
+    this._moveHandler = (ev) => this.dm(ev);
+    this._endHandler = () => this.de();
     
-    document.addEventListener('mousemove', moveFn, {passive:false});
-    document.addEventListener('mouseup', endFn);
-    document.addEventListener('touchmove', moveFn, {passive:false});
-    document.addEventListener('touchend', endFn);
+    document.addEventListener('mousemove', this._moveHandler, {passive: false});
+    document.addEventListener('touchmove', this._moveHandler, {passive: false});
+    document.addEventListener('mouseup', this._endHandler);
+    document.addEventListener('touchend', this._endHandler);
+    
     this.renderGroupMgrList();
   },
   dm(e) {
     if(!this.dragState.isDragging) return;
-    e.preventDefault(); // 阻断系统滚动
+    if(e.type === 'touchmove') e.preventDefault(); // 再次阻断滑动事件传给浏览器底层
+    
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const boxTop = document.getElementById('mgr-scroll-box').getBoundingClientRect().top;
     const scrollY = document.getElementById('mgr-scroll-box').scrollTop;
@@ -842,7 +835,15 @@ const app = {
     }
     this.renderGroupMgrList();
   },
-  de() { this.dragState.isDragging = false; this.dragState.index = -1; this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups(); },
+  de() { 
+    this.dragState.isDragging = false; 
+    this.dragState.index = -1; 
+    document.removeEventListener('mousemove', this._moveHandler);
+    document.removeEventListener('touchmove', this._moveHandler);
+    document.removeEventListener('mouseup', this._endHandler);
+    document.removeEventListener('touchend', this._endHandler);
+    this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups(); 
+  },
 
   // ========== 详情与图表 ==========
   openDetail(code) {
@@ -1008,6 +1009,11 @@ const app = {
   },
 
   openSearch() { 
+    if(this.data.groups.length <= 1 && this.data.groups[0].fundCodes.length === 0) {
+      if(confirm('您还没有任何分组，建议先创建账户再添加基金。现在要去创建吗？')) {
+        this.openGroupMgr(); return;
+      }
+    }
     this.openModal('search'); 
     const searchInput = document.getElementById('search-input');
     searchInput.value = ''; document.getElementById('search-results').innerHTML = ''; searchInput.focus(); 
@@ -1037,12 +1043,15 @@ const app = {
     }, 300);
   },
 
+  // 修复需求2：自动填入当前活动组和全部组
   addFromSearch(code, e) {
     let added = false;
+    // 如果当前选中的不是“全部”，就把基金塞进当前组
     if (this.currentGroupId !== 'default') {
       const activeGroup = this.data.groups.find(g => g.id === this.currentGroupId);
       if (activeGroup && !activeGroup.fundCodes.includes(code)) { activeGroup.fundCodes.push(code); added = true; }
     }
+    // 强制塞进底库“全部”组
     const defaultGroup = this.data.groups[0];
     if (!defaultGroup.fundCodes.includes(code)) { defaultGroup.fundCodes.push(code); added = true; }
 
@@ -1052,7 +1061,7 @@ const app = {
       this.loadFundData(code).then(() => { 
         alert('添加成功！'); this.closeModal('search'); this.processGroupRisks(); this.renderHome(); 
       }).catch(() => alert('该基金可能已退市，无数据'));
-    } else alert('该基金已在当前分组及全部列表中！');
+    } else alert('该基金已在当前分组或全部列表中！');
   },
 
   // ========== 持仓分析 ==========
@@ -1085,13 +1094,7 @@ const app = {
     } catch(e) { document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#999;">暂无股票持仓数据</div>'; }
   },
 
-  // ========== 云端同步功能 (拆分按钮) ==========
-  saveR2ParamsOnly() {
-    const conf = { bucket: document.getElementById('r2-bucket').value.trim(), ak: document.getElementById('r2-ak').value.trim(), sk: document.getElementById('r2-sk').value.trim(), endpoint: document.getElementById('r2-endpoint').value.trim().replace(/\/+$/, '') };
-    if(conf.endpoint.endsWith('/'+conf.bucket)) conf.endpoint = conf.endpoint.replace('/'+conf.bucket, '');
-    localStorage.setItem('r2_conf', JSON.stringify(conf)); this.initS3();
-    alert('参数保存成功！接下来请点击“拉取云端数据”或“上传覆盖”');
-  },
+  // ========== 云端同步功能 ==========
   initS3() {
     const conf = JSON.parse(localStorage.getItem('r2_conf') || '{}');
     if (conf.ak) {
@@ -1099,10 +1102,16 @@ const app = {
       this.s3 = new AWS.S3({ endpoint: conf.endpoint, accessKeyId: conf.ak, secretAccessKey: conf.sk, s3ForcePathStyle: true, signatureVersion: 'v4', region: 'auto' });
     }
   },
+  saveR2ParamsOnly() {
+    const conf = { bucket: document.getElementById('r2-bucket').value.trim(), ak: document.getElementById('r2-ak').value.trim(), sk: document.getElementById('r2-sk').value.trim(), endpoint: document.getElementById('r2-endpoint').value.trim().replace(/\/+$/, '') };
+    if(conf.endpoint.endsWith('/'+conf.bucket)) conf.endpoint = conf.endpoint.replace('/'+conf.bucket, '');
+    localStorage.setItem('r2_conf', JSON.stringify(conf)); this.initS3();
+    alert('参数保存成功！接下来请点击“拉取云端数据”或“上传覆盖”');
+  },
   pullFromCloud() {
     if(!this.s3) return alert('请先填写并保存参数');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
-    this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v4.json' }, (err, data) => {
+    this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
       if (err) {
         if(err.code === 'NoSuchKey') alert('云端没有找到数据，如果您是第一次使用，请点击【强制覆盖上传】初始化云端。');
         else alert('拉取失败: ' + err.code);
@@ -1114,7 +1123,7 @@ const app = {
   pushToCloud() {
     if (!this.s3) return alert('请先保存配置参数');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
-    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v4.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {
+    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {
       if (err) alert('上传失败: ' + err.message); else alert('已成功覆盖云端！');
     });
   }

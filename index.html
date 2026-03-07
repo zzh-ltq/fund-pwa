@@ -585,27 +585,103 @@ const app = {
   },
 
   // ========== 搜索功能 (东财 JSONP) ==========
-  openSearch() { this.openModal('search'); document.getElementById('search-input').focus(); },
-  doSearch() {
-    const kw = document.getElementById('search-input').value.trim();
-    if(kw.length < 2) return;
-    fetchJSONP(`https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`, 'callback').catch(()=>{
-       // jsonp_xxx 回调失败但脚本会执行挂载 window.r
-       setTimeout(() => {
-         if(window.r) {
-           let res = window.r.filter(i => i[0].includes(kw) || i[2].includes(kw) || i[1].includes(kw.toLowerCase())).slice(0,20);
-           let html = res.map(i => `<div class="list-item" onclick="app.addFromSearch('${i[0]}')"><span><b>${i[2]}</b> <span class="c-code">${i[0]}</span></span><span style="color:var(--blue);">+ 添加</span></div>`).join('');
-           document.getElementById('search-results').innerHTML = html;
-         }
-       }, 200);
+ // ========== 搜索功能 (加入内存缓存与防抖，告别卡顿) ==========
+  masterFundList: [], // 用于在内存中缓存 2MB 的基金字典
+  searchTimer: null,  // 用于输入防抖
+
+  // 悄悄在后台加载字典
+  loadMasterList() {
+    return new Promise((resolve) => {
+      if (this.masterFundList.length > 0) return resolve(); // 如果内存里有了，直接返回
+      
+      const script = document.createElement('script');
+      script.src = `https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`;
+      script.onload = () => {
+        if (window.r) {
+          this.masterFundList = window.r; // 存入内存
+          delete window.r; // 清理全局变量
+        }
+        script.remove();
+        resolve();
+      };
+      script.onerror = () => { script.remove(); resolve(); };
+      document.head.appendChild(script);
     });
   },
+
+  openSearch() { 
+    this.openModal('search'); 
+    document.getElementById('search-input').value = '';
+    document.getElementById('search-results').innerHTML = '';
+    document.getElementById('search-input').focus(); 
+    // 打开搜索面板时，提前在后台默默下载字典
+    this.loadMasterList(); 
+  },
+
+  doSearch() {
+    clearTimeout(this.searchTimer); // 每次输入打断上一次的计时，防止频繁触发
+    const kw = document.getElementById('search-input').value.trim().toLowerCase();
+    const resBox = document.getElementById('search-results');
+
+    if(kw.length < 2) {
+      resBox.innerHTML = ''; 
+      return;
+    }
+
+    resBox.innerHTML = '<div style="text-align:center; padding:20px; color:#9aa9c2;">正在极速检索...</div>';
+
+    // 延迟 300 毫秒执行，等用户打完字再搜
+    this.searchTimer = setTimeout(async () => {
+      await this.loadMasterList(); // 确保字典已经下载完毕
+
+      if (this.masterFundList.length === 0) {
+        resBox.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">字典加载失败，请检查网络</div>';
+        return;
+      }
+
+      // 在本地内存中极速过滤
+      const matched = this.masterFundList.filter(i => 
+        i[0].includes(kw) || // 匹配代码
+        i[2].toLowerCase().includes(kw) || // 匹配名称
+        i[1].toLowerCase().includes(kw)    // 匹配拼音首字母
+      ).slice(0, 20); // 最多只显示20条防卡顿
+
+      if (matched.length === 0) {
+        resBox.innerHTML = '<div style="text-align:center; padding:20px; color:#9aa9c2;">找不到相关基金</div>';
+        return;
+      }
+
+      // 渲染列表
+      resBox.innerHTML = matched.map(i => `
+        <div class="list-item" style="cursor:pointer;" onclick="app.addFromSearch('${i[0]}')">
+          <span style="flex:1;">
+            <b style="color:var(--text-main); font-size:15px;">${i[2]}</b> 
+            <span class="c-code" style="margin-left:8px;">${i[0]}</span>
+          </span>
+          <span style="color:var(--blue); font-weight:bold; background:#eef2ff; padding:4px 12px; border-radius:20px; font-size:12px;">+ 添加</span>
+        </div>
+      `).join('');
+    }, 300);
+  },
+
   addFromSearch(code) {
     if(!this.data.groups[0].fundCodes.includes(code)) {
       this.data.groups[0].fundCodes.push(code);
       this.saveData();
-      this.loadFundData(code).then(() => { alert('已添加至全部组！'); this.closeModal('search'); this.renderHome(); });
-    } else alert('已存在！');
+      
+      // 按钮变成加载中状态
+      event.currentTarget.querySelector('span:last-child').innerText = '加载中...';
+      
+      this.loadFundData(code).then(() => { 
+        alert('添加成功！'); 
+        this.closeModal('search'); 
+        this.renderHome(); 
+      }).catch(() => {
+        alert('基金数据加载失败，可能是不存在或已退市的基金');
+      });
+    } else {
+      alert('该基金已在自选列表中！');
+    }
   },
 
   // ========== 云端同步功能 (Cloudflare R2) ==========

@@ -304,22 +304,32 @@
       // ========== 云端同步功能 (R2 S3) ==========
       saveR2Config() {
         const conf = {
-          bucket: document.getElementById('r2-bucket').value,
-          ak: document.getElementById('r2-ak').value,
-          sk: document.getElementById('r2-sk').value,
-          endpoint: document.getElementById('r2-endpoint').value
+          bucket: document.getElementById('r2-bucket').value.trim(), // 加了 trim 防止空格
+          ak: document.getElementById('r2-ak').value.trim(),
+          sk: document.getElementById('r2-sk').value.trim(),
+          endpoint: document.getElementById('r2-endpoint').value.trim()
         };
+        // 防止用户把 bucket 名字带入 endpoint
+        if(conf.endpoint.endsWith('/' + conf.bucket)) {
+          conf.endpoint = conf.endpoint.replace('/' + conf.bucket, '');
+          document.getElementById('r2-endpoint').value = conf.endpoint;
+        }
+
         localStorage.setItem('r2_conf', JSON.stringify(conf));
         this.initS3();
         
-        // 尝试拉取
         if(this.s3) {
           this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_data.json' }, (err, data) => {
-            if (err) alert('拉取失败: ' + err.message);
-            else {
+            if (err) {
+              if (err.code === 'NoSuchKey') {
+                alert('云端桶是空的，请先在本地添加数据后点击"强制覆盖上传"。');
+              } else {
+                alert('拉取失败: ' + err.message + '\n请检查跨域CORS是否配置。');
+              }
+            } else {
               this.data = JSON.parse(data.Body.toString());
               this.saveDataLocally();
-              alert('云端配置加载成功！');
+              alert('云端数据加载成功！');
               this.switchTab('home');
             }
           });

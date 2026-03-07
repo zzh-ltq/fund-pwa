@@ -2,14 +2,12 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <!-- PWA 核心 Meta，启用沉浸式与刘海屏避让 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="manifest" href="manifest.json">
-  <title>养鸡小能手 PWA版</title>
+  <title>养鸡小能手</title>
   
   <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1692.0.min.js"></script>
 
@@ -19,55 +17,41 @@
       --safe-top: env(safe-area-inset-top, 0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --bg-color: #f4f6fb;
-      --blue: #3b82f6;
-      --red: #ef4444;
-      --green: #16a34a;
-      --text-main: #0b1b32;
-      --text-sub: #4b587c;
+      --blue: #3b82f6; --red: #ef4444; --green: #16a34a;
+      --text-main: #0b1b32; --text-sub: #4b587c;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       margin: 0; padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
-      background-color: var(--bg-color);
-      color: var(--text-main);
-      overflow: hidden; /* 锁定外层滚动 */
+      background-color: var(--bg-color); color: var(--text-main);
+      overflow: hidden;
+    }
+    body::before {
+      content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 50vh;
+      background: linear-gradient(180deg, #e3ecff 0%, #edf1fa 40%, #f4f6fb 100%); z-index: -1;
     }
 
-    /* 电脑端宽屏自适应优化：居中且限制最大宽度 */
-    .app-container {
-      max-width: 800px;
-      margin: 0 auto;
-      height: 100vh;
-      position: relative;
-      background: var(--bg-color);
-      box-shadow: 0 0 40px rgba(0,0,0,0.05);
-      display: flex;
-      flex-direction: column;
-    }
+    .app-container { max-width: 800px; margin: 0 auto; height: 100vh; position: relative; background: transparent; display: flex; flex-direction: column; }
 
     /* 页面与路由管理 */
-    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; background: var(--bg-color); padding-bottom: calc(60px + var(--safe-bottom));}
+    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; padding-bottom: calc(60px + var(--safe-bottom));}
     .page-view.active { display: flex; }
-    
-    /* 弹窗层/全屏覆盖页 (详情、搜索、管理) */
     .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; background: var(--bg-color); z-index: 200; }
     .modal-view.active { display: flex; }
 
-    /* ========== 导航栏 (彻底解决遮挡) ========== */
+    /* ========== 导航栏 ========== */
     .nav-bar {
-      padding-top: var(--safe-top);
-      height: calc(44px + var(--safe-top));
+      padding-top: var(--safe-top); height: calc(44px + var(--safe-top));
       display: flex; justify-content: space-between; align-items: center;
-      padding-left: 20px; padding-right: 20px;
+      padding-left: 15px; padding-right: 15px;
       background: rgba(255,255,255,0.8); backdrop-filter: blur(10px);
       z-index: 100; flex-shrink: 0;
     }
     .nav-title { font-size: 18px; font-weight: bold; color: var(--text-main); flex: 1; text-align: center;}
-    .nav-btn { font-size: 14px; color: var(--blue); font-weight: bold; cursor: pointer; width: 60px; display:flex; align-items:center; justify-content:center; background: #eef2ff; padding: 6px 0; border-radius: 20px;}
+    .nav-btn { font-size: 14px; color: var(--blue); font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background: rgba(255,255,255,0.7); padding: 6px 12px; border-radius: 20px;}
     .nav-btn.left { justify-content: flex-start; background:transparent;}
 
-    /* 滚动内容区 */
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 15px; }
 
     /* ========== 底部 TabBar ========== */
@@ -82,47 +66,90 @@
     .tab-item.active { color: var(--blue); }
     .tab-icon { font-size: 22px; display: block; margin-bottom: 2px;}
 
-    /* ========== 核心卡片组件 (双端适配 Grid) ========== */
-    .card-grid {
-      display: grid;
-      /* 电脑端自动两列/三列，手机端一列 */
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 15px;
-    }
-    .card { background: #fff; border-radius: 20px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #f0f2f8; position: relative; cursor: pointer;}
-    .card:active { background: #f8faff; }
-    .card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;}
-    .c-title { font-size: 16px; font-weight: bold; margin-bottom: 4px; line-height: 1.3;}
-    .c-code { font-size: 12px; background: #f0f2f8; padding: 2px 8px; border-radius: 10px; color: var(--text-sub); margin-right: 5px;}
-    .c-tag { font-size: 11px; background: #dbeafe; color: var(--blue); padding: 2px 8px; border-radius: 10px;}
+    /* ========== 首页 Tabs 与固定右侧操作 ========== */
+    .tabs-wrapper { display: flex; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #e9ecf5; margin-bottom: 15px; position: relative;}
+    .tabs-scroll { flex: 1; overflow-x: auto; white-space: nowrap; display: flex; align-items: center; }
+    .tabs-scroll::-webkit-scrollbar { display: none; }
+    .action-pill { display: inline-flex; align-items: center; background: #e8ecf4; color: var(--text-sub); padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; margin-right: 10px; cursor: pointer; transition: all 0.2s;}
+    .action-pill.active { background: var(--text-main); color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1);}
     
+    .tabs-fixed-right { display: flex; align-items: center; gap: 10px; padding-left: 10px; background: linear-gradient(90deg, rgba(244,246,251,0) 0%, var(--bg-color) 20%); z-index: 10;}
+    .mgr-btn { font-size: 16px; color: #8f9fc0; font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background:#fff; width:30px; height:30px; border-radius:50%; box-shadow: 0 2px 6px rgba(0,0,0,0.05);}
+
+    /* 角标 */
+    .badge { margin-left: 4px; border-radius: 50%; font-size: 10px; width: 14px; height: 14px; display: inline-flex; justify-content: center; align-items: center; }
+    .badge.warning { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: white; font-weight: bold;}
+    .badge.heart { color: #16a34a; font-size: 12px;}
+
+    /* ========== 排序控制栏 ========== */
+    .action-bar-wrap { margin-bottom: 15px; }
+    .action-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    
+    .view-toggle { display: flex; background: #e8ecf4; border-radius: 6px; padding: 2px; }
+    .view-toggle span { padding: 4px 12px; font-size: 12px; border-radius: 4px; color: #666; cursor: pointer; }
+    .view-toggle span.active { background: #fff; color: var(--text-main); font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    
+    .sort-dir-btn { background: #e8ecf4; color: var(--text-sub); padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer;}
+    .sort-dir-btn.active { background: var(--text-main); color: #fff; }
+    select.sort-rule { padding: 6px 12px; border-radius: 20px; border: 1px solid #dbe1ef; font-size: 12px; outline: none; background: #fff;}
+
+    /* ========== 卡片与列表双视图 ========== */
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px; }
+    .card { background: #fff; border-radius: 20px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #f0f2f8; position: relative; cursor: pointer;}
+    .card.risk-highlight { border: 2px solid #f97316; }
+    
+    .c-title-area { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 15px;}
+    .c-title { font-size: 16px; font-weight: bold; line-height: 1.3;}
+    .c-code { font-size: 11px; background: #f0f2f8; padding: 2px 6px; border-radius: 10px; color: var(--text-sub);}
+    .c-tag { font-size: 11px; background: #dbeafe; color: var(--blue); padding: 2px 6px; border-radius: 10px;}
+    .c-add-tag { background: #f0f2f8; color: #9aa9c2; border: 1px dashed #dbe1ef; cursor: pointer;}
+
     .c-main { background: #f8faff; padding: 12px 15px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;}
     .c-val { font-size: 22px; font-weight: bold;}
     .c-chg { font-size: 18px; font-weight: bold;}
     
-    .rates-row { display: flex; flex-wrap: wrap; gap: 8px;}
-    .r-item { flex: 1; min-width: 30%; text-align: center; background: #f8faff; padding: 8px 0; border-radius: 8px;}
+    .rates-row { display: flex; flex-wrap: wrap; padding: 10px 5px; background: #f8faff; border-radius: 12px; margin-bottom: 10px;}
+    .r-item { width: 33.33%; text-align: center; margin-bottom: 10px;}
     .r-lbl { font-size: 11px; color: var(--text-sub); display: block; margin-bottom: 2px;}
     .r-val { font-size: 13px; font-weight: bold;}
     
+    .maxdrop-tag { font-size: 11px; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; padding: 4px 10px; border-radius: 15px; display: inline-block;}
+    
+    /* 列表视图 */
+    .list-table-container { width: 100%; overflow-x: auto; background: #fff; border-radius: 16px; white-space: nowrap; padding-bottom: 10px;}
+    .l-header { display: flex; padding: 15px; background: #f8faff; border-bottom: 1px solid #e9ecf5; }
+    .l-row { display: flex; padding: 15px; border-bottom: 1px solid #f0f2f8; align-items: center; cursor: pointer;}
+    .l-col-name { width: 140px; flex-shrink: 0; white-space: normal;}
+    .l-col-rate { width: 70px; flex-shrink: 0; text-align: right; font-size: 14px; font-weight: bold;}
+    .l-col-rate.th { font-size: 12px; color: var(--text-sub); font-weight: normal;}
+
     .red { color: var(--red); } .green { color: var(--green); }
 
-    /* ========== 顶部二级操作栏 ========== */
-    .top-actions { display: flex; overflow-x: auto; padding-bottom: 10px; border-bottom: 1px solid #e9ecf5; margin-bottom: 15px;}
-    .top-actions::-webkit-scrollbar { display: none; }
-    .action-pill { background: #e8ecf4; color: var(--text-sub); padding: 6px 16px; border-radius: 20px; font-size: 13px; white-space: nowrap; margin-right: 10px; cursor: pointer;}
-    .action-pill.active { background: var(--text-main); color: #fff;}
+    /* ========== 分组管理页面 ========== */
+    .mgr-header { display: flex; padding: 15px 20px; font-size: 12px; color: #9aa9c2; font-weight: 500;}
+    .mgr-list-wrap { flex: 1; position: relative; margin: 0 10px; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.03);}
+    .mgr-item { position: absolute; left: 0; width: 100%; height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #fff; border-bottom: 1px solid #f8faff; transition: top 0.2s;}
+    .mgr-item.dragging { transition: none; background: #ffffff; box-shadow: 0 5px 15px rgba(37,99,235,0.1); border-radius: 12px; transform: scale(0.98); z-index: 99;}
+    
+    .m-left { display: flex; align-items: center; gap: 10px; }
+    .m-del { width: 20px; height: 20px; border-radius: 50%; background: #ef4444; position: relative; cursor: pointer;}
+    .m-del::after { content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:10px; height:2px; background:#fff;}
+    .m-del.disabled { background: transparent; pointer-events: none;}
+    .m-del.disabled::after { display: none;}
+    
+    .m-actions { display: flex; width: 120px; justify-content: space-between; align-items: center;}
+    .m-btn { width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 13px; font-weight: bold; cursor: pointer;}
+    .m-btn.disabled { opacity: 0; pointer-events: none;}
+    .drag-handle { cursor: grab; font-size: 18px; color: #cbd5e1;}
 
-    /* 通用输入与按钮 */
+    /* 通用基础元素 */
     input { width: 100%; padding: 12px; border: 1px solid #e9ecf5; border-radius: 10px; outline: none; margin-bottom: 10px; font-size: 14px;}
     .btn-primary { width: 100%; background: var(--blue); color: #fff; padding: 12px; border-radius: 10px; font-size: 15px; font-weight: bold; border: none; cursor: pointer; margin-bottom: 10px;}
+    .list-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #fff; border-radius: 12px; margin-bottom: 10px; cursor: pointer;}
     
-    /* 列表项通用 */
-    .list-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #fff; border-radius: 12px; margin-bottom: 10px;}
-    
-    /* 图表区 */
     canvas { display: block; width: 100%; height: 240px; margin-bottom: 15px;}
     .detail-tabs { display: flex; gap: 10px; margin-bottom: 15px; overflow-x: auto;}
+    .detail-tabs::-webkit-scrollbar { display:none;}
   </style>
 </head>
 <body>
@@ -132,27 +159,49 @@
   <!-- ================= 视图1：自选首页 ================= -->
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
-      <div class="nav-btn" onclick="app.openSearch()">🔍搜索</div>
-      <div class="nav-title">🐔养鸡小能手</div>
-      <div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div>
+      <div style="display:flex; gap:10px;">
+        <div class="nav-btn" onclick="app.syncCloud()">☁️同步</div>
+        <div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div>
+      </div>
+      <div class="nav-title">🐔 养鸡小能手</div>
+      <div class="nav-btn" style="background:#eef2ff;" onclick="app.openSearch()">🔍搜索</div>
     </div>
+    
     <div class="scroll-area">
-      <!-- 动态分组Tabs -->
-      <div class="top-actions" id="home-groups"></div>
+      <!-- 动态分组Tabs + 右侧固定按钮 -->
+      <div class="tabs-wrapper">
+        <div class="tabs-scroll" id="home-groups"></div>
+        <div class="tabs-fixed-right">
+          <div class="mgr-btn" onclick="app.createGroup()">＋</div>
+          <div class="mgr-btn" onclick="app.openGroupMgr()">☰</div>
+        </div>
+      </div>
       
       <!-- 排序控制栏 -->
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
-        <span style="font-size:12px; color:#8f9fc0;">分组内基金明细</span>
-        <select id="sort-select" onchange="app.renderHome()" style="padding:4px 10px; border-radius:10px; border:1px solid #eee; font-size:12px;">
-          <option value="daily">单日涨跌</option>
-          <option value="3">3日累计</option>
-          <option value="15">15日累计</option>
-          <option value="20">20日累计</option>
-        </select>
+      <div class="action-bar-wrap">
+        <div class="action-row">
+          <span style="font-size:12px; color:#8f9fc0; font-weight:bold;">当前分组基金明细</span>
+          <div class="view-toggle">
+            <span id="vt-card" class="active" onclick="app.setViewMode('card')">卡片</span>
+            <span id="vt-list" onclick="app.setViewMode('list')">列表</span>
+          </div>
+        </div>
+        <div class="action-row" style="justify-content: flex-start; gap: 15px;">
+          <div id="sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSortDir()">降序 ↓</div>
+          <select id="sort-rule" class="sort-rule" onchange="app.renderHome()">
+            <option value="daily">单日涨跌</option>
+            <option value="3">3日累计</option>
+            <option value="5">5日累计</option>
+            <option value="7">7日累计</option>
+            <option value="10">10日累计</option>
+            <option value="15">15日累计</option>
+            <option value="20">20日累计</option>
+          </select>
+        </div>
       </div>
 
-      <!-- 卡片网格容器 -->
-      <div class="card-grid" id="home-list"></div>
+      <!-- 渲染容器 -->
+      <div id="home-list"></div>
     </div>
   </div>
 
@@ -160,6 +209,10 @@
   <div id="view-rank" class="page-view">
     <div class="nav-bar">
       <div class="nav-title">🏆 分组平均涨跌</div>
+      <div class="view-toggle" style="margin-right:0;">
+        <span id="rank-desc" class="active" onclick="app.setRankDir('desc')">降序</span>
+        <span id="rank-asc" onclick="app.setRankDir('asc')">升序</span>
+      </div>
     </div>
     <div class="scroll-area" id="rank-list"></div>
   </div>
@@ -171,31 +224,40 @@
     </div>
     <div class="scroll-area">
       <div style="display:flex; gap:10px; margin-bottom: 15px;">
-        <input type="text" id="new-sector-input" placeholder="新建板块名称" style="margin:0;">
+        <input type="text" id="new-sector-input" placeholder="新建板块名称(限8字)" style="margin:0;">
         <button class="btn-primary" style="width:80px; margin:0;" onclick="app.addSector()">添加</button>
       </div>
-      <div class="top-actions" id="sector-tags" style="flex-wrap:wrap; border:none;"></div>
-      <div class="card-grid" id="sector-list"></div>
+      <div class="tabs-scroll" id="sector-tags" style="margin-bottom:15px; padding-bottom:5px; border-bottom:1px dashed #eee;"></div>
+      
+      <div class="action-bar-wrap" id="sector-action-wrap" style="display:none;">
+        <div class="action-row">
+          <span id="sector-title-lbl" style="font-size:13px; font-weight:bold; color:var(--text-main);">属于该板块的基金</span>
+          <div class="view-toggle">
+            <span id="svt-card" class="active" onclick="app.setSecViewMode('card')">卡片</span>
+            <span id="svt-list" onclick="app.setSecViewMode('list')">列表</span>
+          </div>
+        </div>
+      </div>
+      <div id="sector-list"></div>
     </div>
   </div>
 
-  <!-- ================= 视图4：设置与云同步 ================= -->
+  <!-- ================= 视图4：设置 ================= -->
   <div id="view-sync" class="page-view">
-    <div class="nav-bar"><div class="nav-title">⚙️ 设置与云同步</div></div>
+    <div class="nav-bar"><div class="nav-title">⚙️ 设置中心</div></div>
     <div class="scroll-area">
       <div class="card">
         <h3>Cloudflare R2 同步配置</h3>
         <input type="text" id="r2-bucket" placeholder="Bucket Name (如: fund-app)">
         <input type="text" id="r2-ak" placeholder="Access Key ID">
         <input type="password" id="r2-sk" placeholder="Secret Access Key">
-        <input type="text" id="r2-endpoint" placeholder="Endpoint URL (到.com结尾)">
+        <input type="text" id="r2-endpoint" placeholder="Endpoint URL">
         <button class="btn-primary" onclick="app.pullFromCloud()">📥 保存并拉取云端数据</button>
         <button class="btn-primary" style="background:#eef2ff; color:var(--blue);" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button>
       </div>
       <div class="card">
-        <h3>账户与分组管理</h3>
-        <button class="btn-primary" style="background:#f8faff; color:#333;" onclick="app.openGroupMgr()">☰ 进入分组管理</button>
-        <button class="btn-primary" style="background:#fff1f2; color:var(--red); margin-top:20px;" onclick="localStorage.clear(); location.reload();">🗑️ 清空本地缓存</button>
+        <h3>系统管理</h3>
+        <button class="btn-primary" style="background:#fff1f2; color:var(--red);" onclick="localStorage.clear(); location.reload();">🗑️ 清空本地缓存</button>
       </div>
     </div>
   </div>
@@ -208,8 +270,40 @@
     <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span>设置</div>
   </div>
 
-  <!-- ================= 弹窗页：基金搜索 ================= -->
-  <div id="modal-search" class="modal-view">
+  <!-- ================= 弹窗：分组管理 (纯H5原生拖拽) ================= -->
+  <div id="modal-group-mgr" class="modal-view" style="z-index: 210; background:#f4f6fb;">
+    <div class="nav-bar">
+      <div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div>
+      <div class="nav-title">账户管理</div>
+      <div style="width:60px;"></div>
+    </div>
+    <div class="mgr-header">
+      <span style="flex:1;">账户名称</span>
+      <div style="display:flex; width:120px; justify-content:space-between;">
+        <span>修改</span><span>清空</span><span>排序</span>
+      </div>
+    </div>
+    <div class="mgr-list-wrap" id="mgr-scroll-box" style="overflow-y:auto; touch-action:none;">
+      <div id="group-mgr-list" style="position:relative;"></div>
+    </div>
+    <div style="padding:20px;">
+      <button class="btn-primary" onclick="app.createGroup()">＋ 新建账户</button>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗：板块选择器 ================= -->
+  <div id="modal-sector-select" class="modal-view" style="z-index: 220; background:rgba(0,0,0,0.5); justify-content:flex-end;">
+    <div style="background:#fff; border-radius:20px 20px 0 0; padding:20px; min-height:40vh;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:15px; font-weight:bold;">
+        <span>选择板块 (最多2个)</span>
+        <span style="color:#999; cursor:pointer;" onclick="app.closeModal('sector-select')">✕</span>
+      </div>
+      <div id="sector-select-list" class="tabs-scroll" style="flex-wrap:wrap; white-space:normal; gap:10px;"></div>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗：基金搜索 ================= -->
+  <div id="modal-search" class="modal-view" style="z-index: 230;">
     <div class="nav-bar">
       <input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%;">
       <div class="nav-btn" style="background:none;" onclick="app.closeModal('search')">取消</div>
@@ -217,20 +311,7 @@
     <div class="scroll-area" id="search-results"></div>
   </div>
 
-  <!-- ================= 弹窗页：分组管理 ================= -->
-  <div id="modal-group-mgr" class="modal-view">
-    <div class="nav-bar">
-      <div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div>
-      <div class="nav-title">账户管理</div>
-      <div style="width:60px;"></div>
-    </div>
-    <div class="scroll-area">
-      <div id="group-mgr-list"></div>
-      <button class="btn-primary" style="margin-top:20px;" onclick="app.createGroup()">＋ 新建账户</button>
-    </div>
-  </div>
-
-  <!-- ================= 弹窗页：基金详情 ================= -->
+  <!-- ================= 弹窗：基金详情 ================= -->
   <div id="modal-detail" class="modal-view" style="z-index: 250;">
     <div class="nav-bar">
       <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
@@ -238,32 +319,35 @@
       <div style="width:60px;"></div>
     </div>
     <div class="scroll-area">
-      <div class="card">
-        <div style="display:flex; justify-content:space-between;">
-          <div>
-            <h2 id="det-name" style="margin:0 0 5px;">--</h2>
-            <span id="det-code" class="c-code">--</span>
-          </div>
-          <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="padding:5px; border-radius:10px; border:1px solid var(--blue); color:var(--blue); background:#eef2ff;">
-            <option value="">+ 加自选</option>
-          </select>
+      <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <h2 id="det-name" style="margin:0 0 5px; font-size:18px;">--</h2>
+          <span id="det-code" class="c-code">--</span>
         </div>
+        <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="padding:6px 12px; border-radius:20px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none;">
+          <option value="">+ 加自选</option>
+        </select>
       </div>
 
       <div class="detail-tabs" id="det-tabs">
         <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
         <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
+        <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
         <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
         <div class="action-pill" onclick="app.renderDetailTab('hold')">📄持仓</div>
       </div>
 
       <div id="det-chart-area">
         <div class="card" style="padding:10px;">
-          <div style="font-size:12px; color:#666; margin-bottom:5px;">累计收益率走势</div>
+          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:10px; padding:0 5px;">
+            <span style="color:#0b1b32; font-weight:bold;">业绩走势(累计涨跌)</span>
+            <span style="color:#666;">最大回撤 <span id="det-maxdrop" class="green">--</span></span>
+          </div>
           <canvas id="det-canvas" 
                   onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()"
                   ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas>
         </div>
+        <div style="font-weight:bold; margin-bottom:10px;">历史净值明细</div>
         <div id="det-table-area"></div>
       </div>
 
@@ -275,19 +359,14 @@
 
 <!-- 核心业务逻辑 -->
 <script>
-// ========= 跨域 JSONP 引擎 (解决Web端跨域问题) =========
+// ========= 跨域 JSONP 引擎 =========
 function fetchJSONP(url, callbackName = 'callback') {
   return new Promise((resolve, reject) => {
     const cb = 'jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000);
     const script = document.createElement('script');
     const sep = url.includes('?') ? '&' : '?';
     script.src = `${url}${sep}${callbackName}=${cb}`;
-    
-    window[cb] = (data) => {
-      resolve(data);
-      delete window[cb];
-      script.remove();
-    };
+    window[cb] = (data) => { resolve(data); delete window[cb]; script.remove(); };
     script.onerror = () => { reject('JSONP Network Error'); script.remove(); };
     document.head.appendChild(script);
   });
@@ -304,18 +383,30 @@ const app = {
   currentGroupId: 'default',
   activeSector: '',
   currentDetailCode: '',
+  targetSectorCode: '',
+  
+  // 视图与排序配置
+  viewMode: 'card', 
+  secViewMode: 'card',
+  sortDir: 'desc', rankDir: 'desc',
+  
+  // 拖拽管理与图表参数
+  dragState: { isDragging: false, index: -1, startY: 0, currentY: 0, itemHeight: 60 },
   chartInfo: { data: [], touchIdx: -1 },
+  masterFundList: [], searchTimer: null,
 
   init() {
-    const local = localStorage.getItem('fund_pwa_v2');
+    const local = localStorage.getItem('fund_pwa_v3');
     if (local) this.data = JSON.parse(local);
     this.initS3();
+    this.processGroupRisks(); // 预处理角标
     this.renderHomeGroups();
     this.renderHome();
   },
 
   saveData() {
-    localStorage.setItem('fund_pwa_v2', JSON.stringify(this.data));
+    localStorage.setItem('fund_pwa_v3', JSON.stringify(this.data));
+    this.processGroupRisks();
   },
 
   switchTab(tabId) {
@@ -330,7 +421,7 @@ const app = {
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
-  // ========== API 请求封装 (纯JSONP绕过限制) ==========
+  // ========== API 请求 ==========
   loadFundData(code) {
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
@@ -355,52 +446,131 @@ const app = {
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
     if(codes.length === 0) return alert('没有需要更新的基金');
-    document.querySelector('#view-home .nav-btn:last-child').innerText = '拉取中';
-    for (let code of codes) {
-      try { await this.loadFundData(code); } catch(e) {}
-    }
-    document.querySelector('#view-home .nav-btn:last-child').innerText = '🔄刷新';
+    alert('正在后台拉取最新净值，请稍候...');
+    for (let code of codes) { try { await this.loadFundData(code); } catch(e) {} }
+    this.processGroupRisks();
     this.renderHome();
+    alert('刷新完成！');
   },
 
-  // ========== 业务运算辅助函数 ==========
+  // ========== 核心运算 ==========
   calcRate(nw, days) {
     if (!nw || nw.length < days) return '--';
     const last = nw[nw.length-1].y;
     const prev = nw[nw.length-days].y;
     return (((last - prev)/prev)*100).toFixed(2);
   },
+  calcMaxDrop(nw, days) {
+    if (!nw || nw.length < 2) return null;
+    const slice = nw.slice(-Math.min(days, nw.length));
+    const latest = slice[slice.length - 1].y;
+    let maxDrop = 0; 
+    for (let i = 0; i < slice.length - 1; i++) {
+        const drop = ((latest - slice[i].y) / slice[i].y) * 100;
+        if (drop < maxDrop) maxDrop = drop;
+    }
+    return maxDrop === 0 ? null : maxDrop.toFixed(2);
+  },
 
   formatFund(code) {
     const f = this.data.fundsCache[code];
     if (!f || !f.netWorth) return { code, name: '加载中...', isLoad: false };
-    const rates = [3,5,10,15,20,60].map(d => ({ label: d+'日', val: this.calcRate(f.netWorth, d) }));
-    return { ...f, isLoad: true, latest: f.netWorth[f.netWorth.length-1].y.toFixed(4), change: this.calcRate(f.netWorth, 2), rates };
+    const nw = f.netWorth;
+    const rates = [3,5,7,10,15,20].map(d => ({ label: d+'日', val: this.calcRate(nw, d) }));
+    const maxDropIn20 = this.calcMaxDrop(nw, 20);
+    const change = this.calcRate(nw, 2);
+    
+    return { ...f, isLoad: true, latestDate: new Date(nw[nw.length-1].x).toISOString().slice(0,10), latest: nw[nw.length-1].y.toFixed(4), change, rates, maxDropIn20, 
+      isRisk: maxDropIn20 !== null && parseFloat(maxDropIn20) <= -8.5,
+      isDailyRisk: change !== '--' && parseFloat(change) <= -5.0
+    };
   },
 
-  buildCardHtml(f) {
-    if(!f.isLoad) return `<div class="card"><div class="c-title">${f.code}加载中</div></div>`;
+  processGroupRisks() {
+    this.data.groups.forEach(g => {
+      g.has20Risk = false; g.hasDailyRisk = false;
+      g.fundCodes.forEach(c => {
+        const f = this.formatFund(c);
+        if(f.isRisk) g.has20Risk = true;
+        if(f.isDailyRisk) g.hasDailyRisk = true;
+      });
+    });
+  },
+
+  // ========== 视图构建 (卡片与列表通用) ==========
+  buildCardHtml(f, fromGroup = false) {
+    if(!f.isLoad) return `<div class="card"><div class="c-title">${f.code} 加载中</div></div>`;
     const col = f.change >= 0 ? 'red' : 'green';
-    let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':'green'}">${r.val}%</span></div>`).join('');
-    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag">${s}</span>`).join('');
+    let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
+    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="event.stopPropagation(); app.removeSectorFromFund('${f.code}','${s}')">${s}</span>`).join('');
     
+    // 只有在首页的分组内才显示删除按钮
+    let delBtn = fromGroup ? `<div style="color:#ccc; font-size:18px; padding:0 5px;" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
+
     return `
-      <div class="card" onclick="app.openDetail('${f.code}')">
+      <div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">
         <div class="card-head">
-          <div><div class="c-title">${f.name}</div><span class="c-code">${f.code}</span>${tagsHtml}</div>
-          <div style="color:#ccc;" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>
+          <div class="c-title-area">
+            <span class="c-title">${f.name}</span><span class="c-code">${f.code}</span>
+            ${tagsHtml}
+            <span class="c-tag c-add-tag" onclick="event.stopPropagation(); app.openSectorSelect('${f.code}')">+ 板块</span>
+          </div>
+          ${delBtn}
         </div>
         <div class="c-main">
-          <div class="c-val">${f.latest}</div>
-          <div class="c-chg ${col}">${f.change > 0 ? '+' : ''}${f.change}%</div>
+          <span style="font-size:13px; color:#8f9fc0;">${f.latestDate}</span>
+          <div style="display:flex; gap:15px; align-items:center;">
+            <div class="c-val">${f.latest}</div>
+            <div class="c-chg ${col}">${f.change > 0 ? '+' : ''}${f.change}%</div>
+          </div>
         </div>
         <div class="rates-row">${ratesHtml}</div>
+        ${f.maxDropIn20 !== null ? `<div class="maxdrop-tag">20日跌幅 ${f.maxDropIn20}%</div>` : ''}
       </div>`;
   },
 
-  // ========== 自选首页 ==========
+  buildListHtml(funds, fromGroup = false) {
+    if(funds.length === 0) return '';
+    let header = `<div class="l-header"><div class="l-col-name th">基金名称</div><div class="l-col-rate th" style="width:80px;">最新</div>
+      ${[3,5,7,10,15,20].map(d=>`<div class="l-col-rate th">${d}日</div>`).join('')}</div>`;
+    
+    let rows = funds.map(f => {
+      if(!f.isLoad) return '';
+      let rates = f.rates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join('');
+      return `
+        <div class="l-row" onclick="app.openDetail('${f.code}')">
+          <div class="l-col-name"><div style="font-weight:bold; font-size:14px;">${f.name}</div><div style="font-size:11px; color:#9aa9c2;">${f.code}</div></div>
+          <div class="l-col-rate" style="width:80px;">
+            <div>${f.latest}</div><div class="${f.change>=0?'red':'green'}" style="font-size:12px;">${f.change>0?'+':''}${f.change}%</div>
+          </div>
+          ${rates}
+        </div>`;
+    }).join('');
+    return `<div class="list-table-container">${header}${rows}</div>`;
+  },
+
+  // ========== 自选首页逻辑 ==========
+  setViewMode(mode) {
+    this.viewMode = mode;
+    document.getElementById('vt-card').className = mode === 'card' ? 'active' : '';
+    document.getElementById('vt-list').className = mode === 'list' ? 'active' : '';
+    this.renderHome();
+  },
+  toggleSortDir() {
+    this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc';
+    const btn = document.getElementById('sort-dir-btn');
+    btn.innerText = this.sortDir === 'desc' ? '降序 ↓' : '升序 ↑';
+    btn.className = 'sort-dir-btn active';
+    this.renderHome();
+  },
+
   renderHomeGroups() {
-    let html = this.data.groups.map(g => `<div class="action-pill ${g.id === this.currentGroupId ? 'active' : ''}" onclick="app.currentGroupId='${g.id}'; app.renderHomeGroups(); app.renderHome();">${g.name}</div>`).join('');
+    let html = this.data.groups.map(g => {
+      let badge = '';
+      if(g.has20Risk) badge += '<span class="badge warning">!</span>';
+      if(g.hasDailyRisk) badge += '<span class="badge heart">💚</span>';
+      return `<div class="action-pill ${g.id === this.currentGroupId ? 'active' : ''}" onclick="app.currentGroupId='${g.id}'; app.renderHomeGroups(); app.renderHome();">${g.name} ${badge}</div>`;
+    }).join('');
     document.getElementById('home-groups').innerHTML = html;
   },
 
@@ -408,27 +578,205 @@ const app = {
     const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
     let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad);
     
-    // 排序逻辑
-    const sortVal = document.getElementById('sort-select').value;
+    // 应用排序算法
+    const sortVal = document.getElementById('sort-rule').value;
     funds.sort((a, b) => {
-      let va = -999, vb = -999;
+      let va = -9999, vb = -9999;
       if(sortVal === 'daily') { va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; }
       else {
         const ra = a.rates.find(r => r.label === sortVal+'日'); const rb = b.rates.find(r => r.label === sortVal+'日');
         va = parseFloat(ra?.val)||0; vb = parseFloat(rb?.val)||0;
       }
-      return vb - va; // 默认降序
+      if(va===vb) return 0;
+      return this.sortDir === 'desc' ? vb - va : va - vb;
     });
 
-    document.getElementById('home-list').innerHTML = funds.map(f => this.buildCardHtml(f)).join('');
+    const container = document.getElementById('home-list');
+    container.className = this.viewMode === 'card' ? 'card-grid' : '';
+    container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true);
   },
 
   removeFundFromGroup(code) {
-    if(confirm('确定移除？')) {
+    if(confirm('确定从该分组移除吗？')) {
       const g = this.data.groups.find(g => g.id === this.currentGroupId);
       if(g) { g.fundCodes = g.fundCodes.filter(c => c !== code); this.saveData(); this.renderHome(); }
     }
   },
+
+  // ========== 排名页 ==========
+  setRankDir(dir) {
+    this.rankDir = dir;
+    document.getElementById('rank-desc').className = dir === 'desc' ? 'active' : '';
+    document.getElementById('rank-asc').className = dir === 'asc' ? 'active' : '';
+    this.renderRank();
+  },
+  renderRank() {
+    let list = [];
+    this.data.groups.slice(1).forEach(g => {
+      let sum = 0, count = 0;
+      g.fundCodes.forEach(c => { 
+        let f = this.formatFund(c); 
+        if(f.isLoad && f.change!=='--') { sum+=parseFloat(f.change); count++; } 
+      });
+      if(count>0) list.push({ id: g.id, name: g.name, avg: (sum/count).toFixed(2), has20Risk: g.has20Risk, hasDailyRisk: g.hasDailyRisk });
+    });
+    
+    list.sort((a,b) => this.rankDir === 'desc' ? b.avg - a.avg : a.avg - b.avg);
+    
+    let html = list.map(l => {
+      let badge = '';
+      if(l.has20Risk) badge += '<span class="badge warning">!</span>';
+      if(l.hasDailyRisk) badge += '<span class="badge heart">💚</span>';
+      return `<div class="list-item" onclick="app.currentGroupId='${l.id}'; app.switchTab('home');">
+        <div><b style="font-size:16px;">${l.name}</b> ${badge}</div>
+        <span class="${l.avg>=0?'red':'green'}" style="font-size:18px; font-weight:bold; background:#f8faff; padding:4px 12px; border-radius:20px;">${l.avg>0?'+':''}${l.avg}%</span>
+      </div>`;
+    }).join('');
+    
+    document.getElementById('rank-list').innerHTML = html || '<div style="text-align:center; color:#999; margin-top:50px;">暂无自建分组数据</div>';
+  },
+
+  // ========== 板块页 ==========
+  addSector() {
+    let val = document.getElementById('new-sector-input').value.trim();
+    if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { this.data.customSectors.push(val); this.saveData(); this.renderSector(); document.getElementById('new-sector-input').value=''; }
+  },
+  setSecViewMode(mode) {
+    this.secViewMode = mode;
+    document.getElementById('svt-card').className = mode === 'card' ? 'active' : '';
+    document.getElementById('svt-list').className = mode === 'list' ? 'active' : '';
+    this.renderSector();
+  },
+  renderSector() {
+    document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => `<div class="action-pill ${this.activeSector===s?'active':''}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#999; margin-left:4px;" onclick="event.stopPropagation(); app.delSector('${s}')">✕</span></div>`).join('');
+    
+    const wrap = document.getElementById('sector-action-wrap');
+    if(!this.activeSector) { wrap.style.display = 'none'; document.getElementById('sector-list').innerHTML=''; return; }
+    
+    wrap.style.display = 'block';
+    let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
+    
+    const container = document.getElementById('sector-list');
+    container.className = this.secViewMode === 'card' ? 'card-grid' : '';
+    container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false);
+  },
+  delSector(s) {
+    if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
+  },
+  
+  // 基金上点击加板块
+  openSectorSelect(code) {
+    if(this.data.customSectors.length===0) return alert('请先去板块页面创建板块');
+    this.targetSectorCode = code;
+    const f = this.data.fundsCache[code];
+    let html = this.data.customSectors.map(s => {
+      let isSel = f.sectors?.includes(s);
+      return `<div class="action-pill ${isSel?'active':''}" onclick="app.toggleFundSector('${s}')">${s}</div>`;
+    }).join('');
+    document.getElementById('sector-select-list').innerHTML = html;
+    this.openModal('sector-select');
+  },
+  toggleFundSector(sec) {
+    const f = this.data.fundsCache[this.targetSectorCode];
+    if(!f.sectors) f.sectors = [];
+    if(f.sectors.includes(sec)) { f.sectors = f.sectors.filter(s=>s!==sec); }
+    else { if(f.sectors.length>=2) return alert('最多选2个'); f.sectors.push(sec); }
+    this.saveData(); this.closeModal('sector-select'); 
+    if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
+    if(document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+  },
+  removeSectorFromFund(code, sec) {
+    const f = this.data.fundsCache[code];
+    if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
+  },
+
+  // ========== 账户管理 (手写拖拽排序) ==========
+  openGroupMgr() {
+    this.openModal('group-mgr');
+    this.renderGroupMgrList();
+  },
+  createGroup() {
+    let name = prompt('新账户名称');
+    if(name && name.trim()) { this.data.groups.push({id:'g_'+Date.now(), name:name.trim(), fundCodes:[]}); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups(); }
+  },
+  delGroup(id) { if(confirm('确定删除?')) { this.data.groups = this.data.groups.filter(g=>g.id!==id); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();} },
+  renameGroup(id) {
+    let g = this.data.groups.find(g=>g.id===id);
+    if(g) { let nn = prompt('修改名称', g.name); if(nn && nn.trim()) { g.name = nn.trim(); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();} }
+  },
+  clearGroup(id) {
+    if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); alert('已清空'); this.renderHome(); } }
+  },
+
+  renderGroupMgrList() {
+    const box = document.getElementById('group-mgr-list');
+    const h = this.dragState.itemHeight;
+    box.style.height = (this.data.groups.length * h) + 'px';
+    
+    let html = this.data.groups.map((g, i) => {
+      let isDrag = this.dragState.index === i;
+      let top = isDrag ? this.dragState.currentY : (i * h);
+      let z = isDrag ? 99 : 1;
+      let cls = isDrag ? 'mgr-item dragging' : 'mgr-item';
+      
+      let left = g.id==='default' ? `<div class="m-del disabled"></div><b>${g.name}</b>` : `<div class="m-del" onclick="app.delGroup('${g.id}')"></div><b>${g.name}</b>`;
+      let right = g.id==='default' ? `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" style="opacity:0;">☰</div>` 
+                : `<div class="m-btn" style="background:#eef2ff; color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" ontouchstart="app.ds(event, ${i})" onmousedown="app.ds(event, ${i})">☰</div>`;
+      
+      return `<div class="${cls}" style="top:${top}px; z-index:${z};">
+                <div class="m-left">${left}</div><div class="m-actions">${right}</div>
+              </div>`;
+    }).join('');
+    box.innerHTML = html;
+  },
+
+  // 拖拽核心算法
+  ds(e, i) {
+    if(i===0) return; // 第一项不让拖
+    e.preventDefault();
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const boxTop = document.getElementById('mgr-scroll-box').getBoundingClientRect().top;
+    const scrollY = document.getElementById('mgr-scroll-box').scrollTop;
+    
+    this.dragState.isDragging = true;
+    this.dragState.index = i;
+    this.dragState.startY = clientY - boxTop + scrollY - (this.dragState.itemHeight/2);
+    this.dragState.currentY = this.dragState.startY;
+    
+    const moveFn = (ev) => this.dm(ev);
+    const endFn = () => { this.de(); document.removeEventListener('mousemove', moveFn); document.removeEventListener('mouseup', endFn); document.removeEventListener('touchmove', moveFn); document.removeEventListener('touchend', endFn);};
+    
+    document.addEventListener('mousemove', moveFn, {passive:false});
+    document.addEventListener('mouseup', endFn);
+    document.addEventListener('touchmove', moveFn, {passive:false});
+    document.addEventListener('touchend', endFn);
+    this.renderGroupMgrList();
+  },
+  dm(e) {
+    if(!this.dragState.isDragging) return;
+    e.preventDefault();
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const boxTop = document.getElementById('mgr-scroll-box').getBoundingClientRect().top;
+    const scrollY = document.getElementById('mgr-scroll-box').scrollTop;
+    const h = this.dragState.itemHeight;
+    
+    let y = clientY - boxTop + scrollY - (h/2);
+    if(y < h) y = h; // 保护第一项
+    if(y > (this.data.groups.length-1)*h) y = (this.data.groups.length-1)*h;
+    
+    this.dragState.currentY = y;
+    
+    let targetIdx = Math.round(y/h);
+    if(targetIdx < 1) targetIdx = 1;
+    
+    if(targetIdx !== this.dragState.index) {
+      let g = this.data.groups.splice(this.dragState.index, 1)[0];
+      this.data.groups.splice(targetIdx, 0, g);
+      this.dragState.index = targetIdx;
+    }
+    this.renderGroupMgrList();
+  },
+  de() { this.dragState.isDragging = false; this.dragState.index = -1; this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups(); },
 
   // ========== 详情与图表 ==========
   openDetail(code) {
@@ -437,8 +785,7 @@ const app = {
     document.getElementById('det-name').innerText = f.name;
     document.getElementById('det-code').innerText = f.code;
     
-    // 渲染自选下拉
-    let opts = '<option value="">+ 加自选组</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+    let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
     document.getElementById('det-group-select').innerHTML = opts;
 
     this.renderDetailTab(30);
@@ -453,6 +800,7 @@ const app = {
       g.fundCodes.push(this.currentDetailCode);
       if(gid !== 'default' && !this.data.groups[0].fundCodes.includes(this.currentDetailCode)) this.data.groups[0].fundCodes.push(this.currentDetailCode);
       this.saveData(); alert('添加成功');
+      if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
     } else alert('已存在');
     sel.value = '';
   },
@@ -464,8 +812,7 @@ const app = {
     if(days === 'hold') {
       document.getElementById('det-chart-area').style.display = 'none';
       document.getElementById('det-hold-area').style.display = 'block';
-      this.loadHoldings(this.currentDetailCode);
-      return;
+      this.loadHoldings(this.currentDetailCode); return;
     }
     document.getElementById('det-chart-area').style.display = 'block';
     document.getElementById('det-hold-area').style.display = 'none';
@@ -474,16 +821,23 @@ const app = {
     const nw = f.netWorth.slice(-days);
     if(nw.length < 2) return;
 
-    // 渲染表格
     let tbl = nw.slice().reverse().map((item, i, arr) => {
       let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--';
-      return `<div class="list-item"><span style="color:#666; font-size:12px;">${new Date(item.x).toISOString().slice(0,10)}</span><span style="font-weight:bold;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg}%</span></div>`;
+      return `<div class="list-item" style="padding:10px 15px;"><span style="color:#666; font-size:13px; flex:1;">${new Date(item.x).toISOString().slice(0,10)}</span><span style="font-weight:bold; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right;">${chg>0?'+':''}${chg}%</span></div>`;
     }).join('');
     document.getElementById('det-table-area').innerHTML = tbl;
 
-    // 准备图表数据
     const base = nw[0].y;
-    this.chartInfo.data = nw.map(item => ({ date: new Date(item.x).toISOString().slice(5,10), fullDate: new Date(item.x).toISOString().slice(0,10), y: item.y, rate: ((item.y-base)/base*100) }));
+    let maxDrawdown = 0, maxPeak = nw[0].y;
+    this.chartInfo.data = nw.map(item => {
+      const rate = ((item.y-base)/base*100);
+      if(item.y > maxPeak) maxPeak = item.y;
+      const drop = ((maxPeak - item.y) / maxPeak * 100);
+      if(drop > maxDrawdown) maxDrawdown = drop;
+      return { date: new Date(item.x).toISOString().slice(5,10), fullDate: new Date(item.x).toISOString().slice(0,10), y: item.y, rate };
+    });
+    
+    document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%';
     this.chartInfo.touchIdx = -1;
     this.drawChart();
   },
@@ -502,36 +856,51 @@ const app = {
 
     const values = data.map(d=>d.rate);
     const max = Math.max(...values, 0) + 1; const min = Math.min(...values, 0) - 1;
-    const pad = {t:20, b:20, l:40, r:10}, dw = w-pad.l-pad.r, dh = h-pad.t-pad.b;
+    const pad = {t:20, b:20, l:45, r:15}, dw = w-pad.l-pad.r, dh = h-pad.t-pad.b;
 
     const getX = i => pad.l + (i/(data.length-1))*dw;
     const getY = v => pad.t + dh - ((v-min)/(max-min))*dh;
 
-    // 刻度
     ctx.font = '10px Arial'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     [min, 0, max].forEach(v => {
       let y = getY(v);
       ctx.fillStyle = '#e9ecf5'; ctx.fillRect(pad.l, y, dw, 1);
-      ctx.fillStyle = v>0?'#ef4444':(v<0?'#16a34a':'#999');
-      ctx.fillText(v.toFixed(1)+'%', pad.l-5, y);
+      ctx.fillStyle = v>0?'#ef4444':(v<0?'#16a34a':'#8f9fc0');
+      let txt = v===0 ? '0.00%' : (v>0?'+':'')+v.toFixed(2)+'%';
+      ctx.fillText(txt, pad.l-5, y);
     });
 
-    // 折线
+    ctx.beginPath(); ctx.moveTo(getX(0), getY(data[0].rate));
+    data.forEach((d,i) => ctx.lineTo(getX(i), getY(d.rate)));
+    
+    ctx.lineTo(getX(data.length-1), h-pad.b); ctx.lineTo(getX(0), h-pad.b); ctx.closePath();
+    const grd = ctx.createLinearGradient(0,pad.t,0,h-pad.b);
+    grd.addColorStop(0,'rgba(59,130,246,0.2)'); grd.addColorStop(1,'rgba(59,130,246,0.01)');
+    ctx.fillStyle = grd; ctx.fill();
+
     ctx.beginPath(); ctx.moveTo(getX(0), getY(data[0].rate));
     data.forEach((d,i) => ctx.lineTo(getX(i), getY(d.rate)));
     ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2; ctx.stroke();
 
-    // 准星交互
     const idx = this.chartInfo.touchIdx;
     if(idx !== -1 && data[idx]) {
       const cx = getX(idx), cy = getY(data[idx].rate);
       ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h-pad.b);
       ctx.strokeStyle = '#ccc'; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#ef4444'; ctx.lineWidth=2; ctx.stroke();
       
-      ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#ef4444'; ctx.stroke();
+      let bx = cx - 35; if(bx < pad.l) bx = pad.l; if(bx+70 > w-pad.r) bx = w-pad.r-70;
+      ctx.fillStyle = '#0b1b32'; ctx.fillRect(bx, h-pad.b+2, 70, 18);
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(data[idx].fullDate, bx+35, h-pad.b+11);
+
+      const tip = `涨跌: ${data[idx].rate>0?'+':''}${data[idx].rate.toFixed(2)}% | 净值: ${data[idx].y.toFixed(4)}`;
+      const tw = ctx.measureText(tip).width + 16;
+      let tx = cx - tw/2; if(tx < pad.l) tx = pad.l; if(tx+tw > w-pad.r) tx = w-pad.r-tw;
+      let ty = cy - 30; if(ty < 5) ty = cy + 15;
       
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(cx-30, pad.t, 60, 20);
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(data[idx].rate.toFixed(2)+'%', cx, pad.t+10);
+      ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fillRect(tx, ty, tw, 22);
+      ctx.strokeStyle = '#dbe1ef'; ctx.strokeRect(tx, ty, tw, 22);
+      ctx.fillStyle = data[idx].rate>=0?'#ef4444':'#16a34a'; ctx.fillText(tip, tx+tw/2, ty+11);
     }
   },
 
@@ -539,27 +908,53 @@ const app = {
     if(this.chartInfo.data.length === 0) return;
     const rect = e.target.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    let x = clientX - rect.left - 40;
-    let dw = rect.width - 50;
+    let x = clientX - rect.left - 45;
+    let dw = rect.width - 60;
     if(x<0) x=0; if(x>dw) x=dw;
     let idx = Math.round((x/dw)*(this.chartInfo.data.length-1));
     if(idx !== this.chartInfo.touchIdx) { this.chartInfo.touchIdx = idx; this.drawChart(); }
   },
   onChartEnd() { this.chartInfo.touchIdx = -1; this.drawChart(); },
 
+  // ========== 搜索机制 (内存缓存) ==========
+  loadMasterList() {
+    if(this.masterFundList.length > 0) return Promise.resolve();
+    return fetchJSONP(`https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`, 'callback').catch(()=>{
+       return new Promise(res => { setTimeout(()=>{ if(window.r) { this.masterFundList=window.r; delete window.r;} res(); }, 200); });
+    });
+  },
+  openSearch() { this.openModal('search'); document.getElementById('search-input').value=''; document.getElementById('search-results').innerHTML=''; this.loadMasterList(); },
+  doSearch() {
+    clearTimeout(this.searchTimer);
+    const kw = document.getElementById('search-input').value.trim().toLowerCase();
+    const box = document.getElementById('search-results');
+    if(kw.length < 2) { box.innerHTML=''; return; }
+    box.innerHTML = '<div style="text-align:center; padding:20px; color:#999;">检索中...</div>';
+    
+    this.searchTimer = setTimeout(async () => {
+      await this.loadMasterList();
+      const res = this.masterFundList.filter(i => i[0].includes(kw) || i[2].toLowerCase().includes(kw) || i[1].toLowerCase().includes(kw)).slice(0,20);
+      box.innerHTML = res.length===0 ? '<div style="text-align:center; color:#999;">无结果</div>' : res.map(i => `<div class="list-item" onclick="app.addFromSearch('${i[0]}', event)"><span><b style="font-size:15px;">${i[2]}</b> <span class="c-code">${i[0]}</span></span><span class="c-tag">+ 添加</span></div>`).join('');
+    }, 300);
+  },
+  addFromSearch(code, e) {
+    if(!this.data.groups[0].fundCodes.includes(code)) {
+      this.data.groups[0].fundCodes.push(code); this.saveData();
+      if(e) e.currentTarget.querySelector('.c-tag').innerText = '加载中...';
+      this.loadFundData(code).then(() => { alert('添加成功！'); this.closeModal('search'); this.processGroupRisks(); this.renderHome(); }).catch(()=>alert('不存在此基金'));
+    } else alert('已在列表中');
+  },
+
   // ========== 持仓分析 (结合百度与东财 JSONP) ==========
   async loadHoldings(code) {
-    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#999;">努力抓取中...</div>';
+    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#999;">抓取中...</div>';
     try {
-      // 1. 通过百度JSONP获取权重
       const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb');
       const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || [];
       const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || [];
       const holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) }));
-      
       if(holdings.length === 0) throw new Error();
 
-      // 2. 拼接东财 ulist 批量查最新涨跌
       const secids = holdings.map(h => ((h.code.startsWith('6')||h.code.startsWith('9'))?'1.':'0.')+h.code).join(',');
       const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?secids=${secids}&fields=f3,f12&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb');
       
@@ -573,118 +968,12 @@ const app = {
         return `<div class="list-item"><span style="flex:2;">${h.name} <span class="c-code">${h.code}</span></span><span style="flex:1;text-align:center;">${h.ratio}%</span><span style="flex:1;text-align:right;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg}%</span></div>`;
       }).join('');
 
-      document.getElementById('det-hold-area').innerHTML = `
-        <div class="card" style="margin-bottom:10px;">
-          <div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span>前十总占比</span><span style="font-weight:bold;">${sumR.toFixed(2)}%</span></div>
-          <div style="display:flex; justify-content:space-between;"><span>加权估算涨幅</span><span style="font-weight:bold;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div>
-        </div>
-        ${hHtml}`;
-    } catch(e) {
-      document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#999;">暂无股票持仓数据</div>';
-    }
-  },
-
-  // ========== 搜索功能 (东财 JSONP) ==========
- // ========== 搜索功能 (加入内存缓存与防抖，告别卡顿) ==========
-  masterFundList: [], // 用于在内存中缓存 2MB 的基金字典
-  searchTimer: null,  // 用于输入防抖
-
-  // 悄悄在后台加载字典
-  loadMasterList() {
-    return new Promise((resolve) => {
-      if (this.masterFundList.length > 0) return resolve(); // 如果内存里有了，直接返回
-      
-      const script = document.createElement('script');
-      script.src = `https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`;
-      script.onload = () => {
-        if (window.r) {
-          this.masterFundList = window.r; // 存入内存
-          delete window.r; // 清理全局变量
-        }
-        script.remove();
-        resolve();
-      };
-      script.onerror = () => { script.remove(); resolve(); };
-      document.head.appendChild(script);
-    });
-  },
-
-  openSearch() { 
-    this.openModal('search'); 
-    document.getElementById('search-input').value = '';
-    document.getElementById('search-results').innerHTML = '';
-    document.getElementById('search-input').focus(); 
-    // 打开搜索面板时，提前在后台默默下载字典
-    this.loadMasterList(); 
-  },
-
-  doSearch() {
-    clearTimeout(this.searchTimer); // 每次输入打断上一次的计时，防止频繁触发
-    const kw = document.getElementById('search-input').value.trim().toLowerCase();
-    const resBox = document.getElementById('search-results');
-
-    if(kw.length < 2) {
-      resBox.innerHTML = ''; 
-      return;
-    }
-
-    resBox.innerHTML = '<div style="text-align:center; padding:20px; color:#9aa9c2;">正在极速检索...</div>';
-
-    // 延迟 300 毫秒执行，等用户打完字再搜
-    this.searchTimer = setTimeout(async () => {
-      await this.loadMasterList(); // 确保字典已经下载完毕
-
-      if (this.masterFundList.length === 0) {
-        resBox.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">字典加载失败，请检查网络</div>';
-        return;
-      }
-
-      // 在本地内存中极速过滤
-      const matched = this.masterFundList.filter(i => 
-        i[0].includes(kw) || // 匹配代码
-        i[2].toLowerCase().includes(kw) || // 匹配名称
-        i[1].toLowerCase().includes(kw)    // 匹配拼音首字母
-      ).slice(0, 20); // 最多只显示20条防卡顿
-
-      if (matched.length === 0) {
-        resBox.innerHTML = '<div style="text-align:center; padding:20px; color:#9aa9c2;">找不到相关基金</div>';
-        return;
-      }
-
-      // 渲染列表
-      resBox.innerHTML = matched.map(i => `
-        <div class="list-item" style="cursor:pointer;" onclick="app.addFromSearch('${i[0]}')">
-          <span style="flex:1;">
-            <b style="color:var(--text-main); font-size:15px;">${i[2]}</b> 
-            <span class="c-code" style="margin-left:8px;">${i[0]}</span>
-          </span>
-          <span style="color:var(--blue); font-weight:bold; background:#eef2ff; padding:4px 12px; border-radius:20px; font-size:12px;">+ 添加</span>
-        </div>
-      `).join('');
-    }, 300);
-  },
-
-  addFromSearch(code) {
-    if(!this.data.groups[0].fundCodes.includes(code)) {
-      this.data.groups[0].fundCodes.push(code);
-      this.saveData();
-      
-      // 按钮变成加载中状态
-      event.currentTarget.querySelector('span:last-child').innerText = '加载中...';
-      
-      this.loadFundData(code).then(() => { 
-        alert('添加成功！'); 
-        this.closeModal('search'); 
-        this.renderHome(); 
-      }).catch(() => {
-        alert('基金数据加载失败，可能是不存在或已退市的基金');
-      });
-    } else {
-      alert('该基金已在自选列表中！');
-    }
+      document.getElementById('det-hold-area').innerHTML = `<div class="card" style="margin-bottom:10px;"><div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span>前十总占比</span><span style="font-weight:bold;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between;"><span>加权估算涨幅</span><span style="font-weight:bold;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>${hHtml}`;
+    } catch(e) { document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#999;">暂无股票持仓数据</div>'; }
   },
 
   // ========== 云端同步功能 (Cloudflare R2) ==========
+  syncCloud() { this.switchTab('sync'); },
   initS3() {
     const conf = JSON.parse(localStorage.getItem('r2_conf') || '{}');
     if (conf.ak) {
@@ -693,11 +982,11 @@ const app = {
     }
   },
   pullFromCloud() {
-    const conf = { bucket: document.getElementById('r2-bucket').value, ak: document.getElementById('r2-ak').value, sk: document.getElementById('r2-sk').value, endpoint: document.getElementById('r2-endpoint').value.replace(/\/+$/, '') };
+    const conf = { bucket: document.getElementById('r2-bucket').value.trim(), ak: document.getElementById('r2-ak').value.trim(), sk: document.getElementById('r2-sk').value.trim(), endpoint: document.getElementById('r2-endpoint').value.trim().replace(/\/+$/, '') };
     if(conf.endpoint.endsWith(conf.bucket)) conf.endpoint = conf.endpoint.replace('/'+conf.bucket, '');
     localStorage.setItem('r2_conf', JSON.stringify(conf)); this.initS3();
     if(this.s3) {
-      this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v2.json' }, (err, data) => {
+      this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v3.json' }, (err, data) => {
         if (err) alert('拉取失败: ' + err.code);
         else { this.data = JSON.parse(data.Body.toString()); this.saveData(); alert('同步成功！'); this.switchTab('home'); }
       });
@@ -706,45 +995,9 @@ const app = {
   pushToCloud() {
     if (!this.s3) return alert('请先配置密钥');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
-    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v2.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {
+    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v3.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {
       if (err) alert('上传失败: ' + err.message); else alert('覆盖云端成功！');
     });
-  },
-
-  // ========= 附加页面 (账户管理/板块/排名) 占位逻辑 =========
-  openGroupMgr() {
-    this.openModal('group-mgr');
-    let html = this.data.groups.map((g,i) => `<div class="list-item"><b>${g.name}</b> <span style="color:var(--red);" onclick="app.delGroup('${g.id}')">${i>0?'删除':''}</span></div>`).join('');
-    document.getElementById('group-mgr-list').innerHTML = html;
-  },
-  createGroup() {
-    let name = prompt('新账户名称');
-    if(name) { this.data.groups.push({id:'g_'+Date.now(), name, fundCodes:[]}); this.saveData(); this.openGroupMgr(); this.renderHomeGroups(); }
-  },
-  delGroup(id) { if(confirm('确定删除?')){ this.data.groups = this.data.groups.filter(g=>g.id!==id); this.saveData(); this.openGroupMgr(); this.renderHomeGroups();} },
-
-  renderRank() {
-    let list = [];
-    this.data.groups.slice(1).forEach(g => {
-      let sum = 0, count = 0;
-      g.fundCodes.forEach(c => { let f = this.data.fundsCache[c]; if(f&&f.netWorth) { let chg = parseFloat(this.calcRate(f.netWorth, 2)); if(!isNaN(chg)) { sum+=chg; count++; } } });
-      if(count>0) list.push({name: g.name, avg: (sum/count).toFixed(2)});
-    });
-    list.sort((a,b)=>b.avg-a.avg);
-    document.getElementById('rank-list').innerHTML = list.map(l => `<div class="list-item"><b>${l.name}</b> <span class="${l.avg>=0?'red':'green'}">${l.avg>0?'+':''}${l.avg}%</span></div>`).join('');
-  },
-
-  addSector() {
-    let val = document.getElementById('new-sector-input').value.trim();
-    if(val && !this.data.customSectors.includes(val)) { this.data.customSectors.push(val); this.saveData(); this.renderSector(); document.getElementById('new-sector-input').value=''; }
-  },
-  renderSector() {
-    document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => `<div class="action-pill ${this.activeSector===s?'active':''}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span onclick="event.stopPropagation(); app.delSector('${s}')">✕</span></div>`).join('');
-    let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
-    document.getElementById('sector-list').innerHTML = funds.map(f => this.buildCardHtml(f)).join('');
-  },
-  delSector(s) {
-    if(confirm('删除板块?')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => f.sectors = f.sectors?.filter(x=>x!==s)); this.activeSector=''; this.saveData(); this.renderSector(); }
   }
 };
 

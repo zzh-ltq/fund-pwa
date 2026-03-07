@@ -15,7 +15,6 @@
     /* ========== 全局样式与变量 ========== */
     :root {
       --safe-top: env(safe-area-inset-top, 0px);
-      /* 安全区变量，确保底部小黑条不会遮挡 */
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --bg-color: #f4f6fb;
       --blue: #3b82f6; --red: #ef4444; --green: #16a34a;
@@ -35,7 +34,8 @@
 
     .app-container { max-width: 800px; margin: 0 auto; height: 100vh; position: relative; background: transparent; display: flex; flex-direction: column; }
 
-    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; padding-bottom: calc(75px + var(--safe-bottom));}
+    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; 
+                 padding-bottom: calc(95px + var(--safe-bottom));}  /* 增大底部内边距，防止被遮挡 */
     .page-view.active { display: flex; }
     .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; background: var(--bg-color); z-index: 200; }
     .modal-view.active { display: flex; }
@@ -54,23 +54,22 @@
 
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 15px; }
 
-    /* ========== 底部 TabBar (修复底部遮挡，上提元素) ========== */
+    /* ========== 底部 TabBar (增强底部间距，防止被遮挡) ========== */
     .tab-bar {
       position: absolute; bottom: 0; left: 0; width: 100%;
-      /* 使用 max 函数，保证即使没有小黑条的机型也有足够下边距 */
-      padding-bottom: max(var(--safe-bottom), 15px);
+      /* 加大底部内边距，确保安全区 + 额外余量 */
+      padding-bottom: max(calc(var(--safe-bottom) + 15px), 25px);
       padding-top: 8px;
       height: auto; min-height: 60px;
       background: rgba(255,255,255,0.95); backdrop-filter: blur(20px);
       border-top: 1px solid rgba(0,0,0,0.05);
       display: flex; justify-content: space-around; align-items: center; z-index: 150;
     }
-    .tab-item { text-align: center; color: #8f9fc0; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; display:flex; flex-direction:column; align-items:center;}
-    .tab-item.active { color: var(--blue); }
+    .tab-item { text-align: center; color: #8f9fc0; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; display:flex; flex-direction:column; align-items:center; }
     .tab-icon { font-size: 22px; display: block; margin-bottom: 4px; filter: grayscale(100%) opacity(0.6); transition: all 0.2s;}
     .tab-item.active .tab-icon { filter: none; transform: scale(1.1);}
 
-    /* ========== 首页 Tabs (修复手机无法滑动) ========== */
+    /* ========== 首页 Tabs ========== */
     .tabs-wrapper { display: flex; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #e9ecf5; margin-bottom: 15px; position: relative;}
     .tabs-scroll { flex: 1; overflow-x: auto; white-space: nowrap; display: flex; align-items: center; -webkit-overflow-scrolling: touch; padding-bottom: 4px; cursor: grab;}
     .tabs-scroll::-webkit-scrollbar { display: none; }
@@ -144,8 +143,8 @@
     .m-actions { display: flex; width: 120px; justify-content: space-between; align-items: center;}
     .m-btn { width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer;}
     .m-btn.disabled { opacity: 0; pointer-events: none;}
-    /* 核心修复：声明把手 touch-action: none 强制浏览器放弃原生滚动拦截 */
-    .drag-handle { cursor: grab; font-size: 18px; color: #cbd5e1; display:flex; align-items:center; justify-content:center; width:34px; height:34px; touch-action: none;}
+    /* 核心修复：把手 touch-action: none 强制浏览器放弃原生滚动拦截 */
+    .drag-handle { cursor: grab; font-size: 18px; color: #cbd5e1; display:flex; align-items:center; justify-content:center; width:34px; height:34px; touch-action: none; user-select: none; -webkit-user-select: none;}
 
     .mgr-bottom-bar { position: absolute; bottom:0; left:0; width: 100%; padding: 20px 20px calc(20px + var(--safe-bottom)); background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 20%); z-index: 100;}
 
@@ -175,7 +174,6 @@
     </div>
     
     <div class="scroll-area">
-      <!-- 动态分组Tabs + 右侧固定按钮 -->
       <div class="tabs-wrapper">
         <div class="tabs-scroll" id="home-groups"></div>
         <div class="tabs-fixed-right">
@@ -184,7 +182,6 @@
         </div>
       </div>
       
-      <!-- 排序控制栏 -->
       <div class="action-bar-wrap">
         <div class="action-row">
           <span style="font-size:12px; color:#8f9fc0; font-weight:bold;">当前分组基金明细</span>
@@ -739,19 +736,44 @@ const app = {
     if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
   },
 
-  // ========== 账户管理 (彻底重写的完美拖拽引擎) ==========
+  // ========== 账户管理 (终极修复拖拽) ==========
   openGroupMgr() {
     this.openModal('group-mgr');
     this.renderGroupMgrList();
   },
   createGroup() {
     let name = prompt('新账户名称');
-    if(name && name.trim()) { this.data.groups.push({id:'g_'+Date.now(), name:name.trim(), fundCodes:[]}); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups(); }
+    if(name && name.trim()) {
+      name = name.trim();
+      // 检查重名
+      if (this.data.groups.some(g => g.name === name)) {
+        alert('分组名称已存在，请使用其他名称');
+        return;
+      }
+      this.data.groups.push({id:'g_'+Date.now(), name, fundCodes:[]});
+      this.saveData();
+      this.renderGroupMgrList();
+      this.renderHomeGroups();
+    }
   },
   delGroup(id) { if(confirm('确定删除?')) { this.data.groups = this.data.groups.filter(g=>g.id!==id); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();} },
   renameGroup(id) {
     let g = this.data.groups.find(g=>g.id===id);
-    if(g) { let nn = prompt('修改名称', g.name); if(nn && nn.trim()) { g.name = nn.trim(); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();} }
+    if(g) {
+      let nn = prompt('修改名称', g.name);
+      if(nn && nn.trim()) {
+        nn = nn.trim();
+        // 检查重名（排除自己）
+        if (nn !== g.name && this.data.groups.some(g2 => g2.name === nn)) {
+          alert('分组名称已存在，请使用其他名称');
+          return;
+        }
+        g.name = nn;
+        this.saveData();
+        this.renderGroupMgrList();
+        this.renderHomeGroups();
+      }
+    }
   },
   clearGroup(id) {
     if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); alert('已清空'); this.renderHome(); } }
@@ -769,8 +791,13 @@ const app = {
       let cls = isDrag ? 'mgr-item dragging' : 'mgr-item';
       
       let left = g.id==='default' ? `<div class="m-del disabled"></div><b>${g.name}</b>` : `<div class="m-del" onclick="app.delGroup('${g.id}')"></div><b>${g.name}</b>`;
-      let right = g.id==='default' ? `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" style="opacity:0;">☰</div>` 
-                : `<div class="m-btn" style="background:#eef2ff; color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`;
+      let right;
+      if (g.id === 'default') {
+        // 默认分组不可拖拽，不生成.drag-handle，用空白占位保持布局
+        right = `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div style="width:34px;"></div>`;
+      } else {
+        right = `<div class="m-btn" style="background:#eef2ff; color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`;
+      }
       
       return `<div class="${cls}" style="top:${top}px; z-index:${z};">
                 <div class="m-left">${left}</div><div class="m-actions">${right}</div>
@@ -778,21 +805,24 @@ const app = {
     }).join('');
     box.innerHTML = html;
 
-    // 动态绑定事件，必须使用 passive: false 彻底禁锢浏览器默认滑动！
+    // 重新绑定拖拽事件，只针对有data-idx的handle
     setTimeout(() => {
       document.querySelectorAll('.drag-handle').forEach(el => {
-        el.addEventListener('mousedown', (e) => app.ds(e, parseInt(e.currentTarget.dataset.idx)), {passive: false});
-        el.addEventListener('touchstart', (e) => app.ds(e, parseInt(e.currentTarget.dataset.idx)), {passive: false});
+        if (el.dataset.idx === undefined) return;
+        el.addEventListener('mousedown', (e) => app.ds(e, parseInt(el.dataset.idx)), {passive: false});
+        el.addEventListener('touchstart', (e) => app.ds(e, parseInt(el.dataset.idx)), {passive: false});
       });
     }, 50);
   },
 
   ds(e, i) {
-    if(i===0) return;
-    // 【核心修复】阻拦手机端页面被手指带起滚动
+    if (e.button !== 0) return; // 只响应左键
+    if (i === undefined || isNaN(i) || i === 0) return; // 索引0不可拖动
+    // 阻止默认滚动
     if(e.type === 'touchstart') e.preventDefault(); 
     
-    // 给 body 加上锁定类，双重保险防卡顿
+    // 锁定所有滚动
+    document.documentElement.style.overflow = 'hidden';
     document.body.style.overflow = 'hidden';
     document.getElementById('mgr-scroll-box').style.overflow = 'hidden';
     
@@ -845,7 +875,8 @@ const app = {
     this.dragState.index = -1; 
     
     // 恢复滚动
-    document.body.style.overflow = 'hidden'; // 外层仍锁定
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = 'hidden'; // body 原本就是 hidden
     document.getElementById('mgr-scroll-box').style.overflow = 'auto';
 
     document.removeEventListener('mousemove', this._moveHandler);
@@ -993,7 +1024,7 @@ const app = {
   },
   onChartEnd() { this.chartInfo.touchIdx = -1; this.drawChart(); },
 
-  // ========== 极速搜索 (含防呆提示) ==========
+  // ========== 极速搜索 ==========
   loadMasterList() {
     return new Promise((resolve) => {
       if (this.masterFundList && this.masterFundList.length > 0) return resolve(true);

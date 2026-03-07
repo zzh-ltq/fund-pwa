@@ -6,6 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
   
   <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1692.0.min.js"></script>
@@ -14,17 +15,18 @@
     /* ========== 全局样式与变量 ========== */
     :root {
       --safe-top: env(safe-area-inset-top, 0px);
-      --safe-bottom: max(env(safe-area-inset-bottom, 15px), 15px);
+      /* 安全区变量，确保底部小黑条不会遮挡 */
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
       --bg-color: #f4f6fb;
       --blue: #3b82f6; --red: #ef4444; --green: #16a34a;
       --text-main: #0b1b32; --text-sub: #4b587c;
     }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: pan-y; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       margin: 0; padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
       background-color: var(--bg-color); color: var(--text-main);
-      overflow: hidden;
+      overflow: hidden; 
     }
     body::before {
       content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 50vh;
@@ -33,7 +35,7 @@
 
     .app-container { max-width: 800px; margin: 0 auto; height: 100vh; position: relative; background: transparent; display: flex; flex-direction: column; }
 
-    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; padding-bottom: calc(65px + var(--safe-bottom));}
+    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; padding-bottom: calc(75px + var(--safe-bottom));}
     .page-view.active { display: flex; }
     .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; background: var(--bg-color); z-index: 200; }
     .modal-view.active { display: flex; }
@@ -52,20 +54,23 @@
 
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 15px; }
 
-    /* ========== 底部 TabBar (抛弃外部图片，用纯CSS Emoji) ========== */
+    /* ========== 底部 TabBar (修复底部遮挡，上提元素) ========== */
     .tab-bar {
       position: absolute; bottom: 0; left: 0; width: 100%;
-      height: calc(55px + var(--safe-bottom)); padding-bottom: var(--safe-bottom);
+      /* 使用 max 函数，保证即使没有小黑条的机型也有足够下边距 */
+      padding-bottom: max(var(--safe-bottom), 15px);
+      padding-top: 8px;
+      height: auto; min-height: 60px;
       background: rgba(255,255,255,0.95); backdrop-filter: blur(20px);
       border-top: 1px solid rgba(0,0,0,0.05);
       display: flex; justify-content: space-around; align-items: center; z-index: 150;
     }
-    .tab-item { text-align: center; color: #8f9fc0; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; padding-top:5px;}
+    .tab-item { text-align: center; color: #8f9fc0; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; display:flex; flex-direction:column; align-items:center;}
     .tab-item.active { color: var(--blue); }
-    .tab-icon { font-size: 22px; display: block; margin-bottom: 2px; filter: grayscale(100%) opacity(0.6); transition: all 0.2s;}
+    .tab-icon { font-size: 22px; display: block; margin-bottom: 4px; filter: grayscale(100%) opacity(0.6); transition: all 0.2s;}
     .tab-item.active .tab-icon { filter: none; transform: scale(1.1);}
 
-    /* ========== 首页 Tabs ========== */
+    /* ========== 首页 Tabs (修复手机无法滑动) ========== */
     .tabs-wrapper { display: flex; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #e9ecf5; margin-bottom: 15px; position: relative;}
     .tabs-scroll { flex: 1; overflow-x: auto; white-space: nowrap; display: flex; align-items: center; -webkit-overflow-scrolling: touch; padding-bottom: 4px; cursor: grab;}
     .tabs-scroll::-webkit-scrollbar { display: none; }
@@ -82,11 +87,9 @@
     /* ========== 排序控制栏 ========== */
     .action-bar-wrap { margin-bottom: 15px; }
     .action-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    
     .view-toggle { display: flex; background: #e8ecf4; border-radius: 6px; padding: 2px; }
     .view-toggle span { padding: 4px 12px; font-size: 12px; border-radius: 4px; color: #666; cursor: pointer; }
     .view-toggle span.active { background: #fff; color: var(--text-main); font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    
     .sort-dir-btn { background: #e8ecf4; color: var(--text-sub); padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer;}
     .sort-dir-btn.active { background: var(--text-main); color: #fff; }
     select.sort-rule { padding: 6px 12px; border-radius: 20px; border: 1px solid #dbe1ef; font-size: 12px; outline: none; background: #fff;}
@@ -125,12 +128,10 @@
 
     .red { color: var(--red); } .green { color: var(--green); }
 
-    /* ========== 分组管理页面 (彻底解决拖拽卡顿) ========== */
+    /* ========== 分组管理页面 (终极修复拖拽卡顿) ========== */
     .mgr-header { display: flex; padding: 15px 20px; font-size: 12px; color: #9aa9c2; font-weight: 500;}
     
-    /* 核心：为整个拖拽区加上绝对禁止 touch 操作的 CSS，让系统不再干扰 JS 的滑动 */
-    .mgr-list-wrap { flex: 1; position: relative; margin: 0 10px; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.03); touch-action: none;}
-    
+    .mgr-list-wrap { flex: 1; position: relative; margin: 0 10px; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.03); overflow-y: auto;}
     .mgr-item { position: absolute; left: 0; width: 100%; height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #fff; border-bottom: 1px solid #f8faff; transition: top 0.2s cubic-bezier(0.25,0.8,0.25,1); box-sizing: border-box; z-index: 1;}
     .mgr-item.dragging { transition: none; background: #ffffff; box-shadow: 0 10px 25px rgba(37,99,235,0.15); border-radius: 12px; transform: scale(0.98); z-index: 99 !important; border:1px solid #eef2ff;}
     
@@ -143,9 +144,9 @@
     .m-actions { display: flex; width: 120px; justify-content: space-between; align-items: center;}
     .m-btn { width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer;}
     .m-btn.disabled { opacity: 0; pointer-events: none;}
-    .drag-handle { cursor: grab; font-size: 18px; color: #cbd5e1; display:flex; align-items:center; justify-content:center; width:34px; height:34px;}
+    /* 核心修复：声明把手 touch-action: none 强制浏览器放弃原生滚动拦截 */
+    .drag-handle { cursor: grab; font-size: 18px; color: #cbd5e1; display:flex; align-items:center; justify-content:center; width:34px; height:34px; touch-action: none;}
 
-    /* 底部固定区修复，给下方增加巨量安全留白防遮挡 */
     .mgr-bottom-bar { position: absolute; bottom:0; left:0; width: 100%; padding: 20px 20px calc(20px + var(--safe-bottom)); background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 20%); z-index: 100;}
 
     input { width: 100%; padding: 12px; border: 1px solid #e9ecf5; border-radius: 10px; outline: none; margin-bottom: 10px; font-size: 14px;}
@@ -280,15 +281,15 @@
     </div>
   </div>
 
-  <!-- ================= 底部菜单栏 (纯Emoji图标) ================= -->
+  <!-- ================= 底部菜单栏 ================= -->
   <div class="tab-bar">
-    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span>自选</div>
-    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span>排名</div>
-    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span>板块</div>
-    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span>设置</div>
+    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
+    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
+    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
+    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
   </div>
 
-  <!-- ================= 弹窗：分组管理 (深度修复的拖拽引擎) ================= -->
+  <!-- ================= 弹窗：分组管理 ================= -->
   <div id="modal-group-mgr" class="modal-view" style="z-index: 210; background:#f4f6fb;">
     <div class="nav-bar">
       <div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div>
@@ -411,7 +412,7 @@ const app = {
   masterFundList: [], searchTimer: null,
 
   init() {
-    const local = localStorage.getItem('fund_pwa_v5');
+    const local = localStorage.getItem('fund_pwa_v6');
     if (local) this.data = JSON.parse(local);
     this.initS3();
     this.processGroupRisks();
@@ -436,7 +437,7 @@ const app = {
   },
 
   saveData() {
-    localStorage.setItem('fund_pwa_v5', JSON.stringify(this.data));
+    localStorage.setItem('fund_pwa_v6', JSON.stringify(this.data));
     this.processGroupRisks();
   },
 
@@ -626,7 +627,6 @@ const app = {
     container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true);
   },
 
-  // 修复：删除其他分组内的基金，不再同步删除全部分组的数据
   removeFundFromGroup(code) {
     if(confirm('确定从该分组移除吗？')) {
       const g = this.data.groups.find(g => g.id === this.currentGroupId);
@@ -739,7 +739,7 @@ const app = {
     if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
   },
 
-  // ========== 彻底重写 H5 无卡顿拖拽引擎 ==========
+  // ========== 账户管理 (彻底重写的完美拖拽引擎) ==========
   openGroupMgr() {
     this.openModal('group-mgr');
     this.renderGroupMgrList();
@@ -777,19 +777,24 @@ const app = {
               </div>`;
     }).join('');
     box.innerHTML = html;
-    
-    // 重新绑定拖拽事件 (使用被动监听以阻断原生滚动)
+
+    // 动态绑定事件，必须使用 passive: false 彻底禁锢浏览器默认滑动！
     setTimeout(() => {
       document.querySelectorAll('.drag-handle').forEach(el => {
-        el.onmousedown = (e) => app.ds(e, parseInt(e.currentTarget.dataset.idx));
-        el.ontouchstart = (e) => app.ds(e, parseInt(e.currentTarget.dataset.idx));
+        el.addEventListener('mousedown', (e) => app.ds(e, parseInt(e.currentTarget.dataset.idx)), {passive: false});
+        el.addEventListener('touchstart', (e) => app.ds(e, parseInt(e.currentTarget.dataset.idx)), {passive: false});
       });
     }, 50);
   },
 
   ds(e, i) {
-    if(i===0) return; // 全部组不能拖
-    if(e.type === 'touchstart') e.preventDefault(); // 阻断手机端系统滚动！这是防卡顿的关键！
+    if(i===0) return;
+    // 【核心修复】阻拦手机端页面被手指带起滚动
+    if(e.type === 'touchstart') e.preventDefault(); 
+    
+    // 给 body 加上锁定类，双重保险防卡顿
+    document.body.style.overflow = 'hidden';
+    document.getElementById('mgr-scroll-box').style.overflow = 'hidden';
     
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const boxTop = document.getElementById('mgr-scroll-box').getBoundingClientRect().top;
@@ -812,7 +817,7 @@ const app = {
   },
   dm(e) {
     if(!this.dragState.isDragging) return;
-    if(e.type === 'touchmove') e.preventDefault(); // 再次阻断滑动事件传给浏览器底层
+    if(e.type === 'touchmove') e.preventDefault(); 
     
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const boxTop = document.getElementById('mgr-scroll-box').getBoundingClientRect().top;
@@ -838,6 +843,11 @@ const app = {
   de() { 
     this.dragState.isDragging = false; 
     this.dragState.index = -1; 
+    
+    // 恢复滚动
+    document.body.style.overflow = 'hidden'; // 外层仍锁定
+    document.getElementById('mgr-scroll-box').style.overflow = 'auto';
+
     document.removeEventListener('mousemove', this._moveHandler);
     document.removeEventListener('touchmove', this._moveHandler);
     document.removeEventListener('mouseup', this._endHandler);
@@ -983,7 +993,7 @@ const app = {
   },
   onChartEnd() { this.chartInfo.touchIdx = -1; this.drawChart(); },
 
-  // ========== 极速无死锁搜索 ==========
+  // ========== 极速搜索 (含防呆提示) ==========
   loadMasterList() {
     return new Promise((resolve) => {
       if (this.masterFundList && this.masterFundList.length > 0) return resolve(true);
@@ -1009,11 +1019,6 @@ const app = {
   },
 
   openSearch() { 
-    if(this.data.groups.length <= 1 && this.data.groups[0].fundCodes.length === 0) {
-      if(confirm('您还没有任何分组，建议先创建账户再添加基金。现在要去创建吗？')) {
-        this.openGroupMgr(); return;
-      }
-    }
     this.openModal('search'); 
     const searchInput = document.getElementById('search-input');
     searchInput.value = ''; document.getElementById('search-results').innerHTML = ''; searchInput.focus(); 
@@ -1043,15 +1048,21 @@ const app = {
     }, 300);
   },
 
-  // 修复需求2：自动填入当前活动组和全部组
   addFromSearch(code, e) {
-    let added = false;
-    // 如果当前选中的不是“全部”，就把基金塞进当前组
-    if (this.currentGroupId !== 'default') {
-      const activeGroup = this.data.groups.find(g => g.id === this.currentGroupId);
-      if (activeGroup && !activeGroup.fundCodes.includes(code)) { activeGroup.fundCodes.push(code); added = true; }
+    // 防呆：如果是全部组，则强制拦截
+    if (this.currentGroupId === 'default') {
+      if (this.data.groups.length <= 1) {
+        alert('您还没有自建账户，请先点击"☰"新建账户！');
+      } else {
+        alert('【全部】分组为系统默认记录，不能直接添加。请先在上方的标签栏点击选中您自己的分组，再进行搜索添加！');
+      }
+      return;
     }
-    // 强制塞进底库“全部”组
+
+    let added = false;
+    const activeGroup = this.data.groups.find(g => g.id === this.currentGroupId);
+    if (activeGroup && !activeGroup.fundCodes.includes(code)) { activeGroup.fundCodes.push(code); added = true; }
+    
     const defaultGroup = this.data.groups[0];
     if (!defaultGroup.fundCodes.includes(code)) { defaultGroup.fundCodes.push(code); added = true; }
 
@@ -1061,7 +1072,7 @@ const app = {
       this.loadFundData(code).then(() => { 
         alert('添加成功！'); this.closeModal('search'); this.processGroupRisks(); this.renderHome(); 
       }).catch(() => alert('该基金可能已退市，无数据'));
-    } else alert('该基金已在当前分组或全部列表中！');
+    } else alert('该基金已在当前分组！');
   },
 
   // ========== 持仓分析 ==========

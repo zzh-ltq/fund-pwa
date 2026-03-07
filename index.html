@@ -17,151 +17,632 @@
       --safe-top: env(safe-area-inset-top, 0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --bg-color: #f4f6fb;
-      --blue: #3b82f6; --red: #ef4444; --green: #16a34a;
-      --text-main: #0b1b32; --text-sub: #4b587c;
+      --blue: #3b82f6; 
+      --red: #ef4444; 
+      --green: #16a34a;
+      --text-main: #0b1b32; 
+      --text-sub: #4b587c;
+      /* PWA模式下的底部安全区补偿 */
+      --tabbar-safe-height: calc(70px + var(--safe-bottom));
     }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    * { 
+      box-sizing: border-box; 
+      -webkit-tap-highlight-color: transparent; 
+    }
     body {
-      margin: 0; padding: 0;
+      margin: 0; 
+      padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
-      background-color: var(--bg-color); color: var(--text-main);
+      background-color: var(--bg-color); 
+      color: var(--text-main);
       overflow: hidden; 
     }
     body::before {
-      content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 50vh;
-      background: linear-gradient(180deg, #e3ecff 0%, #edf1fa 40%, #f4f6fb 100%); z-index: -1;
+      content: ""; 
+      position: fixed; 
+      top: 0; 
+      left: 0; 
+      width: 100%; 
+      height: 50vh;
+      background: linear-gradient(180deg, #e3ecff 0%, #edf1fa 40%, #f4f6fb 100%); 
+      z-index: -1;
     }
 
-    .app-container { max-width: 800px; margin: 0 auto; height: 100vh; position: relative; background: transparent; display: flex; flex-direction: column; }
+    .app-container { 
+      max-width: 800px; 
+      margin: 0 auto; 
+      height: 100vh; 
+      position: relative; 
+      background: transparent; 
+      display: flex; 
+      flex-direction: column; 
+    }
 
-    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; 
-                 padding-bottom: calc(95px + var(--safe-bottom));}  /* 增大底部内边距，防止被遮挡 */
+    /* 修复：Safari PWA底部遮挡问题 */
+    .page-view { 
+      display: none; 
+      flex-direction: column; 
+      height: 100%; 
+      width: 100%; 
+      position: absolute; 
+      top:0; 
+      left:0; 
+      padding-bottom: var(--tabbar-safe-height);
+    }
     .page-view.active { display: flex; }
-    .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; background: var(--bg-color); z-index: 200; }
+    .modal-view { 
+      display: none; 
+      flex-direction: column; 
+      height: 100%; 
+      width: 100%; 
+      position: absolute; 
+      top:0; 
+      left:0; 
+      background: var(--bg-color); 
+      z-index: 200; 
+    }
     .modal-view.active { display: flex; }
 
     /* ========== 导航栏 ========== */
     .nav-bar {
-      padding-top: var(--safe-top); height: calc(44px + var(--safe-top));
-      display: flex; justify-content: space-between; align-items: center;
-      padding-left: 15px; padding-right: 15px;
-      background: rgba(255,255,255,0.8); backdrop-filter: blur(10px);
-      z-index: 100; flex-shrink: 0;
+      padding-top: var(--safe-top); 
+      height: calc(44px + var(--safe-top));
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center;
+      padding-left: 15px; 
+      padding-right: 15px;
+      background: rgba(255,255,255,0.8); 
+      backdrop-filter: blur(10px);
+      z-index: 100; 
+      flex-shrink: 0;
     }
-    .nav-title { font-size: 18px; font-weight: bold; color: var(--text-main); flex: 1; text-align: center;}
-    .nav-btn { font-size: 14px; color: var(--blue); font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background: rgba(255,255,255,0.7); padding: 6px 12px; border-radius: 20px;}
-    .nav-btn.left { justify-content: flex-start; background:transparent;}
+    .nav-title { 
+      font-size: 18px; 
+      font-weight: bold; 
+      color: var(--text-main); 
+      flex: 1; 
+      text-align: center;
+    }
+    .nav-btn { 
+      font-size: 14px; 
+      color: var(--blue); 
+      font-weight: bold; 
+      cursor: pointer; 
+      display:flex; 
+      align-items:center; 
+      justify-content:center; 
+      background: rgba(255,255,255,0.7); 
+      padding: 6px 12px; 
+      border-radius: 20px;
+    }
+    .nav-btn.left { 
+      justify-content: flex-start; 
+      background:transparent;
+    }
 
-    .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 15px; }
+    .scroll-area { 
+      flex: 1; 
+      overflow-y: auto; 
+      -webkit-overflow-scrolling: touch; 
+      padding: 15px; 
+    }
 
-    /* ========== 底部 TabBar (增强底部间距，防止被遮挡) ========== */
+    /* ========== 底部 TabBar (强化Safari PWA适配) ========== */
     .tab-bar {
-      position: absolute; bottom: 0; left: 0; width: 100%;
-      /* 加大底部内边距，确保安全区 + 额外余量 */
-      padding-bottom: max(calc(var(--safe-bottom) + 15px), 25px);
-      padding-top: 8px;
-      height: auto; min-height: 60px;
-      background: rgba(255,255,255,0.95); backdrop-filter: blur(20px);
+      position: fixed; 
+      bottom: 0; 
+      left: 0; 
+      width: 100%;
+      padding-bottom: max(var(--safe-bottom), 20px); 
+      padding-top: 12px;
+      height: auto; 
+      min-height: 70px; 
+      background: rgba(255,255,255,0.95); 
+      backdrop-filter: blur(20px);
       border-top: 1px solid rgba(0,0,0,0.05);
-      display: flex; justify-content: space-around; align-items: center; z-index: 150;
+      display: flex; 
+      justify-content: space-around; 
+      align-items: center; 
+      z-index: 150;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
     }
-    .tab-item { text-align: center; color: #8f9fc0; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; display:flex; flex-direction:column; align-items:center; }
-    .tab-icon { font-size: 22px; display: block; margin-bottom: 4px; filter: grayscale(100%) opacity(0.6); transition: all 0.2s;}
-    .tab-item.active .tab-icon { filter: none; transform: scale(1.1);}
+    .tab-item { 
+      text-align: center; 
+      color: #8f9fc0; 
+      font-size: 11px; 
+      font-weight: bold; 
+      cursor: pointer; 
+      flex: 1; 
+      display:flex; 
+      flex-direction:column; 
+      align-items:center;
+    }
+    .tab-item.active { color: var(--blue); }
+    .tab-icon { 
+      font-size: 22px; 
+      display: block; 
+      margin-bottom: 4px; 
+      filter: grayscale(100%) opacity(0.6); 
+      transition: all 0.2s;
+    }
+    .tab-item.active .tab-icon { 
+      filter: none; 
+      transform: scale(1.1);
+    }
 
     /* ========== 首页 Tabs ========== */
-    .tabs-wrapper { display: flex; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #e9ecf5; margin-bottom: 15px; position: relative;}
-    .tabs-scroll { flex: 1; overflow-x: auto; white-space: nowrap; display: flex; align-items: center; -webkit-overflow-scrolling: touch; padding-bottom: 4px; cursor: grab;}
+    .tabs-wrapper { 
+      display: flex; 
+      align-items: center; 
+      padding-bottom: 10px; 
+      border-bottom: 1px solid #e9ecf5; 
+      margin-bottom: 15px; 
+      position: relative;
+    }
+    .tabs-scroll { 
+      flex: 1; 
+      overflow-x: auto; 
+      white-space: nowrap; 
+      display: flex; 
+      align-items: center; 
+      -webkit-overflow-scrolling: touch; 
+      padding-bottom: 4px; 
+      cursor: grab;
+    }
     .tabs-scroll::-webkit-scrollbar { display: none; }
-    .action-pill { flex-shrink: 0; display: inline-flex; align-items: center; background: #e8ecf4; color: var(--text-sub); padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; margin-right: 10px; cursor: pointer; transition: all 0.2s;}
-    .action-pill.active { background: var(--text-main); color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1);}
+    .action-pill { 
+      flex-shrink: 0; 
+      display: inline-flex; 
+      align-items: center; 
+      background: #e8ecf4; 
+      color: var(--text-sub); 
+      padding: 6px 16px; 
+      border-radius: 20px; 
+      font-size: 13px; 
+      font-weight: 500; 
+      margin-right: 10px; 
+      cursor: pointer; 
+      transition: all 0.2s;
+    }
+    .action-pill.active { 
+      background: var(--text-main); 
+      color: #fff; 
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
     
-    .tabs-fixed-right { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding-left: 10px; background: linear-gradient(90deg, rgba(244,246,251,0) 0%, var(--bg-color) 20%); z-index: 10;}
-    .mgr-btn { font-size: 16px; color: #8f9fc0; font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background:#fff; width:30px; height:30px; border-radius:50%; box-shadow: 0 2px 6px rgba(0,0,0,0.05);}
+    .tabs-fixed-right { 
+      flex-shrink: 0; 
+      display: flex; 
+      align-items: center; 
+      gap: 10px; 
+      padding-left: 10px; 
+      background: linear-gradient(90deg, rgba(244,246,251,0) 0%, var(--bg-color) 20%); 
+      z-index: 10;
+    }
+    .mgr-btn { 
+      font-size: 16px; 
+      color: #8f9fc0; 
+      font-weight: bold; 
+      cursor: pointer; 
+      display:flex; 
+      align-items:center; 
+      justify-content:center; 
+      background:#fff; 
+      width:30px; 
+      height:30px; 
+      border-radius:50%; 
+      box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    }
 
-    .badge { margin-left: 4px; border-radius: 50%; font-size: 10px; width: 14px; height: 14px; display: inline-flex; justify-content: center; align-items: center; }
-    .badge.warning { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: white; font-weight: bold;}
-    .badge.heart { color: #16a34a; font-size: 12px;}
+    .badge { 
+      margin-left: 4px; 
+      border-radius: 50%; 
+      font-size: 10px; 
+      width: 14px; 
+      height: 14px; 
+      display: inline-flex; 
+      justify-content: center; 
+      align-items: center; 
+    }
+    .badge.warning { 
+      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); 
+      color: white; 
+      font-weight: bold;
+    }
+    .badge.heart { 
+      color: #16a34a; 
+      font-size: 12px;
+    }
 
     /* ========== 排序控制栏 ========== */
     .action-bar-wrap { margin-bottom: 15px; }
-    .action-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .view-toggle { display: flex; background: #e8ecf4; border-radius: 6px; padding: 2px; }
-    .view-toggle span { padding: 4px 12px; font-size: 12px; border-radius: 4px; color: #666; cursor: pointer; }
-    .view-toggle span.active { background: #fff; color: var(--text-main); font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .sort-dir-btn { background: #e8ecf4; color: var(--text-sub); padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer;}
-    .sort-dir-btn.active { background: var(--text-main); color: #fff; }
-    select.sort-rule { padding: 6px 12px; border-radius: 20px; border: 1px solid #dbe1ef; font-size: 12px; outline: none; background: #fff;}
+    .action-row { 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      margin-bottom: 10px; 
+    }
+    .view-toggle { 
+      display: flex; 
+      background: #e8ecf4; 
+      border-radius: 6px; 
+      padding: 2px; 
+    }
+    .view-toggle span { 
+      padding: 4px 12px; 
+      font-size: 12px; 
+      border-radius: 4px; 
+      color: #666; 
+      cursor: pointer; 
+    }
+    .view-toggle span.active { 
+      background: #fff; 
+      color: var(--text-main); 
+      font-weight: bold; 
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+    }
+    .sort-dir-btn { 
+      background: #e8ecf4; 
+      color: var(--text-sub); 
+      padding: 6px 16px; 
+      border-radius: 20px; 
+      font-size: 12px; 
+      font-weight: bold; 
+      cursor: pointer;
+    }
+    .sort-dir-btn.active { 
+      background: var(--text-main); 
+      color: #fff; 
+    }
+    select.sort-rule { 
+      padding: 6px 12px; 
+      border-radius: 20px; 
+      border: 1px solid #dbe1ef; 
+      font-size: 12px; 
+      outline: none; 
+      background: #fff;
+    }
 
     /* ========== 卡片与列表双视图 ========== */
-    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px; }
-    .card { background: #fff; border-radius: 20px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #f0f2f8; position: relative; cursor: pointer;}
+    .card-grid { 
+      display: grid; 
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); 
+      gap: 15px; 
+    }
+    .card { 
+      background: #fff; 
+      border-radius: 20px; 
+      padding: 20px; 
+      box-shadow: 0 4px 15px rgba(0,0,0,0.03); 
+      border: 1px solid #f0f2f8; 
+      position: relative; 
+      cursor: pointer;
+    }
     .card.risk-highlight { border: 2px solid #f97316; }
     
-    .c-del-btn { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; display: flex; justify-content: center; align-items: center; color: #9aa9c2; font-size: 16px; border-radius: 50%; background: #f8faff; z-index: 10;}
-    .c-del-btn:active { background: #fee2e2; color: #ef4444; }
+    .c-del-btn { 
+      position: absolute; 
+      top: 12px; 
+      right: 12px; 
+      width: 28px; 
+      height: 28px; 
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+      color: #9aa9c2; 
+      font-size: 16px; 
+      border-radius: 50%; 
+      background: #f8faff; 
+      z-index: 10;
+    }
+    .c-del-btn:active { 
+      background: #fee2e2; 
+      color: #ef4444; 
+    }
 
-    .c-title-area { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 15px; padding-right: 35px;}
-    .c-title { font-size: 16px; font-weight: bold; line-height: 1.3;}
-    .c-code { font-size: 11px; background: #f0f2f8; padding: 2px 6px; border-radius: 10px; color: var(--text-sub);}
-    .c-tag { font-size: 11px; background: #dbeafe; color: var(--blue); padding: 2px 6px; border-radius: 10px;}
-    .c-add-tag { background: #f0f2f8; color: #9aa9c2; border: 1px dashed #dbe1ef; cursor: pointer;}
+    .c-title-area { 
+      display: flex; 
+      flex-wrap: wrap; 
+      align-items: center; 
+      gap: 6px; 
+      margin-bottom: 15px; 
+      padding-right: 35px;
+    }
+    .c-title { 
+      font-size: 16px; 
+      font-weight: bold; 
+      line-height: 1.3;
+    }
+    .c-code { 
+      font-size: 11px; 
+      background: #f0f2f8; 
+      padding: 2px 6px; 
+      border-radius: 10px; 
+      color: var(--text-sub);
+    }
+    .c-tag { 
+      font-size: 11px; 
+      background: #dbeafe; 
+      color: var(--blue); 
+      padding: 2px 6px; 
+      border-radius: 10px;
+    }
+    .c-add-tag { 
+      background: #f0f2f8; 
+      color: #9aa9c2; 
+      border: 1px dashed #dbe1ef; 
+      cursor: pointer;
+    }
 
-    .c-main { background: #f8faff; padding: 12px 15px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;}
-    .c-val { font-size: 22px; font-weight: bold;}
-    .c-chg { font-size: 18px; font-weight: bold;}
+    .c-main { 
+      background: #f8faff; 
+      padding: 12px 15px; 
+      border-radius: 12px; 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      margin-bottom: 15px;
+    }
+    .c-val { 
+      font-size: 22px; 
+      font-weight: bold;
+    }
+    .c-chg { 
+      font-size: 18px; 
+      font-weight: bold;
+    }
     
-    .rates-row { display: flex; flex-wrap: wrap; padding: 10px 5px; background: #f8faff; border-radius: 12px; margin-bottom: 10px;}
-    .r-item { width: 33.33%; text-align: center; margin-bottom: 10px;}
-    .r-lbl { font-size: 11px; color: var(--text-sub); display: block; margin-bottom: 2px;}
-    .r-val { font-size: 13px; font-weight: bold;}
+    .rates-row { 
+      display: flex; 
+      flex-wrap: wrap; 
+      padding: 10px 5px; 
+      background: #f8faff; 
+      border-radius: 12px; 
+      margin-bottom: 10px;
+    }
+    .r-item { 
+      width: 33.33%; 
+      text-align: center; 
+      margin-bottom: 10px;
+    }
+    .r-lbl { 
+      font-size: 11px; 
+      color: var(--text-sub); 
+      display: block; 
+      margin-bottom: 2px;
+    }
+    .r-val { 
+      font-size: 13px; 
+      font-weight: bold;
+    }
     
-    .maxdrop-tag { font-size: 11px; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; padding: 4px 10px; border-radius: 15px; display: inline-block;}
+    .maxdrop-tag { 
+      font-size: 11px; 
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); 
+      color: white; 
+      padding: 4px 10px; 
+      border-radius: 15px; 
+      display: inline-block;
+    }
     
-    .list-table-container { width: 100%; overflow-x: auto; background: #fff; border-radius: 16px; white-space: nowrap; padding-bottom: 10px;}
-    .l-header { display: flex; padding: 15px; background: #f8faff; border-bottom: 1px solid #e9ecf5; }
-    .l-row { display: flex; padding: 15px; border-bottom: 1px solid #f0f2f8; align-items: center; cursor: pointer; position: relative;}
-    .l-col-name { width: 140px; flex-shrink: 0; white-space: normal;}
-    .l-col-rate { width: 70px; flex-shrink: 0; text-align: right; font-size: 14px; font-weight: bold;}
-    .l-col-rate.th { font-size: 12px; color: var(--text-sub); font-weight: normal;}
+    .list-table-container { 
+      width: 100%; 
+      overflow-x: auto; 
+      background: #fff; 
+      border-radius: 16px; 
+      white-space: nowrap; 
+      padding-bottom: 10px;
+    }
+    .l-header { 
+      display: flex; 
+      padding: 15px; 
+      background: #f8faff; 
+      border-bottom: 1px solid #e9ecf5; 
+    }
+    .l-row { 
+      display: flex; 
+      padding: 15px; 
+      border-bottom: 1px solid #f0f2f8; 
+      align-items: center; 
+      cursor: pointer; 
+      position: relative;
+    }
+    .l-col-name { 
+      width: 140px; 
+      flex-shrink: 0; 
+      white-space: normal;
+    }
+    .l-col-rate { 
+      width: 70px; 
+      flex-shrink: 0; 
+      text-align: right; 
+      font-size: 14px; 
+      font-weight: bold;
+    }
+    .l-col-rate.th { 
+      font-size: 12px; 
+      color: var(--text-sub); 
+      font-weight: normal;
+    }
 
-    .red { color: var(--red); } .green { color: var(--green); }
+    .red { color: var(--red); } 
+    .green { color: var(--green); }
 
-    /* ========== 分组管理页面 (终极修复拖拽卡顿) ========== */
-    .mgr-header { display: flex; padding: 15px 20px; font-size: 12px; color: #9aa9c2; font-weight: 500;}
+    /* ========== 分组管理页面 (修复拖拽排序) ========== */
+    .mgr-header { 
+      display: flex; 
+      padding: 15px 20px; 
+      font-size: 12px; 
+      color: #9aa9c2; 
+      font-weight: 500;
+    }
     
-    .mgr-list-wrap { flex: 1; position: relative; margin: 0 10px; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.03); overflow-y: auto;}
-    .mgr-item { position: absolute; left: 0; width: 100%; height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #fff; border-bottom: 1px solid #f8faff; transition: top 0.2s cubic-bezier(0.25,0.8,0.25,1); box-sizing: border-box; z-index: 1;}
-    .mgr-item.dragging { transition: none; background: #ffffff; box-shadow: 0 10px 25px rgba(37,99,235,0.15); border-radius: 12px; transform: scale(0.98); z-index: 99 !important; border:1px solid #eef2ff;}
+    .mgr-list-wrap { 
+      flex: 1; 
+      position: relative; 
+      margin: 0 10px; 
+      background: #fff; 
+      border-radius: 16px; 
+      overflow: hidden; 
+      box-shadow: 0 4px 20px rgba(0,0,0,0.03); 
+      overflow-y: auto;
+    }
+    .mgr-item { 
+      position: absolute; 
+      left: 0; 
+      width: 100%; 
+      height: 60px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: space-between; 
+      padding: 0 20px; 
+      background: #fff; 
+      border-bottom: 1px solid #f8faff; 
+      transition: top 0.2s cubic-bezier(0.25,0.8,0.25,1); 
+      box-sizing: border-box; 
+      z-index: 1;
+    }
+    .mgr-item.dragging { 
+      transition: none; 
+      background: #ffffff; 
+      box-shadow: 0 10px 25px rgba(37,99,235,0.15); 
+      border-radius: 12px; 
+      transform: scale(0.98); 
+      z-index: 99 !important; 
+      border:1px solid #eef2ff;
+    }
     
-    .m-left { display: flex; align-items: center; gap: 10px; }
-    .m-del { width: 20px; height: 20px; border-radius: 50%; background: #ef4444; position: relative; cursor: pointer;}
-    .m-del::after { content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:10px; height:2px; background:#fff;}
-    .m-del.disabled { background: transparent; pointer-events: none;}
+    .m-left { 
+      display: flex; 
+      align-items: center; 
+      gap: 10px; 
+    }
+    .m-del { 
+      width: 20px; 
+      height: 20px; 
+      border-radius: 50%; 
+      background: #ef4444; 
+      position: relative; 
+      cursor: pointer;
+    }
+    .m-del::after { 
+      content:""; 
+      position:absolute; 
+      top:50%; 
+      left:50%; 
+      transform:translate(-50%,-50%); 
+      width:10px; 
+      height:2px; 
+      background:#fff;
+    }
+    .m-del.disabled { 
+      background: transparent; 
+      pointer-events: none;
+    }
     .m-del.disabled::after { display: none;}
     
-    .m-actions { display: flex; width: 120px; justify-content: space-between; align-items: center;}
-    .m-btn { width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer;}
-    .m-btn.disabled { opacity: 0; pointer-events: none;}
-    /* 核心修复：把手 touch-action: none 强制浏览器放弃原生滚动拦截 */
-    .drag-handle { cursor: grab; font-size: 18px; color: #cbd5e1; display:flex; align-items:center; justify-content:center; width:34px; height:34px; touch-action: none; user-select: none; -webkit-user-select: none;}
+    .m-actions { 
+      display: flex; 
+      width: 120px; 
+      justify-content: space-between; 
+      align-items: center;
+    }
+    .m-btn { 
+      width: 28px; 
+      height: 28px; 
+      border-radius: 50%; 
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+      font-size: 12px; 
+      cursor: pointer;
+    }
+    .m-btn.disabled { 
+      opacity: 0; 
+      pointer-events: none;
+    }
+    /* 核心修复：声明把手 touch-action: none 强制浏览器放弃原生滚动拦截 */
+    .drag-handle { 
+      cursor: grab; 
+      font-size: 18px; 
+      color: #cbd5e1; 
+      display:flex; 
+      align-items:center; 
+      justify-content:center; 
+      width:34px; 
+      height:34px; 
+      touch-action: none; 
+      -webkit-user-select: none; 
+      user-select: none;
+    }
+    /* 拖拽时把手样式 */
+    .drag-handle:active, .drag-handle.dragging { 
+      cursor: grabbing; 
+      color: var(--blue); 
+    }
 
-    .mgr-bottom-bar { position: absolute; bottom:0; left:0; width: 100%; padding: 20px 20px calc(20px + var(--safe-bottom)); background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 20%); z-index: 100;}
+    .mgr-bottom-bar { 
+      position: absolute; 
+      bottom:0; 
+      left:0; 
+      width: 100%; 
+      padding: 20px 20px calc(20px + var(--safe-bottom)); 
+      background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 20%); 
+      z-index: 100;
+    }
 
-    input { width: 100%; padding: 12px; border: 1px solid #e9ecf5; border-radius: 10px; outline: none; margin-bottom: 10px; font-size: 14px;}
-    .btn-primary { width: 100%; background: var(--blue); color: #fff; padding: 12px; border-radius: 10px; font-size: 15px; font-weight: bold; border: none; cursor: pointer; margin-bottom: 10px;}
+    input { 
+      width: 100%; 
+      padding: 12px; 
+      border: 1px solid #e9ecf5; 
+      border-radius: 10px; 
+      outline: none; 
+      margin-bottom: 10px; 
+      font-size: 14px;
+    }
+    .btn-primary { 
+      width: 100%; 
+      background: var(--blue); 
+      color: #fff; 
+      padding: 12px; 
+      border-radius: 10px; 
+      font-size: 15px; 
+      font-weight: bold; 
+      border: none; 
+      cursor: pointer; 
+      margin-bottom: 10px;
+    }
     .btn-success { background: #10b981; }
-    .list-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #fff; border-radius: 12px; margin-bottom: 10px; cursor: pointer;}
+    .list-item { 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      padding: 15px; 
+      background: #fff; 
+      border-radius: 12px; 
+      margin-bottom: 10px; 
+      cursor: pointer;
+    }
     
-    canvas { display: block; width: 100%; height: 240px; margin-bottom: 15px;}
-    .detail-tabs { display: flex; gap: 10px; margin-bottom: 15px; overflow-x: auto;}
+    canvas { 
+      display: block; 
+      width: 100%; 
+      height: 240px; 
+      margin-bottom: 15px;
+    }
+    .detail-tabs { 
+      display: flex; 
+      gap: 10px; 
+      margin-bottom: 15px; 
+      overflow-x: auto;
+    }
     .detail-tabs::-webkit-scrollbar { display:none;}
   </style>
 </head>
 <body>
 
 <div class="app-container">
-
   <!-- ================= 视图1：自选首页 ================= -->
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
@@ -174,6 +655,7 @@
     </div>
     
     <div class="scroll-area">
+      <!-- 动态分组Tabs + 右侧固定按钮 -->
       <div class="tabs-wrapper">
         <div class="tabs-scroll" id="home-groups"></div>
         <div class="tabs-fixed-right">
@@ -182,6 +664,7 @@
         </div>
       </div>
       
+      <!-- 排序控制栏 -->
       <div class="action-bar-wrap">
         <div class="action-row">
           <span style="font-size:12px; color:#8f9fc0; font-weight:bold;">当前分组基金明细</span>
@@ -372,7 +855,6 @@
       <div id="det-hold-area" style="display:none;"></div>
     </div>
   </div>
-
 </div>
 
 <!-- 核心业务逻辑 -->
@@ -404,7 +886,16 @@ const app = {
   viewMode: 'card', secViewMode: 'card',
   sortDir: 'desc', secSortDir: 'desc', rankDir: 'desc',
   
-  dragState: { isDragging: false, index: -1, startY: 0, currentY: 0, itemHeight: 60 },
+  dragState: { 
+    isDragging: false, 
+    index: -1, 
+    startY: 0, 
+    currentY: 0, 
+    itemHeight: 60,
+    startTop: 0, 
+    offsetY: 0,
+    id: ''
+  },
   chartInfo: { data: [], touchIdx: -1 },
   masterFundList: [], searchTimer: null,
 
@@ -416,6 +907,7 @@ const app = {
     this.renderHomeGroups();
     this.renderHome();
     this.enablePCMouseScroll();
+    this.initDragEvents();
   },
 
   enablePCMouseScroll() {
@@ -448,7 +940,10 @@ const app = {
     if(tabId === 'sector') this.renderSector();
   },
 
-  openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
+  openModal(id) { 
+    document.getElementById('modal-' + id).classList.add('active'); 
+    if(id === 'group-mgr') this.renderGroupMgr();
+  },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
   loadFundData(code) {
@@ -667,7 +1162,12 @@ const app = {
   // ========== 板块页 ==========
   addSector() {
     let val = document.getElementById('new-sector-input').value.trim();
-    if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { this.data.customSectors.push(val); this.saveData(); this.renderSector(); document.getElementById('new-sector-input').value=''; }
+    if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { 
+      this.data.customSectors.push(val); 
+      this.saveData(); 
+      this.renderSector(); 
+      document.getElementById('new-sector-input').value=''; 
+    }
   },
   setSecViewMode(mode) {
     this.secViewMode = mode;
@@ -683,16 +1183,37 @@ const app = {
     this.renderSector();
   },
   renderSector() {
-    document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => `<div class="action-pill ${this.activeSector===s?'active':''}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#999; margin-left:4px;" onclick="event.stopPropagation(); app.delSector('${s}')">✕</span></div>`).join('');
+    // 渲染板块标签
+    let tagsHtml = this.data.customSectors.map(s => `
+      <div class="action-pill ${s === this.activeSector ? 'active' : ''}" onclick="app.activeSector='${s}'; app.renderSector()">${s}</div>
+    `).join('');
+    document.getElementById('sector-tags').innerHTML = tagsHtml;
+
+    // 渲染板块基金列表
+    const sectorList = document.getElementById('sector-list');
+    const actionWrap = document.getElementById('sector-action-wrap');
     
-    const wrap = document.getElementById('sector-action-wrap');
-    if(!this.activeSector) { wrap.style.display = 'none'; document.getElementById('sector-list').innerHTML=''; return; }
-    
-    wrap.style.display = 'block';
-    let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
-    
+    if(!this.activeSector) {
+      sectorList.innerHTML = '<div style="text-align:center; color:#999; margin-top:50px;">请选择左侧板块查看对应基金</div>';
+      actionWrap.style.display = 'none';
+      return;
+    }
+
+    actionWrap.style.display = 'block';
+    document.getElementById('sector-title-lbl').innerText = `属于「${this.activeSector}」板块的基金`;
+
+    // 筛选该板块的基金
+    let sectorFunds = [];
+    Object.keys(this.data.fundsCache).forEach(code => {
+      const f = this.data.fundsCache[code];
+      if(f.sectors && f.sectors.includes(this.activeSector)) {
+        sectorFunds.push(this.formatFund(code));
+      }
+    });
+
+    // 排序
     const sortVal = document.getElementById('sec-sort-rule').value;
-    funds.sort((a, b) => {
+    sectorFunds.sort((a, b) => {
       let va = -9999, vb = -9999;
       if(sortVal === 'daily') { va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; }
       else {
@@ -703,522 +1224,622 @@ const app = {
       return this.secSortDir === 'desc' ? vb - va : va - vb;
     });
 
-    const container = document.getElementById('sector-list');
-    container.className = this.secViewMode === 'card' ? 'card-grid' : '';
-    container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false);
-  },
-  delSector(s) {
-    if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
-  },
-  
-  openSectorSelect(code) {
-    if(this.data.customSectors.length===0) return alert('请先去板块页面创建板块');
-    this.targetSectorCode = code;
-    const f = this.data.fundsCache[code];
-    let html = this.data.customSectors.map(s => {
-      let isSel = f.sectors?.includes(s);
-      return `<div class="action-pill ${isSel?'active':''}" onclick="app.toggleFundSector('${s}')">${s}</div>`;
-    }).join('');
-    document.getElementById('sector-select-list').innerHTML = html;
-    this.openModal('sector-select');
-  },
-  toggleFundSector(sec) {
-    const f = this.data.fundsCache[this.targetSectorCode];
-    if(!f.sectors) f.sectors = [];
-    if(f.sectors.includes(sec)) { f.sectors = f.sectors.filter(s=>s!==sec); }
-    else { if(f.sectors.length>=2) return alert('最多选2个'); f.sectors.push(sec); }
-    this.saveData(); this.closeModal('sector-select'); 
-    if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
-    if(document.getElementById('view-sector').classList.contains('active')) this.renderSector();
-  },
-  removeSectorFromFund(code, sec) {
-    const f = this.data.fundsCache[code];
-    if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
+    // 渲染
+    sectorList.className = this.secViewMode === 'card' ? 'card-grid' : '';
+    sectorList.innerHTML = this.secViewMode === 'card' 
+      ? sectorFunds.map(f => this.buildCardHtml(f)).join('') 
+      : this.buildListHtml(sectorFunds);
   },
 
-  // ========== 账户管理 (终极修复拖拽) ==========
-  openGroupMgr() {
-    this.openModal('group-mgr');
-    this.renderGroupMgrList();
+  // ========== 分组管理核心逻辑 (修复重复命名+拖拽排序) ==========
+  isGroupNameDuplicate(name) {
+    return this.data.groups.some(g => g.id !== 'default' && g.name.trim() === name.trim());
   },
+
   createGroup() {
-    let name = prompt('新账户名称');
-    if(name && name.trim()) {
-      name = name.trim();
-      // 检查重名
-      if (this.data.groups.some(g => g.name === name)) {
-        alert('分组名称已存在，请使用其他名称');
-        return;
-      }
-      this.data.groups.push({id:'g_'+Date.now(), name, fundCodes:[]});
+    const name = prompt('请输入分组名称（限8字）：');
+    if(!name || name.trim() === '') return alert('分组名称不能为空！');
+    if(name.length > 8) return alert('分组名称不能超过8个字！');
+    if(this.isGroupNameDuplicate(name)) return alert(`已存在名为「${name}」的分组，无法重复创建！`);
+    
+    const id = 'group_' + Date.now();
+    this.data.groups.push({ id, name: name.trim(), fundCodes: [] });
+    this.saveData();
+    this.renderHomeGroups();
+    this.renderGroupMgr();
+  },
+
+  renameGroup(id) {
+    const group = this.data.groups.find(g => g.id === id);
+    if(!group || group.id === 'default') return;
+    
+    const oldName = group.name;
+    const newName = prompt('请输入新的分组名称（限8字）：', oldName);
+    if(!newName || newName.trim() === '') return alert('分组名称不能为空！');
+    if(newName.length > 8) return alert('分组名称不能超过8个字！');
+    if(newName.trim() === oldName) return;
+    if(this.isGroupNameDuplicate(newName)) return alert(`已存在名为「${newName}」的分组，无法重命名！`);
+    
+    group.name = newName.trim();
+    this.saveData();
+    this.renderHomeGroups();
+    this.renderGroupMgr();
+  },
+
+  clearGroup(id) {
+    const group = this.data.groups.find(g => g.id === id);
+    if(!group || group.id === 'default') return;
+    if(confirm(`确定清空「${group.name}」分组下的所有基金吗？`)) {
+      group.fundCodes = [];
       this.saveData();
-      this.renderGroupMgrList();
+      this.processGroupRisks();
       this.renderHomeGroups();
     }
   },
-  delGroup(id) { if(confirm('确定删除?')) { this.data.groups = this.data.groups.filter(g=>g.id!==id); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();} },
-  renameGroup(id) {
-    let g = this.data.groups.find(g=>g.id===id);
-    if(g) {
-      let nn = prompt('修改名称', g.name);
-      if(nn && nn.trim()) {
-        nn = nn.trim();
-        // 检查重名（排除自己）
-        if (nn !== g.name && this.data.groups.some(g2 => g2.name === nn)) {
-          alert('分组名称已存在，请使用其他名称');
-          return;
-        }
-        g.name = nn;
-        this.saveData();
-        this.renderGroupMgrList();
-        this.renderHomeGroups();
-      }
+
+  deleteGroup(id) {
+    const group = this.data.groups.find(g => g.id === id);
+    if(!group || group.id === 'default') return;
+    if(confirm(`确定删除「${group.name}」分组吗？`)) {
+      this.data.groups = this.data.groups.filter(g => g.id !== id);
+      if(this.currentGroupId === id) this.currentGroupId = 'default';
+      this.saveData();
+      this.renderHomeGroups();
+      this.renderHome();
+      this.renderGroupMgr();
     }
   },
-  clearGroup(id) {
-    if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); alert('已清空'); this.renderHome(); } }
+
+  renderGroupMgr() {
+    const container = document.getElementById('group-mgr-list');
+    const groups = this.data.groups.filter(g => g.id !== 'default');
+    container.innerHTML = '';
+    
+    groups.forEach((g, index) => {
+      const top = index * this.dragState.itemHeight;
+      const mgrItem = document.createElement('div');
+      mgrItem.className = 'mgr-item';
+      mgrItem.id = `mgr-item-${g.id}`;
+      mgrItem.style.top = `${top}px`;
+      
+      mgrItem.innerHTML = `
+        <div class="m-left">
+          <div class="m-del ${g.fundCodes.length === 0 ? '' : 'disabled'}" onclick="app.deleteGroup('${g.id}')"></div>
+          <span style="font-weight:bold; font-size:14px;">${g.name}</span>
+        </div>
+        <div class="m-actions">
+          <div class="m-btn" style="color:var(--blue);" onclick="app.renameGroup('${g.id}')">✏️</div>
+          <div class="m-btn ${g.fundCodes.length === 0 ? 'disabled' : ''}" style="color:var(--red);" onclick="app.clearGroup('${g.id}')">🗑️</div>
+          <div class="drag-handle" data-index="${index}" data-id="${g.id}">☰</div>
+        </div>
+      `;
+      
+      container.appendChild(mgrItem);
+    });
+    
+    this.bindDragEvents();
   },
 
-  renderGroupMgrList() {
-    const box = document.getElementById('group-mgr-list');
-    const h = this.dragState.itemHeight;
-    box.style.height = (this.data.groups.length * h) + 'px';
-    
-    let html = this.data.groups.map((g, i) => {
-      let isDrag = this.dragState.index === i;
-      let top = isDrag ? this.dragState.currentY : (i * h);
-      let z = isDrag ? 99 : 1;
-      let cls = isDrag ? 'mgr-item dragging' : 'mgr-item';
-      
-      let left = g.id==='default' ? `<div class="m-del disabled"></div><b>${g.name}</b>` : `<div class="m-del" onclick="app.delGroup('${g.id}')"></div><b>${g.name}</b>`;
-      let right;
-      if (g.id === 'default') {
-        // 默认分组不可拖拽，不生成.drag-handle，用空白占位保持布局
-        right = `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div style="width:34px;"></div>`;
-      } else {
-        right = `<div class="m-btn" style="background:#eef2ff; color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`;
-      }
-      
-      return `<div class="${cls}" style="top:${top}px; z-index:${z};">
-                <div class="m-left">${left}</div><div class="m-actions">${right}</div>
-              </div>`;
-    }).join('');
-    box.innerHTML = html;
+  initDragEvents() {
+    document.addEventListener('touchmove', (e) => this.handleDragMove(e), { passive: false });
+    document.addEventListener('mousemove', (e) => this.handleDragMove(e), { passive: false });
+    document.addEventListener('touchend', (e) => this.handleDragEnd(e));
+    document.addEventListener('mouseup', (e) => this.handleDragEnd(e));
+  },
 
-    // 重新绑定拖拽事件，只针对有data-idx的handle
-    setTimeout(() => {
-      document.querySelectorAll('.drag-handle').forEach(el => {
-        if (el.dataset.idx === undefined) return;
-        el.addEventListener('mousedown', (e) => app.ds(e, parseInt(el.dataset.idx)), {passive: false});
-        el.addEventListener('touchstart', (e) => app.ds(e, parseInt(el.dataset.idx)), {passive: false});
+  bindDragEvents() {
+    const handles = document.querySelectorAll('.drag-handle');
+    handles.forEach(handle => {
+      handle.addEventListener('mousedown', (e) => this.startDrag(e, handle));
+      handle.addEventListener('touchstart', (e) => this.startDrag(e, handle), { passive: false });
+    });
+  },
+
+  startDrag(e, handle) {
+    e.preventDefault();
+    const index = parseInt(handle.dataset.index);
+    const id = handle.dataset.id;
+    const item = document.getElementById(`mgr-item-${id}`);
+    
+    const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+    const rect = item.getBoundingClientRect();
+    const scrollBoxRect = document.getElementById('mgr-scroll-box').getBoundingClientRect();
+    
+    this.dragState = {
+      isDragging: true,
+      index: index,
+      id: id,
+      startY: clientY,
+      startTop: rect.top - scrollBoxRect.top,
+      offsetY: clientY - rect.top,
+      currentY: clientY,
+      itemHeight: this.dragState.itemHeight
+    };
+    
+    item.classList.add('dragging');
+    handle.classList.add('dragging');
+  },
+
+  handleDragMove(e) {
+    if(!this.dragState.isDragging) return;
+    e.preventDefault();
+    
+    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+    const scrollBox = document.getElementById('mgr-scroll-box');
+    const scrollBoxRect = scrollBox.getBoundingClientRect();
+    
+    const currentTop = this.dragState.startTop + (clientY - this.dragState.startY);
+    const item = document.getElementById(`mgr-item-${this.dragState.id}`);
+    if(!item) return;
+    
+    item.style.top = `${currentTop}px`;
+    
+    const targetIndex = Math.round(currentTop / this.dragState.itemHeight);
+    const groups = this.data.groups.filter(g => g.id !== 'default');
+    
+    if(targetIndex < 0 || targetIndex >= groups.length || targetIndex === this.dragState.index) return;
+    
+    const temp = groups[this.dragState.index];
+    groups[this.dragState.index] = groups[targetIndex];
+    groups[targetIndex] = temp;
+    
+    this.data.groups = [this.data.groups[0], ...groups];
+    this.dragState.index = targetIndex;
+    
+    this.renderGroupMgr();
+    
+    const newItem = document.getElementById(`mgr-item-${this.dragState.id}`);
+    if(newItem) {
+      newItem.style.top = `${currentTop}px`;
+      newItem.classList.add('dragging');
+      const newHandle = newItem.querySelector('.drag-handle');
+      if(newHandle) newHandle.classList.add('dragging');
+    }
+  },
+
+  handleDragEnd(e) {
+    if(!this.dragState.isDragging) return;
+    
+    const item = document.getElementById(`mgr-item-${this.dragState.id}`);
+    const handle = item?.querySelector('.drag-handle');
+    
+    if(item) item.classList.remove('dragging');
+    if(handle) handle.classList.remove('dragging');
+    
+    const groups = this.data.groups.filter(g => g.id !== 'default');
+    const finalIndex = Math.max(0, Math.min(this.dragState.index, groups.length - 1));
+    const finalTop = finalIndex * this.dragState.itemHeight;
+    
+    if(item) item.style.top = `${finalTop}px`;
+    
+    this.saveData();
+    
+    this.dragState = {
+      isDragging: false,
+      index: -1,
+      id: '',
+      startY: 0,
+      startTop: 0,
+      offsetY: 0,
+      currentY: 0,
+      itemHeight: 60
+    };
+  },
+
+  // ========== 其他功能逻辑 ==========
+  initS3() {
+    const bucket = localStorage.getItem('r2_bucket');
+    const ak = localStorage.getItem('r2_ak');
+    const sk = localStorage.getItem('r2_sk');
+    const endpoint = localStorage.getItem('r2_endpoint');
+    
+    if(bucket && ak && sk && endpoint) {
+      AWS.config.update({
+        accessKeyId: ak,
+        secretAccessKey: sk,
+        region: 'auto'
       });
-    }, 50);
+      this.s3 = new AWS.S3({ endpoint: new AWS.Endpoint(endpoint), s3ForcePathStyle: true });
+    }
   },
 
-// ========== 账户管理（修复拖拽卡顿） ==========
-ds(e, i) {
-  if (e.button !== 0) return; // 只响应左键
-  if (i === undefined || isNaN(i) || i === 0) return; // 索引0不可拖动
-  e.preventDefault(); // 立即阻止默认行为
-  if (e.type === 'touchstart') e.preventDefault();
+  saveR2ParamsOnly() {
+    localStorage.setItem('r2_bucket', document.getElementById('r2-bucket').value.trim());
+    localStorage.setItem('r2_ak', document.getElementById('r2-ak').value.trim());
+    localStorage.setItem('r2_sk', document.getElementById('r2-sk').value.trim());
+    localStorage.setItem('r2_endpoint', document.getElementById('r2-endpoint').value.trim());
+    this.initS3();
+    alert('配置已保存！');
+  },
 
-  // 锁定容器滚动：直接禁用父容器滚动 + 禁止触摸动作
-  const scrollBox = document.getElementById('mgr-scroll-box');
-  scrollBox.style.overflow = 'hidden';
-  scrollBox.style.touchAction = 'none';
-  document.body.style.overflow = 'hidden'; // 额外锁定body
-
-  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-  const boxTop = scrollBox.getBoundingClientRect().top;
-  const scrollY = scrollBox.scrollTop;
-
-  this.dragState.isDragging = true;
-  this.dragState.index = i;
-  this.dragState.startY = clientY - boxTop + scrollY - (this.dragState.itemHeight / 2);
-  this.dragState.currentY = this.dragState.startY;
-
-  this._moveHandler = (ev) => this.dm(ev);
-  this._endHandler = () => this.de();
-
-  document.addEventListener('mousemove', this._moveHandler, { passive: false });
-  document.addEventListener('touchmove', this._moveHandler, { passive: false });
-  document.addEventListener('mouseup', this._endHandler);
-  document.addEventListener('touchend', this._endHandler);
-  document.addEventListener('touchcancel', this._endHandler); // 处理中断
-
-  this.renderGroupMgrList();
-},
-
-dm(e) {
-  if (!this.dragState.isDragging) return;
-  e.preventDefault(); // 必须阻止移动端页面滚动
-
-  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-  const scrollBox = document.getElementById('mgr-scroll-box');
-  const boxTop = scrollBox.getBoundingClientRect().top;
-  const scrollY = scrollBox.scrollTop;
-  const h = this.dragState.itemHeight;
-
-  let y = clientY - boxTop + scrollY - (h / 2);
-  if (y < h) y = h;
-  if (y > (this.data.groups.length - 1) * h) y = (this.data.groups.length - 1) * h;
-
-  this.dragState.currentY = y;
-
-  let targetIdx = Math.round(y / h);
-  if (targetIdx < 1) targetIdx = 1;
-
-  if (targetIdx !== this.dragState.index) {
-    let g = this.data.groups.splice(this.dragState.index, 1)[0];
-    this.data.groups.splice(targetIdx, 0, g);
-    this.dragState.index = targetIdx;
-  }
-  this.renderGroupMgrList();
-},
-
-de() {
-  this.dragState.isDragging = false;
-  this.dragState.index = -1;
-
-  // 恢复滚动
-  const scrollBox = document.getElementById('mgr-scroll-box');
-  scrollBox.style.overflow = 'auto';
-  scrollBox.style.touchAction = '';
-  document.body.style.overflow = 'hidden'; // body原样保持 hidden（外层容器已是hidden）
-
-  document.removeEventListener('mousemove', this._moveHandler);
-  document.removeEventListener('touchmove', this._moveHandler);
-  document.removeEventListener('mouseup', this._endHandler);
-  document.removeEventListener('touchend', this._endHandler);
-  document.removeEventListener('touchcancel', this._endHandler);
-
-  this.saveData();
-  this.renderGroupMgrList();
-  this.renderHomeGroups();
-},
-
-// ========== 删除基金时同步默认分组 ==========
-removeFundFromGroup(code) {
-  if (!confirm('确定从该分组移除吗？')) return;
-
-  const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId);
-  if (!currentGroup) return;
-
-  // 从当前分组移除
-  currentGroup.fundCodes = currentGroup.fundCodes.filter(c => c !== code);
-
-  // 检查该基金是否还存在于其他非默认分组中
-  const otherGroups = this.data.groups.filter(g => g.id !== 'default' && g.id !== this.currentGroupId);
-  const existsInOther = otherGroups.some(g => g.fundCodes.includes(code));
-
-  // 如果其他新建分组中都不存在，则从默认分组（全部）中移除
-  if (!existsInOther) {
-    const defaultGroup = this.data.groups.find(g => g.id === 'default');
-    if (defaultGroup) {
-      defaultGroup.fundCodes = defaultGroup.fundCodes.filter(c => c !== code);
+  async pullFromCloud() {
+    if(!this.s3) return alert('请先配置并保存R2参数！');
+    try {
+      const bucket = localStorage.getItem('r2_bucket');
+      const data = await this.s3.getObject({ Bucket: bucket, Key: 'fund_data.json' }).promise();
+      const cloudData = JSON.parse(data.Body.toString());
+      this.data = cloudData;
+      this.saveData();
+      this.renderHomeGroups();
+      this.renderHome();
+      alert('从云端拉取数据成功！');
+    } catch (e) {
+      alert('拉取失败：' + e.message);
     }
-  }
+  },
 
-  this.saveData();
-  this.renderHome(); // 刷新当前视图
-},
+  async pushToCloud() {
+    if(!this.s3) return alert('请先配置并保存R2参数！');
+    if(!confirm('确定要覆盖云端数据吗？')) return;
+    try {
+      const bucket = localStorage.getItem('r2_bucket');
+      await this.s3.putObject({
+        Bucket: bucket,
+        Key: 'fund_data.json',
+        Body: JSON.stringify(this.data),
+        ContentType: 'application/json'
+      }).promise();
+      alert('上传到云端成功！');
+    } catch (e) {
+      alert('上传失败：' + e.message);
+    }
+  },
 
-  // ========== 详情与图表 ==========
-  openDetail(code) {
-    this.currentDetailCode = code;
-    const f = this.data.fundsCache[code];
-    document.getElementById('det-name').innerText = f.name;
-    document.getElementById('det-code').innerText = f.code;
+  openGroupMgr() {
+    this.openModal('group-mgr');
+  },
+
+    // 补全：打开板块选择弹窗逻辑
+  openSectorSelect(code) {
+    this.targetSectorCode = code;
+    this.openModal('sector-select');
     
-    let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
-    document.getElementById('det-group-select').innerHTML = opts;
-
-    this.renderDetailTab(30);
-    this.openModal('detail');
-  },
-
-  addToGroupFromDetail() {
-    const sel = document.getElementById('det-group-select');
-    const gid = sel.value; if(!gid) return;
-    const g = this.data.groups.find(g => g.id === gid);
-    if(g && !g.fundCodes.includes(this.currentDetailCode)) {
-      g.fundCodes.push(this.currentDetailCode);
-      if(gid !== 'default' && !this.data.groups[0].fundCodes.includes(this.currentDetailCode)) this.data.groups[0].fundCodes.push(this.currentDetailCode);
-      this.saveData(); alert('添加成功');
-      if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
-    } else alert('已存在');
-    sel.value = '';
-  },
-
-  renderDetailTab(days) {
-    document.querySelectorAll('#det-tabs .action-pill').forEach(el => el.classList.remove('active'));
-    event && event.currentTarget.classList.add('active');
-
-    if(days === 'hold') {
-      document.getElementById('det-chart-area').style.display = 'none';
-      document.getElementById('det-hold-area').style.display = 'block';
-      this.loadHoldings(this.currentDetailCode); return;
-    }
-    document.getElementById('det-chart-area').style.display = 'block';
-    document.getElementById('det-hold-area').style.display = 'none';
-
-    const f = this.data.fundsCache[this.currentDetailCode];
-    const nw = f.netWorth.slice(-days);
-    if(nw.length < 2) return;
-
-    let tbl = nw.slice().reverse().map((item, i, arr) => {
-      let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--';
-      return `<div class="list-item" style="padding:10px 15px;"><span style="color:#666; font-size:13px; flex:1;">${new Date(item.x).toISOString().slice(0,10)}</span><span style="font-weight:bold; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right;">${chg>0?'+':''}${chg}%</span></div>`;
+    const fund = this.data.fundsCache[code];
+    const selectedSectors = fund?.sectors || [];
+    
+    let html = this.data.customSectors.map(s => {
+      const isSelected = selectedSectors.includes(s);
+      return `<div class="action-pill ${isSelected ? 'active' : ''}" onclick="app.toggleSectorForFund('${code}','${s}')">${s}</div>`;
     }).join('');
-    document.getElementById('det-table-area').innerHTML = tbl;
-
-    const base = nw[0].y;
-    let maxDrawdown = 0, maxPeak = nw[0].y;
-    this.chartInfo.data = nw.map(item => {
-      const rate = ((item.y-base)/base*100);
-      if(item.y > maxPeak) maxPeak = item.y;
-      const drop = ((maxPeak - item.y) / maxPeak * 100);
-      if(drop > maxDrawdown) maxDrawdown = drop;
-      return { date: new Date(item.x).toISOString().slice(5,10), fullDate: new Date(item.x).toISOString().slice(0,10), y: item.y, rate };
-    });
     
-    document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%';
-    this.chartInfo.touchIdx = -1;
-    this.drawChart();
+    if(html === '') html = '<div style="color:#999; font-size:13px;">暂无自定义板块，请先在板块页添加</div>';
+    document.getElementById('sector-select-list').innerHTML = html;
   },
 
-  drawChart() {
-    const canvas = document.getElementById('det-canvas');
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-
-    const w = rect.width, h = rect.height;
-    ctx.clearRect(0,0,w,h);
-    const data = this.chartInfo.data; if(data.length<2) return;
-
-    const values = data.map(d=>d.rate);
-    const max = Math.max(...values, 0) + 1; const min = Math.min(...values, 0) - 1;
-    const pad = {t:20, b:20, l:45, r:15}, dw = w-pad.l-pad.r, dh = h-pad.t-pad.b;
-
-    const getX = i => pad.l + (i/(data.length-1))*dw;
-    const getY = v => pad.t + dh - ((v-min)/(max-min))*dh;
-
-    ctx.font = '10px Arial'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    [min, 0, max].forEach(v => {
-      let y = getY(v);
-      ctx.fillStyle = '#e9ecf5'; ctx.fillRect(pad.l, y, dw, 1);
-      ctx.fillStyle = v>0?'#ef4444':(v<0?'#16a34a':'#8f9fc0');
-      let txt = v===0 ? '0.00%' : (v>0?'+':'')+v.toFixed(2)+'%';
-      ctx.fillText(txt, pad.l-5, y);
-    });
-
-    ctx.beginPath(); ctx.moveTo(getX(0), getY(data[0].rate));
-    data.forEach((d,i) => ctx.lineTo(getX(i), getY(d.rate)));
+  // 切换基金所属板块
+  toggleSectorForFund(code, sector) {
+    const fund = this.data.fundsCache[code];
+    if(!fund) return;
     
-    ctx.lineTo(getX(data.length-1), h-pad.b); ctx.lineTo(getX(0), h-pad.b); ctx.closePath();
-    const grd = ctx.createLinearGradient(0,pad.t,0,h-pad.b);
-    grd.addColorStop(0,'rgba(59,130,246,0.2)'); grd.addColorStop(1,'rgba(59,130,246,0.01)');
-    ctx.fillStyle = grd; ctx.fill();
+    if(!fund.sectors) fund.sectors = [];
+    
+    if(fund.sectors.includes(sector)) {
+      fund.sectors = fund.sectors.filter(s => s !== sector);
+    } else {
+      if(fund.sectors.length >= 2) return alert('每个基金最多只能归属2个板块！');
+      fund.sectors.push(sector);
+    }
+    
+    this.saveData();
+    this.openSectorSelect(code); // 刷新弹窗
+    this.renderHome();
+    this.renderSector();
+  },
 
-    ctx.beginPath(); ctx.moveTo(getX(0), getY(data[0].rate));
-    data.forEach((d,i) => ctx.lineTo(getX(i), getY(d.rate)));
-    ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2; ctx.stroke();
-
-    const idx = this.chartInfo.touchIdx;
-    if(idx !== -1 && data[idx]) {
-      const cx = getX(idx), cy = getY(data[idx].rate);
-      ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h-pad.b);
-      ctx.strokeStyle = '#ccc'; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
-      ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#ef4444'; ctx.lineWidth=2; ctx.stroke();
-      
-      let bx = cx - 35; if(bx < pad.l) bx = pad.l; if(bx+70 > w-pad.r) bx = w-pad.r-70;
-      ctx.fillStyle = '#0b1b32'; ctx.fillRect(bx, h-pad.b+2, 70, 18);
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(data[idx].fullDate, bx+35, h-pad.b+11);
-
-      const tip = `涨跌: ${data[idx].rate>0?'+':''}${data[idx].rate.toFixed(2)}% | 净值: ${data[idx].y.toFixed(4)}`;
-      const tw = ctx.measureText(tip).width + 16;
-      let tx = cx - tw/2; if(tx < pad.l) tx = pad.l; if(tx+tw > w-pad.r) tx = w-pad.r-tw;
-      let ty = cy - 30; if(ty < 5) ty = cy + 15;
-      
-      ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.fillRect(tx, ty, tw, 22);
-      ctx.strokeStyle = '#dbe1ef'; ctx.strokeRect(tx, ty, tw, 22);
-      ctx.fillStyle = data[idx].rate>=0?'#ef4444':'#16a34a'; ctx.fillText(tip, tx+tw/2, ty+11);
+  // 移除基金的指定板块
+  removeSectorFromFund(code, sector) {
+    const fund = this.data.fundsCache[code];
+    if(fund && fund.sectors) {
+      fund.sectors = fund.sectors.filter(s => s !== sector);
+      this.saveData();
+      this.renderHome();
+      this.renderSector();
     }
   },
 
-  onChartTouch(e) {
-    if(this.chartInfo.data.length === 0) return;
-    const rect = e.target.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    let x = clientX - rect.left - 45;
-    let dw = rect.width - 60;
-    if(x<0) x=0; if(x>dw) x=dw;
-    let idx = Math.round((x/dw)*(this.chartInfo.data.length-1));
-    if(idx !== this.chartInfo.touchIdx) { this.chartInfo.touchIdx = idx; this.drawChart(); }
-  },
-  onChartEnd() { this.chartInfo.touchIdx = -1; this.drawChart(); },
-
-  // ========== 极速搜索 ==========
-  loadMasterList() {
-    return new Promise((resolve) => {
-      if (this.masterFundList && this.masterFundList.length > 0) return resolve(true);
-      if (document.body.getAttribute('data-dict-loading') === '1') {
-        let checkTimer = setInterval(() => { if (this.masterFundList.length > 0) { clearInterval(checkTimer); resolve(true); } }, 100);
-        return;
-      }
-      document.body.setAttribute('data-dict-loading', '1');
-      const script = document.createElement('script');
-      script.src = `https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`;
-      script.charset = 'utf-8'; 
-      script.onload = () => {
-        let retryCount = 0;
-        let findTimer = setInterval(() => {
-          if (window.r && window.r.length > 0) {
-            clearInterval(findTimer); this.masterFundList = window.r; delete window.r; document.body.setAttribute('data-dict-loading', '0'); resolve(true);
-          } else { retryCount++; if (retryCount > 50) { clearInterval(findTimer); document.body.setAttribute('data-dict-loading', '0'); resolve(false); } }
-        }, 100);
-      };
-      script.onerror = () => { document.body.setAttribute('data-dict-loading', '0'); resolve(false); };
-      document.head.appendChild(script);
-    });
+  // 打开基金搜索弹窗
+  openSearch() {
+    this.openModal('search');
+    document.getElementById('search-input').focus();
+    this.masterFundList = [];
+    this.doSearch(); // 初始加载
   },
 
-  openSearch() { 
-    this.openModal('search'); 
-    const searchInput = document.getElementById('search-input');
-    searchInput.value = ''; document.getElementById('search-results').innerHTML = ''; searchInput.focus(); 
-    this.loadMasterList(); 
-  },
-
+  // 基金搜索逻辑
   doSearch() {
     clearTimeout(this.searchTimer);
-    const kw = document.getElementById('search-input').value.trim().toLowerCase();
-    const box = document.getElementById('search-results');
-    if (kw.length < 2) { box.innerHTML = ''; return; }
-    box.innerHTML = '<div style="text-align:center; padding:20px; color:#999;">检索中...</div>';
+    const keyword = document.getElementById('search-input').value.trim().toLowerCase();
     
     this.searchTimer = setTimeout(async () => {
-      const isReady = await this.loadMasterList();
-      if (!isReady || this.masterFundList.length === 0) { box.innerHTML = '<div style="text-align:center; color:var(--red); padding:20px;">字典加载失败</div>'; return; }
+      const resultsEl = document.getElementById('search-results');
+      
+      if(keyword === '') {
+        resultsEl.innerHTML = '<div style="text-align:center; color:#999; margin-top:50px;">输入基金代码或名称拼音搜索</div>';
+        return;
+      }
 
-      const res = this.masterFundList.filter(i => i[0].includes(kw) || i[2].toLowerCase().includes(kw) || i[1].toLowerCase().includes(kw)).slice(0, 20); 
-      if (res.length === 0) box.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">无结果</div>';
-      else {
-        box.innerHTML = res.map(i => `
-          <div class="list-item" style="cursor:pointer;" onclick="app.addFromSearch('${i[0]}', event)">
-            <span style="flex:1;"><b style="font-size:15px; color:var(--text-main);">${i[2]}</b> <span class="c-code" style="margin-left:8px;">${i[0]}</span></span>
-            <span class="c-tag" style="padding:4px 12px; border-radius:20px; cursor:pointer;">+ 添加</span>
-          </div>`).join('');
+      // 模拟搜索接口（实际项目可替换为真实接口）
+      try {
+        // 这里使用东方财富网的基金搜索接口示例
+        const searchUrl = `https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key=${encodeURIComponent(keyword)}`;
+        const data = await fetchJSONP(searchUrl, 'callback');
+        
+        if(data && data.Datas && data.Datas.length > 0) {
+          this.masterFundList = data.Datas;
+          let html = data.Datas.map(item => {
+            const isAdded = this.data.groups[0].fundCodes.includes(item.CODE);
+            return `<div class="list-item">
+              <div>
+                <b>${item.NAME}</b>
+                <div style="font-size:11px; color:#999;">${item.CODE}</div>
+              </div>
+              <div class="nav-btn ${isAdded ? 'disabled' : ''}" style="${isAdded ? 'background:#eee; color:#999;' : ''}" onclick="app.addFund('${item.CODE}','${item.NAME}')">
+                ${isAdded ? '已添加' : '+ 添加'}
+              </div>
+            </div>`;
+          }).join('');
+          resultsEl.innerHTML = html;
+        } else {
+          resultsEl.innerHTML = '<div style="text-align:center; color:#999; margin-top:50px;">未找到相关基金</div>';
+        }
+      } catch (e) {
+        resultsEl.innerHTML = `<div style="text-align:center; color:#999; margin-top:50px;">搜索失败：${e}</div>`;
       }
     }, 300);
   },
 
-  addFromSearch(code, e) {
-    // 在 addFromSearch 中添加基金时
-if (activeGroup && !activeGroup.fundCodes.includes(code)) {
-  activeGroup.fundCodes.push(code);
-  added = true;
-}
-const defaultGroup = this.data.groups[0];
-if (!defaultGroup.fundCodes.includes(code)) {
-  defaultGroup.fundCodes.push(code);
-  added = true;
-}
-    // 防呆：如果是全部组，则强制拦截
-    if (this.currentGroupId === 'default') {
-      if (this.data.groups.length <= 1) {
-        alert('您还没有自建账户，请先点击"☰"新建账户！');
-      } else {
-        alert('【全部】分组为系统默认记录，不能直接添加。请先在上方的标签栏点击选中您自己的分组，再进行搜索添加！');
+  // 添加基金到默认分组
+  addFund(code, name) {
+    if(this.data.groups[0].fundCodes.includes(code)) return;
+    
+    this.data.groups[0].fundCodes.push(code);
+    this.saveData();
+    
+    // 预加载基金数据
+    this.loadFundData(code).then(() => {
+      this.renderHomeGroups();
+      this.renderHome();
+      this.doSearch(); // 刷新搜索结果状态
+    });
+    
+    alert(`已添加 ${name}(${code}) 到自选！`);
+  },
+
+  // 打开基金详情弹窗
+  openDetail(code) {
+    this.currentDetailCode = code;
+    this.openModal('detail');
+    
+    // 渲染分组选择下拉框
+    const selectEl = document.getElementById('det-group-select');
+    selectEl.innerHTML = '<option value="">+ 加自选</option>';
+    
+    this.data.groups.forEach(g => {
+      if(g.id === 'default') return;
+      const isAdded = g.fundCodes.includes(code);
+      selectEl.innerHTML += `<option value="${g.id}" ${isAdded ? 'selected' : ''}>${isAdded ? '✓ ' : ''}${g.name}</option>`;
+    });
+    
+    this.renderDetailTab(15); // 默认显示15日数据
+  },
+
+  // 渲染基金详情标签页
+  renderDetailTab(days) {
+    // 切换标签激活状态
+    document.querySelectorAll('.detail-tabs .action-pill').forEach(tab => {
+      tab.classList.remove('active');
+      if((tab.innerText.includes(days) && typeof days === 'number') || (days === 'hold' && tab.innerText.includes('持仓'))) {
+        tab.classList.add('active');
       }
+    });
+
+    const chartArea = document.getElementById('det-chart-area');
+    const holdArea = document.getElementById('det-hold-area');
+    
+    if(days === 'hold') {
+      chartArea.style.display = 'none';
+      holdArea.style.display = 'block';
+      this.renderFundHold();
       return;
     }
 
-    let added = false;
-    const activeGroup = this.data.groups.find(g => g.id === this.currentGroupId);
-    if (activeGroup && !activeGroup.fundCodes.includes(code)) { activeGroup.fundCodes.push(code); added = true; }
+    chartArea.style.display = 'block';
+    holdArea.style.display = 'none';
     
-    const defaultGroup = this.data.groups[0];
-    if (!defaultGroup.fundCodes.includes(code)) { defaultGroup.fundCodes.push(code); added = true; }
-
-    if (added) {
-      this.saveData();
-      if(e) e.currentTarget.querySelector('.c-tag').innerText = '加载中...';
-      this.loadFundData(code).then(() => { 
-        alert('添加成功！'); this.closeModal('search'); this.processGroupRisks(); this.renderHome(); 
-      }).catch(() => alert('该基金可能已退市，无数据'));
-    } else alert('该基金已在当前分组！');
-  },
-
-  // ========== 持仓分析 ==========
-  async loadHoldings(code) {
-    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#999;">抓取中...</div>';
-    try {
-      const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb');
-      const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || [];
-      const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || [];
-      const holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) }));
-      if(holdings.length === 0) throw new Error();
-
-      const secids = holdings.map(h => ((h.code.startsWith('6')||h.code.startsWith('9'))?'1.':'0.')+h.code).join(',');
-      const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?secids=${secids}&fields=f3,f12&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb');
+    const fund = this.formatFund(this.currentDetailCode);
+    if(!fund.isLoad) return;
+    
+    // 更新基金基本信息
+    document.getElementById('det-name').innerText = fund.name;
+    document.getElementById('det-code').innerText = fund.code;
+    document.getElementById('det-maxdrop').innerText = fund.maxDropIn20 || '--';
+    document.getElementById('det-maxdrop').className = fund.maxDropIn20 && parseFloat(fund.maxDropIn20) < 0 ? 'red' : 'green';
+    
+    // 准备图表数据
+    const nw = fund.netWorth.slice(-days);
+    this.chartInfo.data = nw;
+    
+    // 渲染净值表格
+    let tableHtml = `<div class="list-table-container">
+      <div class="l-header">
+        <div class="l-col-name th">日期</div>
+        <div class="l-col-rate th">净值</div>
+        <div class="l-col-rate th">涨跌幅</div>
+      </div>`;
+    
+    // 计算每日涨跌幅
+    for(let i = nw.length-1; i >= 0; i--) {
+      const item = nw[i];
+      const date = new Date(item.x).toISOString().slice(0,10);
+      const val = item.y.toFixed(4);
+      let change = '--';
+      let changeClass = '';
       
-      let qtMap = {};
-      (qtData?.data?.diff || []).forEach(item => {
-        let rawChg = parseFloat(item.f3);
-        if(!isNaN(rawChg)) qtMap[item.f12] = Number((rawChg/100).toFixed(2));
-      });
+      if(i < nw.length-1) {
+        const prev = nw[i+1].y;
+        change = (((item.y - prev)/prev)*100).toFixed(2);
+        changeClass = change >= 0 ? 'red' : 'green';
+      }
       
-      let sumR = 0, est = 0;
-      let hHtml = holdings.map(h => {
-        let chg = qtMap[h.code] || 0;
-        sumR += h.ratio; est += (h.ratio/100)*chg;
-        return `<div class="list-item"><span style="flex:2;">${h.name} <span class="c-code">${h.code}</span></span><span style="flex:1;text-align:center;">${h.ratio}%</span><span style="flex:1;text-align:right;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg}%</span></div>`;
-      }).join('');
-
-      document.getElementById('det-hold-area').innerHTML = `<div class="card" style="margin-bottom:10px;"><div style="display:flex; justify-content:space-between; margin-bottom:5px;"><span>前十总占比</span><span style="font-weight:bold;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between;"><span>加权估算涨幅</span><span style="font-weight:bold;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>${hHtml}`;
-    } catch(e) { document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#999;">暂无股票持仓数据</div>'; }
-  },
-
-  // ========== 云端同步功能 ==========
-  initS3() {
-    const conf = JSON.parse(localStorage.getItem('r2_conf') || '{}');
-    if (conf.ak) {
-      document.getElementById('r2-bucket').value = conf.bucket; document.getElementById('r2-ak').value = conf.ak; document.getElementById('r2-sk').value = conf.sk; document.getElementById('r2-endpoint').value = conf.endpoint;
-      this.s3 = new AWS.S3({ endpoint: conf.endpoint, accessKeyId: conf.ak, secretAccessKey: conf.sk, s3ForcePathStyle: true, signatureVersion: 'v4', region: 'auto' });
+      tableHtml += `
+        <div class="l-row">
+          <div class="l-col-name">${date}</div>
+          <div class="l-col-rate">${val}</div>
+          <div class="l-col-rate ${changeClass}">${change}%</div>
+        </div>`;
     }
+    
+    tableHtml += '</div>';
+    document.getElementById('det-table-area').innerHTML = tableHtml;
+    
+    // 绘制图表（简化版，实际可使用Chart.js）
+    this.drawChart();
   },
-  saveR2ParamsOnly() {
-    const conf = { bucket: document.getElementById('r2-bucket').value.trim(), ak: document.getElementById('r2-ak').value.trim(), sk: document.getElementById('r2-sk').value.trim(), endpoint: document.getElementById('r2-endpoint').value.trim().replace(/\/+$/, '') };
-    if(conf.endpoint.endsWith('/'+conf.bucket)) conf.endpoint = conf.endpoint.replace('/'+conf.bucket, '');
-    localStorage.setItem('r2_conf', JSON.stringify(conf)); this.initS3();
-    alert('参数保存成功！接下来请点击“拉取云端数据”或“上传覆盖”');
-  },
-  pullFromCloud() {
-    if(!this.s3) return alert('请先填写并保存参数');
-    const conf = JSON.parse(localStorage.getItem('r2_conf'));
-    this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
-      if (err) {
-        if(err.code === 'NoSuchKey') alert('云端没有找到数据，如果您是第一次使用，请点击【强制覆盖上传】初始化云端。');
-        else alert('拉取失败: ' + err.code);
-      } else { 
-        this.data = JSON.parse(data.Body.toString()); this.saveData(); alert('数据同步成功！'); this.switchTab('home'); 
+
+  // 绘制基金净值图表
+  drawChart() {
+    const canvas = document.getElementById('det-canvas');
+    const ctx = canvas.getContext('2d');
+    const data = this.chartInfo.data;
+    if(data.length < 2) return;
+    
+    // 清空画布
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 适配canvas尺寸
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    
+    const padding = 20;
+    const chartWidth = canvas.width - padding * 2;
+    const chartHeight = canvas.height - padding * 2;
+    
+    // 计算极值
+    const values = data.map(d => d.y);
+    const minVal = Math.min(...values) * 0.995;
+    const maxVal = Math.max(...values) * 1.005;
+    const valRange = maxVal - minVal;
+    
+    // 绘制网格
+    ctx.strokeStyle = '#f0f2f8';
+    ctx.lineWidth = 1;
+    for(let i = 0; i <= 5; i++) {
+      const y = padding + (chartHeight / 5) * i;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(canvas.width - padding, y);
+      ctx.stroke();
+    }
+    
+    // 绘制数据线
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    
+    const stepX = chartWidth / (data.length - 1);
+    
+    data.forEach((d, index) => {
+      const x = padding + index * stepX;
+      const y = padding + chartHeight - ((d.y - minVal) / valRange) * chartHeight;
+      
+      if(index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+      
+      // 绘制当前触摸点标记
+      if(index === this.chartInfo.touchIdx) {
+        ctx.fillStyle = 'rgba(59,130,246,0.2)';
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.fill();
       }
     });
+    
+    ctx.stroke();
+    
+    // 绘制填充区域
+    ctx.fillStyle = 'rgba(59,130,246,0.1)';
+    ctx.lineTo(padding + (data.length - 1) * stepX, padding + chartHeight);
+    ctx.lineTo(padding, padding + chartHeight);
+    ctx.closePath();
+    ctx.fill();
   },
-  pushToCloud() {
-    if (!this.s3) return alert('请先保存配置参数');
-    const conf = JSON.parse(localStorage.getItem('r2_conf'));
-    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {
-      if (err) alert('上传失败: ' + err.message); else alert('已成功覆盖云端！');
-    });
+
+  // 处理图表触摸/鼠标事件
+  onChartTouch(event) {
+    event.preventDefault();
+    const canvas = document.getElementById('det-canvas');
+    const rect = canvas.getBoundingClientRect();
+    
+    let clientX = event.type.includes('touch') ? event.touches[0].clientX : event.clientX;
+    const x = clientX - rect.left;
+    
+    const data = this.chartInfo.data;
+    if(data.length < 2) return;
+    
+    const padding = 20;
+    const chartWidth = canvas.width - padding * 2;
+    const stepX = chartWidth / (data.length - 1);
+    
+    // 计算触摸点对应的索引
+    let idx = Math.round((x - padding) / stepX);
+    idx = Math.max(0, Math.min(data.length - 1, idx));
+    
+    this.chartInfo.touchIdx = idx;
+    this.drawChart();
+  },
+
+  // 结束图表触摸
+  onChartEnd() {
+    this.chartInfo.touchIdx = -1;
+    this.drawChart();
+  },
+
+  // 渲染基金持仓信息（模拟）
+  renderFundHold() {
+    const holdArea = document.getElementById('det-hold-area');
+    holdArea.innerHTML = `
+      <div class="card">
+        <div style="font-weight:bold; margin-bottom:15px;">持仓信息（模拟数据）</div>
+        <div class="rates-row">
+          <div class="r-item"><span class="r-lbl">股票仓位</span><span class="r-val">85.2%</span></div>
+          <div class="r-item"><span class="r-lbl">债券仓位</span><span class="r-val">12.5%</span></div>
+          <div class="r-item"><span class="r-lbl">现金仓位</span><span class="r-val">2.3%</span></div>
+        </div>
+        <div style="margin-top:15px; font-size:13px; color:#999;">
+          注：持仓数据为模拟展示，实际请以基金公司披露为准
+        </div>
+      </div>
+    `;
+  },
+
+  // 从详情页添加基金到指定分组
+  addToGroupFromDetail() {
+    const groupId = document.getElementById('det-group-select').value;
+    if(!groupId) return;
+    
+    const code = this.currentDetailCode;
+    const group = this.data.groups.find(g => g.id === groupId);
+    if(!group) return;
+    
+    if(group.fundCodes.includes(code)) return;
+    
+    group.fundCodes.push(code);
+    this.saveData();
+    this.processGroupRisks();
+    this.renderHomeGroups();
+    
+    alert(`已将基金添加到「${group.name}」分组！`);
+    
+    // 刷新下拉框状态
+    this.openDetail(code);
   }
 };
 
-window.onload = () => app.init();
+// 页面加载完成后初始化
+window.addEventListener('load', () => app.init());
 </script>
 </body>
 </html>

@@ -2,27 +2,12 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
-
-  <!-- 彻底清除残留 Service Worker -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) { 
-          registration.unregister().then(function(boolean) {
-             if(boolean) console.log('残留缓存拦截器已清除');
-          }); 
-        }
-      });
-    }
-  </script>
   
   <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1692.0.min.js"></script>
 
@@ -60,7 +45,7 @@
     
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-    /* ========== 弹窗容器 ========== */
+    /* ========== 弹窗容器 (支持PC居中/移动全屏) ========== */
     .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: fixed; top:0; left:0; z-index: 200; }
     .modal-view.active { display: flex; }
     .modal-content { width: 100%; height: 100%; background: var(--bg-color); display: flex; flex-direction: column; position: relative;}
@@ -182,28 +167,23 @@
     .detail-tabs::-webkit-scrollbar { display:none;}
 
     /* =========================================================
-       电脑端 PC Web 完美响应式排版
-       不再使用 absolute 定位计算，完全改为弹性伸缩盒模型 Flex
+       电脑端 PC Web 美化及响应式排版 (当屏幕宽度 >= 768px 时)
        ========================================================= */
     @media (min-width: 768px) {
-      /* 父容器开启横向弹性盒排列 */
-      .app-container { max-width: 1200px; padding: 0; flex-direction: row; }
+      .app-container { max-width: 1200px; padding-left: 90px; } /* 左侧腾出空间给导航栏 */
 
-      /* 左侧导航：固定宽度，高度拉满 */
+      /* 底部导航变身为高颜值的左侧边栏 */
       .tab-bar {
-        position: relative; width: 90px; height: 100vh; padding: 30px 0;
+        width: 90px; height: 100vh; padding: 30px 0;
         bottom: auto; top: 0; left: auto; right: auto;
         flex-direction: column; justify-content: flex-start;
         border-right: 1px solid rgba(0,0,0,0.06); border-top: none;
         background: rgba(255,255,255,0.85); box-shadow: 4px 0 20px rgba(0,0,0,0.02);
-        order: -1; /* 强制排在最左侧 */
-        z-index: 150;
       }
       .tab-item { flex: none; height: 80px; margin-bottom: 15px; justify-content: center;}
       
-      /* 右侧内容区：释放剩余宽度，自动伸缩不遮挡 */
-      .page-view { position: relative; flex: 1; width: auto; left: 0; padding-bottom: 20px; }
-      .scroll-area { padding-left: 25px; padding-right: 25px; } /* 让卡片和导航栏留出呼吸空间 */
+      /* 页面内容区域去除多余底部内边距 */
+      .page-view { left: 90px; width: calc(100% - 90px); padding-bottom: 20px; }
 
       /* PC 端精美 Hover 交互 */
       @media (hover: hover) {
@@ -224,7 +204,7 @@
 
       /* 弹窗从全屏变为居中 Dialog 对话框 */
       .modal-view { 
-        background: rgba(11,27,50, 0.4); 
+        background: rgba(11,27,50, 0.4); /* 半透明暗色背景遮罩 */
         backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
         align-items: center; justify-content: center; 
       }
@@ -243,6 +223,14 @@
 <body>
 
 <div class="app-container">
+
+  <!-- ================= 底部菜单栏(移动)/侧边栏(PC) ================= -->
+  <div class="tab-bar">
+    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
+    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
+    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
+    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
+  </div>
 
   <!-- ================= 视图1：自选首页 ================= -->
   <div id="view-home" class="page-view active">
@@ -354,18 +342,10 @@
         <button class="btn-primary" style="background:#eef2ff; color:var(--blue); margin-top:15px;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button>
       </div>
       <div class="card">
-        <h3>系统疑难解答</h3>
+        <h3>系统管理</h3>
         <button class="btn-primary" style="background:#fff1f2; color:var(--red);" onclick="localStorage.clear(); location.reload();">🗑️ 清空本地缓存</button>
       </div>
     </div>
-  </div>
-
-  <!-- ================= 底部菜单栏(移动)/左侧边栏(PC) ================= -->
-  <div class="tab-bar">
-    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
-    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
-    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
-    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
   </div>
 
   <!-- ================= 弹窗：分组管理 ================= -->
@@ -435,12 +415,11 @@
         </div>
 
         <div class="detail-tabs" id="det-tabs">
-          <!-- 修改：传递事件对象 -->
-          <div class="action-pill active" onclick="app.renderDetailTab(15, event)">15日</div>
-          <div class="action-pill" onclick="app.renderDetailTab(30, event)">30日</div>
-          <div class="action-pill" onclick="app.renderDetailTab(60, event)">60日</div>
-          <div class="action-pill" onclick="app.renderDetailTab(90, event)">90日</div>
-          <div class="action-pill" onclick="app.renderDetailTab('hold', event)">📄持仓</div>
+          <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
+          <div class="action-pill" onclick="app.renderDetailTab('hold')">📄持仓</div>
         </div>
 
         <div id="det-chart-area">
@@ -466,13 +445,12 @@
 
 <!-- 核心业务逻辑 -->
 <script>
-// JSONP 请求强力穿透，绕过错误的 Service Worker 拦截
 function fetchJSONP(url, callbackName = 'callback') {
   return new Promise((resolve, reject) => {
-    const cb = 'jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000000);
+    const cb = 'jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000);
     const script = document.createElement('script');
     const sep = url.includes('?') ? '&' : '?';
-    script.src = `${url}${sep}${callbackName}=${cb}&_nocache=${Date.now()}`;
+    script.src = `${url}${sep}${callbackName}=${cb}`;
     window[cb] = (data) => { resolve(data); delete window[cb]; script.remove(); };
     script.onerror = () => { reject('JSONP Network Error'); script.remove(); };
     document.head.appendChild(script);
@@ -498,19 +476,13 @@ const app = {
   chartInfo: { data: [], touchIdx: -1 },
   masterFundList: [], searchTimer: null,
 
+  // 【核心功能修复】：将天天基金 UTC 时间戳转换为东八区准确日期
   formatEMDate(ts, length = 10, offset = 0) {
+    // 增加 28800000 毫秒（即 8 小时），修正为中国时区
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
   },
 
   init() {
-    // 全局错误捕获，避免移动端白屏
-    window.addEventListener('error', (e) => {
-      console.error('捕获到全局错误:', e.error || e.message);
-      // 简单提示
-      const msg = e.message || '页面发生错误，请刷新重试';
-      alert(msg);
-    });
-
     const local = localStorage.getItem('fund_pwa_v6');
     if (local) this.data = JSON.parse(local);
     this.initS3();
@@ -556,7 +528,7 @@ const app = {
   loadFundData(code) {
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?_nocache=${Date.now()}_${Math.random()}`;
+      script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`;
       script.onload = () => {
         setTimeout(() => {
           if (window.Data_netWorthTrend) {
@@ -627,13 +599,11 @@ const app = {
     });
   },
 
-  // 安全访问 sectors
   buildCardHtml(f, isHomeGroup = false) {
     if(!f.isLoad) return `<div class="card"><div class="c-title">${f.code} 加载中</div></div>`;
     const col = f.change >= 0 ? 'red' : 'green';
     let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
-    // 确保 sectors 存在
-    let tagsHtml = (f.sectors || []).map(s => `<span class="c-tag" onclick="event.stopPropagation(); app.removeSectorFromFund('${f.code}','${s}')">${s}</span>`).join('');
+    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="event.stopPropagation(); app.removeSectorFromFund('${f.code}','${s}')">${s}</span>`).join('');
     
     let showDel = isHomeGroup && this.currentGroupId !== 'default';
     let delBtn = showDel ? `<div class="c-del-btn" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
@@ -848,7 +818,7 @@ const app = {
     if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
   },
 
-  // ========== 账户管理 ==========
+  // ========== 账户管理 (彻底优化的极速超高帧率拖拽排版) ==========
   openGroupMgr() {
     this.openModal('group-mgr');
     this.renderGroupMgrList();
@@ -1045,9 +1015,7 @@ const app = {
     let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
     document.getElementById('det-group-select').innerHTML = opts;
 
-    // 手动激活30日tab并调用渲染（伪造事件对象）
-    const tab30 = document.querySelector('#det-tabs .action-pill:first-child');
-    this.renderDetailTab(30, { currentTarget: tab30 });
+    this.renderDetailTab(30);
     this.openModal('detail');
   },
 
@@ -1067,16 +1035,14 @@ const app = {
     sel.value = '';
   },
 
-  // 修复：增加事件参数，并处理hold分支提前返回
-  renderDetailTab(days, e) {
+  renderDetailTab(days) {
     document.querySelectorAll('#det-tabs .action-pill').forEach(el => el.classList.remove('active'));
-    if (e && e.currentTarget) e.currentTarget.classList.add('active');
+    event && event.currentTarget.classList.add('active');
 
     if(days === 'hold') {
       document.getElementById('det-chart-area').style.display = 'none';
       document.getElementById('det-hold-area').style.display = 'block';
-      this.loadHoldings(this.currentDetailCode);
-      return;
+      this.loadHoldings(this.currentDetailCode); return;
     }
     document.getElementById('det-chart-area').style.display = 'block';
     document.getElementById('det-hold-area').style.display = 'none';
@@ -1190,7 +1156,7 @@ const app = {
       }
       document.body.setAttribute('data-dict-loading', '1');
       const script = document.createElement('script');
-      script.src = `https://fund.eastmoney.com/js/fundcode_search.js?_nocache=${Date.now()}`;
+      script.src = `https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`;
       script.charset = 'utf-8'; 
       script.onload = () => {
         let retryCount = 0;

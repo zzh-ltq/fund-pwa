@@ -2,27 +2,34 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <!-- 强制不缓存头 -->
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+  
+  <!-- 【核心杀毒代码：必须放在最前面】第一时间干掉错误拦截的 Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(regs) {
+        let needsReload = false;
+        for(let reg of regs) {
+          reg.unregister();
+          needsReload = true;
+        }
+        // 如果发现了旧缓存并干掉，则强制刷新页面以加载正常网络请求
+        if (needsReload && !window.location.search.includes('cleared')) {
+          let sep = window.location.href.includes('?') ? '&' : '?';
+          window.location.replace(window.location.href + sep + 'cleared=1&t=' + Date.now());
+        }
+      });
+    }
+  </script>
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
   <title>养鸡小能手 PWA</title>
-
-  <!-- [终极缓存清理]: 彻底清除任何残留的 Service Worker -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) { 
-          registration.unregister().then(function(boolean) {
-             if(boolean) console.log('残留缓存拦截器已清除');
-          }); 
-        }
-      });
-    }
-  </script>
   
   <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1692.0.min.js"></script>
 
@@ -183,29 +190,22 @@
 
     /* =========================================================
        电脑端 PC Web 完美响应式排版
-       不再使用 absolute 定位计算，完全改为弹性伸缩盒模型 Flex
        ========================================================= */
     @media (min-width: 768px) {
-      /* 父容器开启横向弹性盒排列 */
       .app-container { max-width: 1200px; padding: 0; flex-direction: row; }
-
-      /* 左侧导航：固定宽度，高度拉满 */
       .tab-bar {
         position: relative; width: 90px; height: 100vh; padding: 30px 0;
         bottom: auto; top: 0; left: auto; right: auto;
         flex-direction: column; justify-content: flex-start;
         border-right: 1px solid rgba(0,0,0,0.06); border-top: none;
         background: rgba(255,255,255,0.85); box-shadow: 4px 0 20px rgba(0,0,0,0.02);
-        order: -1; /* 强制排在最左侧 */
+        order: -1; 
         z-index: 150;
       }
       .tab-item { flex: none; height: 80px; margin-bottom: 15px; justify-content: center;}
-      
-      /* 右侧内容区：释放剩余宽度，自动伸缩不遮挡 */
       .page-view { position: relative; flex: 1; width: auto; left: 0; padding-bottom: 20px; }
-      .scroll-area { padding-left: 25px; padding-right: 25px; } /* 让卡片和导航栏留出呼吸空间 */
+      .scroll-area { padding-left: 25px; padding-right: 25px; } 
 
-      /* PC 端精美 Hover 交互 */
       @media (hover: hover) {
         .card:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover); }
         .l-row:hover { background: #f4f7ff; }
@@ -216,13 +216,11 @@
         .c-del-btn:hover { background: #fee2e2; color: #ef4444; }
       }
 
-      /* 滚动条美化 */
       ::-webkit-scrollbar { width: 8px; height: 8px; }
       ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
       ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
       ::-webkit-scrollbar-track { background: transparent; }
 
-      /* 弹窗从全屏变为居中 Dialog 对话框 */
       .modal-view { 
         background: rgba(11,27,50, 0.4); 
         backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
@@ -234,7 +232,6 @@
         box-shadow: 0 20px 60px rgba(0,0,0,0.15);
         position: relative; overflow: hidden;
       }
-      /* 针对板块选择框的特殊适配 */
       #modal-sector-select { align-items: center; justify-content: center; }
       #modal-sector-select > div { border-radius: 24px !important; min-height: auto !important; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.15);}
     }

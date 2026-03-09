@@ -35,7 +35,7 @@
     .app-container { max-width: 800px; margin: 0 auto; height: 100vh; position: relative; background: transparent; display: flex; flex-direction: column; }
 
     .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; 
-                 padding-bottom: calc(95px + var(--safe-bottom));}  /* 增大底部内边距，防止被遮挡 */
+                 padding-bottom: calc(95px + var(--safe-bottom));}
     .page-view.active { display: flex; }
     .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; background: var(--bg-color); z-index: 200; }
     .modal-view.active { display: flex; }
@@ -54,10 +54,9 @@
 
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 15px; }
 
-    /* ========== 底部 TabBar (增强底部间距，防止被遮挡) ========== */
+    /* ========== 底部 TabBar ========== */
     .tab-bar {
       position: absolute; bottom: 0; left: 0; width: 100%;
-      /* 加大底部内边距，确保安全区 + 额外余量 */
       padding-bottom: max(calc(var(--safe-bottom) + 15px), 25px);
       padding-top: 8px;
       height: auto; min-height: 60px;
@@ -127,7 +126,7 @@
 
     .red { color: var(--red); } .green { color: var(--green); }
 
-    /* ========== 分组管理页面 (终极修复拖拽卡顿) ========== */
+    /* ========== 分组管理页面 ========== */
     .mgr-header { display: flex; padding: 15px 20px; font-size: 12px; color: #9aa9c2; font-weight: 500;}
     
     .mgr-list-wrap { flex: 1; position: relative; margin: 0 10px; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.03); overflow-y: auto;}
@@ -143,7 +142,6 @@
     .m-actions { display: flex; width: 120px; justify-content: space-between; align-items: center;}
     .m-btn { width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer;}
     .m-btn.disabled { opacity: 0; pointer-events: none;}
-    /* 核心修复：把手 touch-action: none 强制浏览器放弃原生滚动拦截 */
     .drag-handle { cursor: grab; font-size: 18px; color: #cbd5e1; display:flex; align-items:center; justify-content:center; width:34px; height:34px; touch-action: none; user-select: none; -webkit-user-select: none;}
 
     .mgr-bottom-bar { position: absolute; bottom:0; left:0; width: 100%; padding: 20px 20px calc(20px + var(--safe-bottom)); background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 20%); z-index: 100;}
@@ -404,7 +402,8 @@ const app = {
   viewMode: 'card', secViewMode: 'card',
   sortDir: 'desc', secSortDir: 'desc', rankDir: 'desc',
   
-  dragState: { isDragging: false, index: -1, startY: 0, currentY: 0, itemHeight: 60 },
+  // 核心：彻底优化的超高帧率拖拽排版系统状态管理器
+  dragState: { isDragging: false, startIndex: -1, currentIndex: -1, startY: 0, startTop: 0, dragEl: null, items: [], itemHeight: 60 },
   chartInfo: { data: [], touchIdx: -1 },
   masterFundList: [], searchTimer: null,
 
@@ -624,30 +623,19 @@ const app = {
     container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true);
   },
 
-  // ========== 删除基金时同步默认分组（优化版） ==========
   removeFundFromGroup(code) {
     if (!confirm('确定从该分组移除吗？')) return;
-
     const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId);
     if (!currentGroup) return;
-
-    // 从当前分组移除
     currentGroup.fundCodes = currentGroup.fundCodes.filter(c => c !== code);
 
-    // 检查该基金是否还存在于其他非默认分组中
     const otherGroups = this.data.groups.filter(g => g.id !== 'default' && g.id !== this.currentGroupId);
     const existsInOther = otherGroups.some(g => g.fundCodes.includes(code));
-
-    // 如果其他新建分组中都不存在，则从默认分组（全部）中移除
     if (!existsInOther) {
       const defaultGroup = this.data.groups.find(g => g.id === 'default');
-      if (defaultGroup) {
-        defaultGroup.fundCodes = defaultGroup.fundCodes.filter(c => c !== code);
-      }
+      if (defaultGroup) defaultGroup.fundCodes = defaultGroup.fundCodes.filter(c => c !== code);
     }
-
-    this.saveData();
-    this.renderHome(); // 刷新当前视图
+    this.saveData(); this.renderHome(); 
   },
 
   // ========== 排名页 ==========
@@ -755,7 +743,7 @@ const app = {
     if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
   },
 
-  // ========== 账户管理 (修复移动端拖拽卡死) ==========
+  // ========== 账户管理 (彻底优化的极速超高帧率拖拽排版) ==========
   openGroupMgr() {
     this.openModal('group-mgr');
     this.renderGroupMgrList();
@@ -764,15 +752,9 @@ const app = {
     let name = prompt('新账户名称');
     if(name && name.trim()) {
       name = name.trim();
-      // 检查重名
-      if (this.data.groups.some(g => g.name === name)) {
-        alert('分组名称已存在，请使用其他名称');
-        return;
-      }
+      if (this.data.groups.some(g => g.name === name)) { alert('分组名称已存在'); return; }
       this.data.groups.push({id:'g_'+Date.now(), name, fundCodes:[]});
-      this.saveData();
-      this.renderGroupMgrList();
-      this.renderHomeGroups();
+      this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();
     }
   },
   delGroup(id) { if(confirm('确定删除?')) { this.data.groups = this.data.groups.filter(g=>g.id!==id); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();} },
@@ -782,15 +764,8 @@ const app = {
       let nn = prompt('修改名称', g.name);
       if(nn && nn.trim()) {
         nn = nn.trim();
-        // 检查重名（排除自己）
-        if (nn !== g.name && this.data.groups.some(g2 => g2.name === nn)) {
-          alert('分组名称已存在，请使用其他名称');
-          return;
-        }
-        g.name = nn;
-        this.saveData();
-        this.renderGroupMgrList();
-        this.renderHomeGroups();
+        if (nn !== g.name && this.data.groups.some(g2 => g2.name === nn)) { alert('名称已存在'); return; }
+        g.name = nn; this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();
       }
     }
   },
@@ -798,33 +773,28 @@ const app = {
     if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); alert('已清空'); this.renderHome(); } }
   },
 
+  // 1. 初次静态渲染 DOM 节点，并为各个节点分配固定的 id。不参与动态排序重绘
   renderGroupMgrList() {
     const box = document.getElementById('group-mgr-list');
     const h = this.dragState.itemHeight;
     box.style.height = (this.data.groups.length * h) + 'px';
     
     let html = this.data.groups.map((g, i) => {
-      let isDrag = this.dragState.index === i;
-      let top = isDrag ? this.dragState.currentY : (i * h);
-      let z = isDrag ? 99 : 1;
-      let cls = isDrag ? 'mgr-item dragging' : 'mgr-item';
-      
+      let top = i * h;
       let left = g.id==='default' ? `<div class="m-del disabled"></div><b>${g.name}</b>` : `<div class="m-del" onclick="app.delGroup('${g.id}')"></div><b>${g.name}</b>`;
       let right;
       if (g.id === 'default') {
-        // 默认分组不可拖拽，不生成.drag-handle，用空白占位保持布局
         right = `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div style="width:34px;"></div>`;
       } else {
         right = `<div class="m-btn" style="background:#eef2ff; color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f4f6fb;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`;
       }
       
-      return `<div class="${cls}" style="top:${top}px; z-index:${z};">
+      return `<div id="mgr-item-${i}" class="mgr-item" style="top:${top}px;">
                 <div class="m-left">${left}</div><div class="m-actions">${right}</div>
               </div>`;
     }).join('');
     box.innerHTML = html;
 
-    // 重新绑定拖拽事件，只针对有data-idx的handle
     setTimeout(() => {
       document.querySelectorAll('.drag-handle').forEach(el => {
         if (el.dataset.idx === undefined) return;
@@ -834,26 +804,36 @@ const app = {
     }, 50);
   },
 
+  // 2. 拖拽开始：锁定父级滚动条，提取坐标快照
   ds(e, i) {
-    if (e.button !== 0) return; // 只响应左键
-    if (i === undefined || isNaN(i) || i === 0) return; // 索引0不可拖动
-    e.preventDefault(); // 立即阻止默认行为
+    if (e.button !== undefined && e.button !== 0) return; 
+    if (i === undefined || isNaN(i) || i === 0) return; 
+    e.preventDefault(); 
     if (e.type === 'touchstart') e.preventDefault();
 
-    // 锁定容器滚动：直接禁用父容器滚动 + 禁止触摸动作
     const scrollBox = document.getElementById('mgr-scroll-box');
     scrollBox.style.overflow = 'hidden';
     scrollBox.style.touchAction = 'none';
-    document.body.style.overflow = 'hidden'; // 额外锁定body
 
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const boxTop = scrollBox.getBoundingClientRect().top;
-    const scrollY = scrollBox.scrollTop;
 
     this.dragState.isDragging = true;
-    this.dragState.index = i;
-    this.dragState.startY = clientY - boxTop + scrollY - (this.dragState.itemHeight / 2);
-    this.dragState.currentY = this.dragState.startY;
+    this.dragState.startIndex = i;
+    this.dragState.currentIndex = i;
+    this.dragState.dragEl = document.getElementById(`mgr-item-${i}`);
+    
+    if (this.dragState.dragEl) {
+      this.dragState.dragEl.classList.add('dragging');
+    }
+
+    this.dragState.startY = clientY;
+    this.dragState.startTop = i * this.dragState.itemHeight;
+
+    // 构建数组映射结构，用以关联真实 DOM 与虚拟逻辑位置
+    this.dragState.items = [];
+    for(let j=0; j<this.data.groups.length; j++) {
+      this.dragState.items.push({ origIndex: j, currIndex: j });
+    }
 
     this._moveHandler = (ev) => this.dm(ev);
     this._endHandler = () => this.de();
@@ -862,47 +842,74 @@ const app = {
     document.addEventListener('touchmove', this._moveHandler, { passive: false });
     document.addEventListener('mouseup', this._endHandler);
     document.addEventListener('touchend', this._endHandler);
-    document.addEventListener('touchcancel', this._endHandler); // 处理中断
-
-    this.renderGroupMgrList();
+    document.addEventListener('touchcancel', this._endHandler); 
   },
 
+  // 3. 拖拽移动：利用 requestAnimationFrame 限帧优化，只修改受到影响的元素的内联 style 属性 (原生级流畅)
   dm(e) {
     if (!this.dragState.isDragging) return;
-    e.preventDefault(); // 必须阻止移动端页面滚动
+    e.preventDefault(); 
 
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const scrollBox = document.getElementById('mgr-scroll-box');
-    const boxTop = scrollBox.getBoundingClientRect().top;
-    const scrollY = scrollBox.scrollTop;
-    const h = this.dragState.itemHeight;
+    if (this._dmTicking) return;
+    this._dmTicking = true;
 
-    let y = clientY - boxTop + scrollY - (h / 2);
-    if (y < h) y = h;
-    if (y > (this.data.groups.length - 1) * h) y = (this.data.groups.length - 1) * h;
+    requestAnimationFrame(() => {
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const deltaY = clientY - this.dragState.startY;
+      const h = this.dragState.itemHeight;
+      const maxTop = (this.data.groups.length - 1) * h;
+      
+      let newTop = this.dragState.startTop + deltaY;
+      if (newTop < h) newTop = h; 
+      if (newTop > maxTop) newTop = maxTop;
 
-    this.dragState.currentY = y;
+      // 让拖拽的元素跟随手指实时位移
+      if (this.dragState.dragEl) {
+        this.dragState.dragEl.style.top = newTop + 'px';
+      }
 
-    let targetIdx = Math.round(y / h);
-    if (targetIdx < 1) targetIdx = 1;
+      // 计算当前所处的逻辑槽位
+      let targetIdx = Math.round(newTop / h);
+      if (targetIdx < 1) targetIdx = 1;
+      if (targetIdx > this.data.groups.length - 1) targetIdx = this.data.groups.length - 1;
 
-    if (targetIdx !== this.dragState.index) {
-      let g = this.data.groups.splice(this.dragState.index, 1)[0];
-      this.data.groups.splice(targetIdx, 0, g);
-      this.dragState.index = targetIdx;
-    }
-    this.renderGroupMgrList();
+      // 如果发生了越界挤位，更新其他受影响兄弟元素的映射位置和 style 坐标
+      if (targetIdx !== this.dragState.currentIndex) {
+        let oldIdx = this.dragState.currentIndex;
+        this.dragState.currentIndex = targetIdx;
+
+        this.dragState.items.forEach(item => {
+          if (item.origIndex === this.dragState.startIndex) {
+             item.currIndex = targetIdx;
+          } else {
+             if (targetIdx < oldIdx && item.currIndex >= targetIdx && item.currIndex < oldIdx) {
+                item.currIndex++;
+             } else if (targetIdx > oldIdx && item.currIndex <= targetIdx && item.currIndex > oldIdx) {
+                item.currIndex--;
+             }
+          }
+        });
+
+        this.dragState.items.forEach(item => {
+          if (item.origIndex !== this.dragState.startIndex) {
+            let el = document.getElementById(`mgr-item-${item.origIndex}`);
+            if (el) {
+              el.style.top = (item.currIndex * h) + 'px';
+            }
+          }
+        });
+      }
+      this._dmTicking = false;
+    });
   },
 
+  // 4. 拖拽结束：数据落盘修改，卸载监听并重置状态
   de() {
     this.dragState.isDragging = false;
-    this.dragState.index = -1;
 
-    // 恢复滚动
     const scrollBox = document.getElementById('mgr-scroll-box');
     scrollBox.style.overflow = 'auto';
     scrollBox.style.touchAction = '';
-    document.body.style.overflow = 'hidden'; // body原样保持 hidden（外层容器已是hidden）
 
     document.removeEventListener('mousemove', this._moveHandler);
     document.removeEventListener('touchmove', this._moveHandler);
@@ -910,9 +917,25 @@ const app = {
     document.removeEventListener('touchend', this._endHandler);
     document.removeEventListener('touchcancel', this._endHandler);
 
-    this.saveData();
-    this.renderGroupMgrList();
-    this.renderHomeGroups();
+    if (this.dragState.dragEl) {
+      this.dragState.dragEl.classList.remove('dragging');
+      this.dragState.dragEl.style.top = (this.dragState.currentIndex * this.dragState.itemHeight) + 'px';
+    }
+
+    if (this.dragState.startIndex !== this.dragState.currentIndex) {
+      let newGroups = new Array(this.data.groups.length);
+      this.dragState.items.forEach(item => {
+        newGroups[item.currIndex] = this.data.groups[item.origIndex];
+      });
+      this.data.groups = newGroups;
+
+      this.saveData();
+      this.renderHomeGroups();
+    }
+    
+    setTimeout(() => {
+       this.renderGroupMgrList();
+    }, 200);
   },
 
   // ========== 详情与图表 ==========
@@ -935,7 +958,6 @@ const app = {
     const g = this.data.groups.find(g => g.id === gid);
     if(g && !g.fundCodes.includes(this.currentDetailCode)) {
       g.fundCodes.push(this.currentDetailCode);
-      // 同时添加到默认分组（全部），如果不存在
       const defaultGroup = this.data.groups.find(g => g.id === 'default');
       if (defaultGroup && !defaultGroup.fundCodes.includes(this.currentDetailCode)) {
         defaultGroup.fundCodes.push(this.currentDetailCode);
@@ -1113,7 +1135,6 @@ const app = {
   },
 
   addFromSearch(code, e) {
-    // 防呆：如果是全部组，则强制拦截
     if (this.currentGroupId === 'default') {
       if (this.data.groups.length <= 1) {
         alert('您还没有自建账户，请先点击"☰"新建账户！');

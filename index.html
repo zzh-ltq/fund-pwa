@@ -17,13 +17,18 @@
       --safe-top: env(safe-area-inset-top, 0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --bg-color: #f4f6fb;
+      --surface-color: #ffffff;
       --blue: #3b82f6; --red: #ef4444; --green: #16a34a;
       --text-main: #0b1b32; --text-sub: #4b587c;
+      --radius-lg: 20px;
+      --radius-md: 12px;
+      --shadow-sm: 0 4px 15px rgba(0,0,0,0.03);
+      --shadow-hover: 0 10px 25px rgba(59,130,246,0.1);
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       margin: 0; padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
       background-color: var(--bg-color); color: var(--text-main);
       overflow: hidden; 
     }
@@ -32,51 +37,55 @@
       background: linear-gradient(180deg, #e3ecff 0%, #edf1fa 40%, #f4f6fb 100%); z-index: -1;
     }
 
-    .app-container { max-width: 800px; margin: 0 auto; height: 100vh; position: relative; background: transparent; display: flex; flex-direction: column; }
+    .app-container { max-width: 100%; margin: 0 auto; height: 100vh; position: relative; display: flex; flex-direction: column; }
 
     .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; 
-                 padding-bottom: calc(95px + var(--safe-bottom));}
-    .page-view.active { display: flex; }
-    .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; background: var(--bg-color); z-index: 200; }
+                 padding-bottom: calc(95px + var(--safe-bottom)); transition: all 0.3s ease;}
+    .page-view.active { display: flex; animation: fadeIn 0.3s ease; }
+    
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ========== 弹窗容器 (支持PC居中/移动全屏) ========== */
+    .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: fixed; top:0; left:0; z-index: 200; }
     .modal-view.active { display: flex; }
+    .modal-content { width: 100%; height: 100%; background: var(--bg-color); display: flex; flex-direction: column; position: relative;}
 
     /* ========== 导航栏 ========== */
     .nav-bar {
       padding-top: var(--safe-top); height: calc(44px + var(--safe-top));
       display: flex; justify-content: space-between; align-items: center;
       padding-left: 15px; padding-right: 15px;
-      background: rgba(255,255,255,0.8); backdrop-filter: blur(10px);
-      z-index: 100; flex-shrink: 0;
+      background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      z-index: 100; flex-shrink: 0; border-bottom: 1px solid rgba(0,0,0,0.03);
     }
     .nav-title { font-size: 18px; font-weight: bold; color: var(--text-main); flex: 1; text-align: center;}
-    .nav-btn { font-size: 14px; color: var(--blue); font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background: rgba(255,255,255,0.7); padding: 6px 12px; border-radius: 20px;}
+    .nav-btn { font-size: 14px; color: var(--blue); font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background: rgba(255,255,255,0.9); padding: 6px 14px; border-radius: 20px; transition: all 0.2s;}
     .nav-btn.left { justify-content: flex-start; background:transparent;}
 
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 15px; }
 
-    /* ========== 底部 TabBar ========== */
+    /* ========== 底部/侧边 TabBar ========== */
     .tab-bar {
       position: absolute; bottom: 0; left: 0; width: 100%;
-      padding-bottom: max(calc(var(--safe-bottom) + 15px), 25px);
-      padding-top: 8px;
-      height: auto; min-height: 60px;
-      background: rgba(255,255,255,0.95); backdrop-filter: blur(20px);
-      border-top: 1px solid rgba(0,0,0,0.05);
+      padding-bottom: max(calc(var(--safe-bottom) + 12px), 20px);
+      padding-top: 10px; height: auto; min-height: 65px;
+      background: rgba(255,255,255,0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(0,0,0,0.06);
       display: flex; justify-content: space-around; align-items: center; z-index: 150;
     }
-    .tab-item { text-align: center; color: #8f9fc0; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; display:flex; flex-direction:column; align-items:center; }
-    .tab-icon { font-size: 22px; display: block; margin-bottom: 4px; filter: grayscale(100%) opacity(0.6); transition: all 0.2s;}
-    .tab-item.active .tab-icon { filter: none; transform: scale(1.1);}
+    .tab-item { text-align: center; color: #8f9fc0; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; display:flex; flex-direction:column; align-items:center; transition: color 0.2s; }
+    .tab-icon { font-size: 24px; display: block; margin-bottom: 4px; filter: grayscale(100%) opacity(0.5); transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);}
+    .tab-item.active { color: var(--blue); }
+    .tab-item.active .tab-icon { filter: none; transform: translateY(-3px) scale(1.15);}
 
     /* ========== 首页 Tabs ========== */
     .tabs-wrapper { display: flex; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #e9ecf5; margin-bottom: 15px; position: relative;}
     .tabs-scroll { flex: 1; overflow-x: auto; white-space: nowrap; display: flex; align-items: center; -webkit-overflow-scrolling: touch; padding-bottom: 4px; cursor: grab;}
-    .tabs-scroll::-webkit-scrollbar { display: none; }
-    .action-pill { flex-shrink: 0; display: inline-flex; align-items: center; background: #e8ecf4; color: var(--text-sub); padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; margin-right: 10px; cursor: pointer; transition: all 0.2s;}
-    .action-pill.active { background: var(--text-main); color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1);}
+    .action-pill { flex-shrink: 0; display: inline-flex; align-items: center; background: #e8ecf4; color: var(--text-sub); padding: 7px 18px; border-radius: 20px; font-size: 13px; font-weight: 500; margin-right: 10px; cursor: pointer; transition: all 0.2s;}
+    .action-pill.active { background: var(--text-main); color: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.15);}
     
-    .tabs-fixed-right { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding-left: 10px; background: linear-gradient(90deg, rgba(244,246,251,0) 0%, var(--bg-color) 20%); z-index: 10;}
-    .mgr-btn { font-size: 16px; color: #8f9fc0; font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background:#fff; width:30px; height:30px; border-radius:50%; box-shadow: 0 2px 6px rgba(0,0,0,0.05);}
+    .tabs-fixed-right { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding-left: 10px; background: linear-gradient(90deg, rgba(244,246,251,0) 0%, var(--bg-color) 30%); z-index: 10;}
+    .mgr-btn { font-size: 16px; color: #8f9fc0; font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background:var(--surface-color); width:32px; height:32px; border-radius:50%; box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: all 0.2s;}
 
     .badge { margin-left: 4px; border-radius: 50%; font-size: 10px; width: 14px; height: 14px; display: inline-flex; justify-content: center; align-items: center; }
     .badge.warning { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); color: white; font-weight: bold;}
@@ -85,41 +94,41 @@
     /* ========== 排序控制栏 ========== */
     .action-bar-wrap { margin-bottom: 15px; }
     .action-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .view-toggle { display: flex; background: #e8ecf4; border-radius: 6px; padding: 2px; }
-    .view-toggle span { padding: 4px 12px; font-size: 12px; border-radius: 4px; color: #666; cursor: pointer; }
-    .view-toggle span.active { background: #fff; color: var(--text-main); font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .view-toggle { display: flex; background: #e8ecf4; border-radius: 8px; padding: 3px; }
+    .view-toggle span { padding: 5px 14px; font-size: 12px; border-radius: 6px; color: #666; cursor: pointer; transition: all 0.2s;}
+    .view-toggle span.active { background: #fff; color: var(--text-main); font-weight: bold; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
     .sort-dir-btn { background: #e8ecf4; color: var(--text-sub); padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer;}
     .sort-dir-btn.active { background: var(--text-main); color: #fff; }
-    select.sort-rule { padding: 6px 12px; border-radius: 20px; border: 1px solid #dbe1ef; font-size: 12px; outline: none; background: #fff;}
+    select.sort-rule { padding: 6px 12px; border-radius: 20px; border: 1px solid #dbe1ef; font-size: 12px; outline: none; background: #fff; cursor: pointer;}
 
     /* ========== 卡片与列表双视图 ========== */
     .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px; }
-    .card { background: #fff; border-radius: 20px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #f0f2f8; position: relative; cursor: pointer;}
+    .card { background: var(--surface-color); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm); border: 1px solid #f0f2f8; position: relative; cursor: pointer; transition: transform 0.25s, box-shadow 0.25s;}
     .card.risk-highlight { border: 2px solid #f97316; }
     
-    .c-del-btn { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; display: flex; justify-content: center; align-items: center; color: #9aa9c2; font-size: 16px; border-radius: 50%; background: #f8faff; z-index: 10;}
-    .c-del-btn:active { background: #fee2e2; color: #ef4444; }
+    .c-del-btn { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; display: flex; justify-content: center; align-items: center; color: #9aa9c2; font-size: 16px; border-radius: 50%; background: #f8faff; z-index: 10; transition: all 0.2s;}
+    .c-del-btn:active { background: #fee2e2; color: #ef4444; transform: scale(0.9); }
 
     .c-title-area { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 15px; padding-right: 35px;}
     .c-title { font-size: 16px; font-weight: bold; line-height: 1.3;}
     .c-code { font-size: 11px; background: #f0f2f8; padding: 2px 6px; border-radius: 10px; color: var(--text-sub);}
-    .c-tag { font-size: 11px; background: #dbeafe; color: var(--blue); padding: 2px 6px; border-radius: 10px;}
+    .c-tag { font-size: 11px; background: #dbeafe; color: var(--blue); padding: 2px 6px; border-radius: 10px; transition: all 0.2s;}
     .c-add-tag { background: #f0f2f8; color: #9aa9c2; border: 1px dashed #dbe1ef; cursor: pointer;}
 
-    .c-main { background: #f8faff; padding: 12px 15px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;}
+    .c-main { background: #f8faff; padding: 12px 15px; border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;}
     .c-val { font-size: 22px; font-weight: bold;}
     .c-chg { font-size: 18px; font-weight: bold;}
     
-    .rates-row { display: flex; flex-wrap: wrap; padding: 10px 5px; background: #f8faff; border-radius: 12px; margin-bottom: 10px;}
+    .rates-row { display: flex; flex-wrap: wrap; padding: 10px 5px; background: #f8faff; border-radius: var(--radius-md); margin-bottom: 10px;}
     .r-item { width: 33.33%; text-align: center; margin-bottom: 10px;}
     .r-lbl { font-size: 11px; color: var(--text-sub); display: block; margin-bottom: 2px;}
     .r-val { font-size: 13px; font-weight: bold;}
     
     .maxdrop-tag { font-size: 11px; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; padding: 4px 10px; border-radius: 15px; display: inline-block;}
     
-    .list-table-container { width: 100%; overflow-x: auto; background: #fff; border-radius: 16px; white-space: nowrap; padding-bottom: 10px;}
-    .l-header { display: flex; padding: 15px; background: #f8faff; border-bottom: 1px solid #e9ecf5; }
-    .l-row { display: flex; padding: 15px; border-bottom: 1px solid #f0f2f8; align-items: center; cursor: pointer; position: relative;}
+    .list-table-container { width: 100%; overflow-x: auto; background: var(--surface-color); border-radius: var(--radius-lg); white-space: nowrap; padding-bottom: 10px; box-shadow: var(--shadow-sm);}
+    .l-header { display: flex; padding: 15px; background: #f8faff; border-bottom: 1px solid #e9ecf5; border-radius: var(--radius-lg) var(--radius-lg) 0 0;}
+    .l-row { display: flex; padding: 15px; border-bottom: 1px solid #f0f2f8; align-items: center; cursor: pointer; position: relative; transition: background 0.2s;}
     .l-col-name { width: 140px; flex-shrink: 0; white-space: normal;}
     .l-col-rate { width: 70px; flex-shrink: 0; text-align: right; font-size: 14px; font-weight: bold;}
     .l-col-rate.th { font-size: 12px; color: var(--text-sub); font-weight: normal;}
@@ -129,36 +138,99 @@
     /* ========== 分组管理页面 ========== */
     .mgr-header { display: flex; padding: 15px 20px; font-size: 12px; color: #9aa9c2; font-weight: 500;}
     
-    .mgr-list-wrap { flex: 1; position: relative; margin: 0 10px; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.03); overflow-y: auto;}
-    .mgr-item { position: absolute; left: 0; width: 100%; height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #fff; border-bottom: 1px solid #f8faff; transition: top 0.2s cubic-bezier(0.25,0.8,0.25,1); box-sizing: border-box; z-index: 1;}
+    .mgr-list-wrap { flex: 1; position: relative; margin: 0 10px; background: var(--surface-color); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); overflow-y: auto;}
+    .mgr-item { position: absolute; left: 0; width: 100%; height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: var(--surface-color); border-bottom: 1px solid #f8faff; transition: top 0.2s cubic-bezier(0.25,0.8,0.25,1); box-sizing: border-box; z-index: 1;}
     .mgr-item.dragging { transition: none; background: #ffffff; box-shadow: 0 10px 25px rgba(37,99,235,0.15); border-radius: 12px; transform: scale(0.98); z-index: 99 !important; border:1px solid #eef2ff;}
     
     .m-left { display: flex; align-items: center; gap: 10px; }
-    .m-del { width: 20px; height: 20px; border-radius: 50%; background: #ef4444; position: relative; cursor: pointer;}
+    .m-del { width: 20px; height: 20px; border-radius: 50%; background: var(--red); position: relative; cursor: pointer; transition: transform 0.2s;}
     .m-del::after { content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:10px; height:2px; background:#fff;}
     .m-del.disabled { background: transparent; pointer-events: none;}
     .m-del.disabled::after { display: none;}
     
     .m-actions { display: flex; width: 120px; justify-content: space-between; align-items: center;}
-    .m-btn { width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer;}
+    .m-btn { width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer; transition: opacity 0.2s;}
     .m-btn.disabled { opacity: 0; pointer-events: none;}
     .drag-handle { cursor: grab; font-size: 18px; color: #cbd5e1; display:flex; align-items:center; justify-content:center; width:34px; height:34px; touch-action: none; user-select: none; -webkit-user-select: none;}
 
     .mgr-bottom-bar { position: absolute; bottom:0; left:0; width: 100%; padding: 20px 20px calc(20px + var(--safe-bottom)); background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 20%); z-index: 100;}
 
-    input { width: 100%; padding: 12px; border: 1px solid #e9ecf5; border-radius: 10px; outline: none; margin-bottom: 10px; font-size: 14px;}
-    .btn-primary { width: 100%; background: var(--blue); color: #fff; padding: 12px; border-radius: 10px; font-size: 15px; font-weight: bold; border: none; cursor: pointer; margin-bottom: 10px;}
+    input { width: 100%; padding: 12px; border: 1px solid #e9ecf5; border-radius: 10px; outline: none; margin-bottom: 10px; font-size: 14px; transition: border 0.2s;}
+    input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(59,130,246,0.1);}
+    .btn-primary { width: 100%; background: var(--blue); color: #fff; padding: 12px; border-radius: 10px; font-size: 15px; font-weight: bold; border: none; cursor: pointer; margin-bottom: 10px; transition: opacity 0.2s, transform 0.1s;}
+    .btn-primary:active { transform: scale(0.98); }
     .btn-success { background: #10b981; }
-    .list-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #fff; border-radius: 12px; margin-bottom: 10px; cursor: pointer;}
+    .list-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: var(--surface-color); border-radius: var(--radius-md); margin-bottom: 10px; cursor: pointer; transition: background 0.2s;}
     
     canvas { display: block; width: 100%; height: 240px; margin-bottom: 15px;}
     .detail-tabs { display: flex; gap: 10px; margin-bottom: 15px; overflow-x: auto;}
     .detail-tabs::-webkit-scrollbar { display:none;}
+
+    /* =========================================================
+       电脑端 PC Web 美化及响应式排版 (当屏幕宽度 >= 768px 时)
+       ========================================================= */
+    @media (min-width: 768px) {
+      .app-container { max-width: 1200px; padding-left: 90px; } /* 左侧腾出空间给导航栏 */
+
+      /* 底部导航变身为高颜值的左侧边栏 */
+      .tab-bar {
+        width: 90px; height: 100vh; padding: 30px 0;
+        bottom: auto; top: 0; left: auto; right: auto;
+        flex-direction: column; justify-content: flex-start;
+        border-right: 1px solid rgba(0,0,0,0.06); border-top: none;
+        background: rgba(255,255,255,0.85); box-shadow: 4px 0 20px rgba(0,0,0,0.02);
+      }
+      .tab-item { flex: none; height: 80px; margin-bottom: 15px; justify-content: center;}
+      
+      /* 页面内容区域去除多余底部内边距 */
+      .page-view { left: 90px; width: calc(100% - 90px); padding-bottom: 20px; }
+
+      /* PC 端精美 Hover 交互 */
+      @media (hover: hover) {
+        .card:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover); }
+        .l-row:hover { background: #f4f7ff; }
+        .list-item:hover { background: #f4f7ff; }
+        .action-pill:hover:not(.active) { background: #dbeafe; color: var(--blue); }
+        .nav-btn:hover { background: rgba(59,130,246,0.1); color: var(--blue); }
+        .mgr-btn:hover { background: #f0f4ff; color: var(--blue); }
+        .c-del-btn:hover { background: #fee2e2; color: #ef4444; }
+      }
+
+      /* 滚动条美化 */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+      ::-webkit-scrollbar-track { background: transparent; }
+
+      /* 弹窗从全屏变为居中 Dialog 对话框 */
+      .modal-view { 
+        background: rgba(11,27,50, 0.4); /* 半透明暗色背景遮罩 */
+        backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+        align-items: center; justify-content: center; 
+      }
+      .modal-content {
+        width: 800px; max-width: 90%; height: 85vh; max-height: 800px;
+        background: var(--bg-color); border-radius: 24px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        position: relative; overflow: hidden;
+      }
+      /* 针对板块选择框的特殊适配 */
+      #modal-sector-select { align-items: center; justify-content: center; }
+      #modal-sector-select > div { border-radius: 24px !important; min-height: auto !important; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.15);}
+    }
   </style>
 </head>
 <body>
 
 <div class="app-container">
+
+  <!-- ================= 底部菜单栏(移动)/侧边栏(PC) ================= -->
+  <div class="tab-bar">
+    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
+    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
+    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
+    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
+  </div>
 
   <!-- ================= 视图1：自选首页 ================= -->
   <div id="view-home" class="page-view active">
@@ -259,7 +331,7 @@
   <div id="view-sync" class="page-view">
     <div class="nav-bar"><div class="nav-title">⚙️ 设置中心</div></div>
     <div class="scroll-area">
-      <div class="card">
+      <div class="card" style="margin-bottom: 15px;">
         <h3>Cloudflare R2 同步配置</h3>
         <input type="text" id="r2-bucket" placeholder="Bucket Name (如: fund-app)">
         <input type="text" id="r2-ak" placeholder="Access Key ID">
@@ -276,98 +348,96 @@
     </div>
   </div>
 
-  <!-- ================= 底部菜单栏 ================= -->
-  <div class="tab-bar">
-    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
-    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
-    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
-    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
-  </div>
-
   <!-- ================= 弹窗：分组管理 ================= -->
-  <div id="modal-group-mgr" class="modal-view" style="z-index: 210; background:#f4f6fb;">
-    <div class="nav-bar">
-      <div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div>
-      <div class="nav-title">账户管理</div>
-      <div style="width:60px;"></div>
-    </div>
-    <div class="mgr-header">
-      <span style="flex:1;">账户名称</span>
-      <div style="display:flex; width:120px; justify-content:space-between;">
-        <span>修改</span><span>清空</span><span>排序</span>
+  <div id="modal-group-mgr" class="modal-view">
+    <div class="modal-content">
+      <div class="nav-bar">
+        <div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div>
+        <div class="nav-title">账户管理</div>
+        <div style="width:60px;"></div>
       </div>
-    </div>
-    
-    <div class="mgr-list-wrap" id="mgr-scroll-box">
-      <div id="group-mgr-list" style="position:relative;"></div>
-    </div>
-    
-    <div class="mgr-bottom-bar">
-      <button class="btn-primary" style="border-radius:30px; box-shadow:0 5px 15px rgba(59,130,246,0.3);" onclick="app.createGroup()">＋ 新建账户</button>
+      <div class="mgr-header">
+        <span style="flex:1;">账户名称</span>
+        <div style="display:flex; width:120px; justify-content:space-between;">
+          <span>修改</span><span>清空</span><span>排序</span>
+        </div>
+      </div>
+      
+      <div class="mgr-list-wrap" id="mgr-scroll-box">
+        <div id="group-mgr-list" style="position:relative;"></div>
+      </div>
+      
+      <div class="mgr-bottom-bar" style="position: relative; padding: 20px;">
+        <button class="btn-primary" style="border-radius:30px; box-shadow:0 5px 15px rgba(59,130,246,0.3); margin-bottom: 0;" onclick="app.createGroup()">＋ 新建账户</button>
+      </div>
     </div>
   </div>
 
   <!-- ================= 弹窗：板块选择器 ================= -->
-  <div id="modal-sector-select" class="modal-view" style="z-index: 220; background:rgba(0,0,0,0.5); justify-content:flex-end;">
-    <div style="background:#fff; border-radius:20px 20px 0 0; padding:20px; min-height:40vh;">
+  <div id="modal-sector-select" class="modal-view" style="background:rgba(0,0,0,0.6); justify-content:flex-end;">
+    <div style="background:var(--surface-color); border-radius:20px 20px 0 0; padding:20px; min-height:40vh;">
       <div style="display:flex; justify-content:space-between; margin-bottom:15px; font-weight:bold;">
         <span>选择板块 (最多2个)</span>
-        <span style="color:#999; cursor:pointer;" onclick="app.closeModal('sector-select')">✕</span>
+        <span style="color:#999; cursor:pointer; font-size: 18px;" onclick="app.closeModal('sector-select')">✕</span>
       </div>
       <div id="sector-select-list" class="tabs-scroll" style="flex-wrap:wrap; white-space:normal; gap:10px; cursor:auto;"></div>
     </div>
   </div>
 
   <!-- ================= 弹窗：基金搜索 ================= -->
-  <div id="modal-search" class="modal-view" style="z-index: 230;">
-    <div class="nav-bar">
-      <input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%;">
-      <div class="nav-btn" style="background:none;" onclick="app.closeModal('search')">取消</div>
+  <div id="modal-search" class="modal-view">
+    <div class="modal-content">
+      <div class="nav-bar">
+        <input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%;">
+        <div class="nav-btn" style="background:none;" onclick="app.closeModal('search')">取消</div>
+      </div>
+      <div class="scroll-area" id="search-results"></div>
     </div>
-    <div class="scroll-area" id="search-results"></div>
   </div>
 
   <!-- ================= 弹窗：基金详情 ================= -->
-  <div id="modal-detail" class="modal-view" style="z-index: 250;">
-    <div class="nav-bar">
-      <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
-      <div class="nav-title">基金详情</div>
-      <div style="width:60px;"></div>
-    </div>
-    <div class="scroll-area">
-      <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-        <div>
-          <h2 id="det-name" style="margin:0 0 5px; font-size:18px;">--</h2>
-          <span id="det-code" class="c-code">--</span>
-        </div>
-        <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="padding:6px 12px; border-radius:20px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none;">
-          <option value="">+ 加自选</option>
-        </select>
+  <div id="modal-detail" class="modal-view">
+    <div class="modal-content">
+      <div class="nav-bar">
+        <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
+        <div class="nav-title">基金详情</div>
+        <div style="width:60px;"></div>
       </div>
-
-      <div class="detail-tabs" id="det-tabs">
-        <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
-        <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
-        <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
-        <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
-        <div class="action-pill" onclick="app.renderDetailTab('hold')">📄持仓</div>
-      </div>
-
-      <div id="det-chart-area">
-        <div class="card" style="padding:10px;">
-          <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:10px; padding:0 5px;">
-            <span style="color:#0b1b32; font-weight:bold;">业绩走势(累计涨跌)</span>
-            <span style="color:#666;">最大回撤 <span id="det-maxdrop" class="green">--</span></span>
+      <div class="scroll-area">
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
+          <div>
+            <h2 id="det-name" style="margin:0 0 5px; font-size:18px;">--</h2>
+            <span id="det-code" class="c-code">--</span>
           </div>
-          <canvas id="det-canvas" 
-                  onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()"
-                  ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas>
+          <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="padding:8px 14px; border-radius:20px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer;">
+            <option value="">+ 加自选</option>
+          </select>
         </div>
-        <div style="font-weight:bold; margin-bottom:10px;">历史净值明细</div>
-        <div id="det-table-area"></div>
-      </div>
 
-      <div id="det-hold-area" style="display:none;"></div>
+        <div class="detail-tabs" id="det-tabs">
+          <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
+          <div class="action-pill" onclick="app.renderDetailTab('hold')">📄持仓</div>
+        </div>
+
+        <div id="det-chart-area">
+          <div class="card" style="padding:15px; margin-bottom: 15px;">
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:10px; padding:0 5px;">
+              <span style="color:#0b1b32; font-weight:bold;">业绩走势(累计涨跌)</span>
+              <span style="color:#666;">最大回撤 <span id="det-maxdrop" class="green">--</span></span>
+            </div>
+            <canvas id="det-canvas" 
+                    onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()"
+                    ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas>
+          </div>
+          <div style="font-weight:bold; margin-bottom:10px; padding-left: 5px;">历史净值明细</div>
+          <div id="det-table-area"></div>
+        </div>
+
+        <div id="det-hold-area" style="display:none;"></div>
+      </div>
     </div>
   </div>
 
@@ -402,10 +472,15 @@ const app = {
   viewMode: 'card', secViewMode: 'card',
   sortDir: 'desc', secSortDir: 'desc', rankDir: 'desc',
   
-  // 核心：彻底优化的超高帧率拖拽排版系统状态管理器
   dragState: { isDragging: false, startIndex: -1, currentIndex: -1, startY: 0, startTop: 0, dragEl: null, items: [], itemHeight: 60 },
   chartInfo: { data: [], touchIdx: -1 },
   masterFundList: [], searchTimer: null,
+
+  // 【核心功能修复】：将天天基金 UTC 时间戳转换为东八区准确日期
+  formatEMDate(ts, length = 10, offset = 0) {
+    // 增加 28800000 毫秒（即 8 小时），修正为中国时区
+    return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
+  },
 
   init() {
     const local = localStorage.getItem('fund_pwa_v6');
@@ -421,9 +496,9 @@ const app = {
     const sliders = document.querySelectorAll('.tabs-scroll');
     sliders.forEach(slider => {
       let isDown = false; let startX; let scrollLeft;
-      slider.addEventListener('mousedown', (e) => { isDown = true; startX = e.pageX - slider.offsetLeft; scrollLeft = slider.scrollLeft; });
-      slider.addEventListener('mouseleave', () => { isDown = false; });
-      slider.addEventListener('mouseup', () => { isDown = false; });
+      slider.addEventListener('mousedown', (e) => { isDown = true; startX = e.pageX - slider.offsetLeft; scrollLeft = slider.scrollLeft; slider.style.cursor = 'grabbing';});
+      slider.addEventListener('mouseleave', () => { isDown = false; slider.style.cursor = 'grab';});
+      slider.addEventListener('mouseup', () => { isDown = false; slider.style.cursor = 'grab';});
       slider.addEventListener('mousemove', (e) => {
         if(!isDown) return; e.preventDefault();
         const x = e.pageX - slider.offsetLeft; const walk = (x - startX) * 2; 
@@ -507,7 +582,7 @@ const app = {
     const maxDropIn20 = this.calcMaxDrop(nw, 20);
     const change = this.calcRate(nw, 2);
     
-    return { ...f, isLoad: true, latestDate: new Date(nw[nw.length-1].x).toISOString().slice(0,10), latest: nw[nw.length-1].y.toFixed(4), change, rates, maxDropIn20, 
+    return { ...f, isLoad: true, latestDate: this.formatEMDate(nw[nw.length-1].x, 10), latest: nw[nw.length-1].y.toFixed(4), change, rates, maxDropIn20, 
       isRisk: maxDropIn20 !== null && parseFloat(maxDropIn20) <= -8.5,
       isDailyRisk: change !== '--' && parseFloat(change) <= -5.0
     };
@@ -773,7 +848,6 @@ const app = {
     if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); alert('已清空'); this.renderHome(); } }
   },
 
-  // 1. 初次静态渲染 DOM 节点，并为各个节点分配固定的 id。不参与动态排序重绘
   renderGroupMgrList() {
     const box = document.getElementById('group-mgr-list');
     const h = this.dragState.itemHeight;
@@ -804,7 +878,6 @@ const app = {
     }, 50);
   },
 
-  // 2. 拖拽开始：锁定父级滚动条，提取坐标快照
   ds(e, i) {
     if (e.button !== undefined && e.button !== 0) return; 
     if (i === undefined || isNaN(i) || i === 0) return; 
@@ -829,7 +902,6 @@ const app = {
     this.dragState.startY = clientY;
     this.dragState.startTop = i * this.dragState.itemHeight;
 
-    // 构建数组映射结构，用以关联真实 DOM 与虚拟逻辑位置
     this.dragState.items = [];
     for(let j=0; j<this.data.groups.length; j++) {
       this.dragState.items.push({ origIndex: j, currIndex: j });
@@ -845,7 +917,6 @@ const app = {
     document.addEventListener('touchcancel', this._endHandler); 
   },
 
-  // 3. 拖拽移动：利用 requestAnimationFrame 限帧优化，只修改受到影响的元素的内联 style 属性 (原生级流畅)
   dm(e) {
     if (!this.dragState.isDragging) return;
     e.preventDefault(); 
@@ -863,17 +934,14 @@ const app = {
       if (newTop < h) newTop = h; 
       if (newTop > maxTop) newTop = maxTop;
 
-      // 让拖拽的元素跟随手指实时位移
       if (this.dragState.dragEl) {
         this.dragState.dragEl.style.top = newTop + 'px';
       }
 
-      // 计算当前所处的逻辑槽位
       let targetIdx = Math.round(newTop / h);
       if (targetIdx < 1) targetIdx = 1;
       if (targetIdx > this.data.groups.length - 1) targetIdx = this.data.groups.length - 1;
 
-      // 如果发生了越界挤位，更新其他受影响兄弟元素的映射位置和 style 坐标
       if (targetIdx !== this.dragState.currentIndex) {
         let oldIdx = this.dragState.currentIndex;
         this.dragState.currentIndex = targetIdx;
@@ -903,7 +971,6 @@ const app = {
     });
   },
 
-  // 4. 拖拽结束：数据落盘修改，卸载监听并重置状态
   de() {
     this.dragState.isDragging = false;
 
@@ -986,7 +1053,7 @@ const app = {
 
     let tbl = nw.slice().reverse().map((item, i, arr) => {
       let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--';
-      return `<div class="list-item" style="padding:10px 15px;"><span style="color:#666; font-size:13px; flex:1;">${new Date(item.x).toISOString().slice(0,10)}</span><span style="font-weight:bold; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right;">${chg>0?'+':''}${chg}%</span></div>`;
+      return `<div class="list-item" style="padding:10px 15px;"><span style="color:#666; font-size:13px; flex:1;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:bold; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right;">${chg>0?'+':''}${chg}%</span></div>`;
     }).join('');
     document.getElementById('det-table-area').innerHTML = tbl;
 
@@ -997,7 +1064,7 @@ const app = {
       if(item.y > maxPeak) maxPeak = item.y;
       const drop = ((maxPeak - item.y) / maxPeak * 100);
       if(drop > maxDrawdown) maxDrawdown = drop;
-      return { date: new Date(item.x).toISOString().slice(5,10), fullDate: new Date(item.x).toISOString().slice(0,10), y: item.y, rate };
+      return { date: this.formatEMDate(item.x, 5, 5), fullDate: this.formatEMDate(item.x, 10), y: item.y, rate };
     });
     
     document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%';
@@ -1128,7 +1195,7 @@ const app = {
         box.innerHTML = res.map(i => `
           <div class="list-item" style="cursor:pointer;" onclick="app.addFromSearch('${i[0]}', event)">
             <span style="flex:1;"><b style="font-size:15px; color:var(--text-main);">${i[2]}</b> <span class="c-code" style="margin-left:8px;">${i[0]}</span></span>
-            <span class="c-tag" style="padding:4px 12px; border-radius:20px; cursor:pointer;">+ 添加</span>
+            <span class="c-tag" style="padding:6px 14px; border-radius:20px; cursor:pointer;">+ 添加</span>
           </div>`).join('');
       }
     }, 300);

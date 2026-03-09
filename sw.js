@@ -1,25 +1,23 @@
-// 这是用来“杀死”旧版错误缓存的强制卸载脚本
-self.addEventListener('install', function(e) {
-  self.skipWaiting(); // 强制立即接管当前页面
+const CACHE_NAME = 'fund-pwa-v1';
+const urlsToCache = [
+  './index.html',
+  './manifest.json'
+];
+
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache))
+  );
 });
 
-self.addEventListener('activate', function(e) {
-  // 1. 强制注销自己
-  self.registration.unregister();
-  
-  // 2. 清除所有旧缓存的壳
-  caches.keys().then(function(cacheNames) {
-    return Promise.all(
-      cacheNames.map(function(cacheName) {
-        return caches.delete(cacheName);
-      })
-    );
-  });
-
-  // 3. 强制刷新用户的页面，让他们看到最新的 index.html
-  clients.claim().then(() => {
-    clients.matchAll().then(clients => {
-      clients.forEach(client => client.navigate(client.url));
-    });
-  });
+self.addEventListener('fetch', event => {
+  // 对于 API 请求直接放行，静态资源优先使用缓存
+  if (event.request.url.includes('eastmoney.com') || event.request.url.includes('baidu.com')) {
+    return;
+  }
+  event.respondWith(
+    caches.match(event.request).then(response => {
+      return response || fetch(event.request);
+    })
+  );
 });

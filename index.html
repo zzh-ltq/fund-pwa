@@ -8,6 +8,15 @@
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
+
+  <!-- [移动端崩溃修复核心]: 自动卸载错误拦截跨域请求的旧版 Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) { registration.unregister(); }
+      });
+    }
+  </script>
   
   <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1692.0.min.js"></script>
 
@@ -45,7 +54,7 @@
     
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-    /* ========== 弹窗容器 (支持PC居中/移动全屏) ========== */
+    /* ========== 弹窗容器 ========== */
     .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: fixed; top:0; left:0; z-index: 200; }
     .modal-view.active { display: flex; }
     .modal-content { width: 100%; height: 100%; background: var(--bg-color); display: flex; flex-direction: column; position: relative;}
@@ -167,23 +176,28 @@
     .detail-tabs::-webkit-scrollbar { display:none;}
 
     /* =========================================================
-       电脑端 PC Web 美化及响应式排版 (当屏幕宽度 >= 768px 时)
+       [修复遮挡核心逻辑] 电脑端 PC Web 完美响应式排版
+       不再使用 absolute 定位计算，完全改为弹性伸缩盒模型 Flex
        ========================================================= */
     @media (min-width: 768px) {
-      .app-container { max-width: 1200px; padding-left: 90px; } /* 左侧腾出空间给导航栏 */
+      /* 父容器开启横向弹性盒排列 */
+      .app-container { max-width: 1200px; padding: 0; flex-direction: row; }
 
-      /* 底部导航变身为高颜值的左侧边栏 */
+      /* 左侧导航：固定宽度，高度拉满 */
       .tab-bar {
-        width: 90px; height: 100vh; padding: 30px 0;
+        position: relative; width: 90px; height: 100vh; padding: 30px 0;
         bottom: auto; top: 0; left: auto; right: auto;
         flex-direction: column; justify-content: flex-start;
         border-right: 1px solid rgba(0,0,0,0.06); border-top: none;
         background: rgba(255,255,255,0.85); box-shadow: 4px 0 20px rgba(0,0,0,0.02);
+        order: -1; /* 强制排在最左侧 */
+        z-index: 150;
       }
       .tab-item { flex: none; height: 80px; margin-bottom: 15px; justify-content: center;}
       
-      /* 页面内容区域去除多余底部内边距 */
-      .page-view { left: 90px; width: calc(100% - 90px); padding-bottom: 20px; }
+      /* 右侧内容区：释放剩余宽度，自动伸缩不遮挡 */
+      .page-view { position: relative; flex: 1; width: auto; left: 0; padding-bottom: 20px; }
+      .scroll-area { padding-left: 25px; padding-right: 25px; } /* 让卡片和导航栏留出呼吸空间 */
 
       /* PC 端精美 Hover 交互 */
       @media (hover: hover) {
@@ -204,7 +218,7 @@
 
       /* 弹窗从全屏变为居中 Dialog 对话框 */
       .modal-view { 
-        background: rgba(11,27,50, 0.4); /* 半透明暗色背景遮罩 */
+        background: rgba(11,27,50, 0.4); 
         backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
         align-items: center; justify-content: center; 
       }
@@ -223,14 +237,6 @@
 <body>
 
 <div class="app-container">
-
-  <!-- ================= 底部菜单栏(移动)/侧边栏(PC) ================= -->
-  <div class="tab-bar">
-    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
-    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
-    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
-    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
-  </div>
 
   <!-- ================= 视图1：自选首页 ================= -->
   <div id="view-home" class="page-view active">
@@ -342,10 +348,19 @@
         <button class="btn-primary" style="background:#eef2ff; color:var(--blue); margin-top:15px;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button>
       </div>
       <div class="card">
-        <h3>系统管理</h3>
+        <h3>系统疑难解答</h3>
         <button class="btn-primary" style="background:#fff1f2; color:var(--red);" onclick="localStorage.clear(); location.reload();">🗑️ 清空本地缓存</button>
+        <button class="btn-primary" style="background:#f0fdf4; color:var(--green); margin-top:10px;" onclick="app.fixSafariNetwork()">🔧 修复网络崩溃(Load failed)</button>
       </div>
     </div>
+  </div>
+
+  <!-- ================= 底部菜单栏(移动)/左侧边栏(PC) ================= -->
+  <div class="tab-bar">
+    <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
+    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
+    <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
+    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
   </div>
 
   <!-- ================= 弹窗：分组管理 ================= -->
@@ -445,12 +460,14 @@
 
 <!-- 核心业务逻辑 -->
 <script>
+// JSONP 请求强力缓存阻断，防止 Safari TypeError 崩溃
 function fetchJSONP(url, callbackName = 'callback') {
   return new Promise((resolve, reject) => {
-    const cb = 'jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    // 使用时间戳 + 超大随机数彻底穿透缓存
+    const cb = 'jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000000);
     const script = document.createElement('script');
     const sep = url.includes('?') ? '&' : '?';
-    script.src = `${url}${sep}${callbackName}=${cb}`;
+    script.src = `${url}${sep}${callbackName}=${cb}&_nocache=${Date.now()}`;
     window[cb] = (data) => { resolve(data); delete window[cb]; script.remove(); };
     script.onerror = () => { reject('JSONP Network Error'); script.remove(); };
     document.head.appendChild(script);
@@ -480,6 +497,19 @@ const app = {
   formatEMDate(ts, length = 10, offset = 0) {
     // 增加 28800000 毫秒（即 8 小时），修正为中国时区
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
+  },
+
+  // 暴露给用户的强制网络修复功能
+  fixSafariNetwork() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) { registration.unregister(); }
+        alert("系统缓存与离线代理已清理！点击确定重新加载。");
+        window.location.reload(true);
+      });
+    } else {
+      alert("当前浏览器未发现拦截缓存。");
+    }
   },
 
   init() {
@@ -528,7 +558,8 @@ const app = {
   loadFundData(code) {
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`;
+      // 使用强力随机数阻断 Safari TypeError 拦截问题
+      script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?_nocache=${Date.now()}_${Math.random()}`;
       script.onload = () => {
         setTimeout(() => {
           if (window.Data_netWorthTrend) {
@@ -818,7 +849,7 @@ const app = {
     if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
   },
 
-  // ========== 账户管理 (彻底优化的极速超高帧率拖拽排版) ==========
+  // ========== 账户管理 ==========
   openGroupMgr() {
     this.openModal('group-mgr');
     this.renderGroupMgrList();
@@ -1156,7 +1187,7 @@ const app = {
       }
       document.body.setAttribute('data-dict-loading', '1');
       const script = document.createElement('script');
-      script.src = `https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`;
+      script.src = `https://fund.eastmoney.com/js/fundcode_search.js?_nocache=${Date.now()}`;
       script.charset = 'utf-8'; 
       script.onload = () => {
         let retryCount = 0;

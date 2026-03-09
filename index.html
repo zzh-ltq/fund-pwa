@@ -2,18 +2,24 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
 
-  <!-- [移动端崩溃修复核心]: 自动卸载错误拦截跨域请求的旧版 Service Worker -->
+  <!-- [终极缓存清理]: 彻底清除任何残留的 Service Worker -->
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) { registration.unregister(); }
+        for(let registration of registrations) { 
+          registration.unregister().then(function(boolean) {
+             if(boolean) console.log('残留缓存拦截器已清除');
+          }); 
+        }
       });
     }
   </script>
@@ -176,7 +182,7 @@
     .detail-tabs::-webkit-scrollbar { display:none;}
 
     /* =========================================================
-       [修复遮挡核心逻辑] 电脑端 PC Web 完美响应式排版
+       电脑端 PC Web 完美响应式排版
        不再使用 absolute 定位计算，完全改为弹性伸缩盒模型 Flex
        ========================================================= */
     @media (min-width: 768px) {
@@ -350,7 +356,6 @@
       <div class="card">
         <h3>系统疑难解答</h3>
         <button class="btn-primary" style="background:#fff1f2; color:var(--red);" onclick="localStorage.clear(); location.reload();">🗑️ 清空本地缓存</button>
-        <button class="btn-primary" style="background:#f0fdf4; color:var(--green); margin-top:10px;" onclick="app.fixSafariNetwork()">🔧 修复网络崩溃(Load failed)</button>
       </div>
     </div>
   </div>
@@ -460,10 +465,9 @@
 
 <!-- 核心业务逻辑 -->
 <script>
-// JSONP 请求强力缓存阻断，防止 Safari TypeError 崩溃
+// JSONP 请求强力穿透，绕过错误的 Service Worker 拦截
 function fetchJSONP(url, callbackName = 'callback') {
   return new Promise((resolve, reject) => {
-    // 使用时间戳 + 超大随机数彻底穿透缓存
     const cb = 'jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000000);
     const script = document.createElement('script');
     const sep = url.includes('?') ? '&' : '?';
@@ -493,23 +497,8 @@ const app = {
   chartInfo: { data: [], touchIdx: -1 },
   masterFundList: [], searchTimer: null,
 
-  // 【核心功能修复】：将天天基金 UTC 时间戳转换为东八区准确日期
   formatEMDate(ts, length = 10, offset = 0) {
-    // 增加 28800000 毫秒（即 8 小时），修正为中国时区
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
-  },
-
-  // 暴露给用户的强制网络修复功能
-  fixSafariNetwork() {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) { registration.unregister(); }
-        alert("系统缓存与离线代理已清理！点击确定重新加载。");
-        window.location.reload(true);
-      });
-    } else {
-      alert("当前浏览器未发现拦截缓存。");
-    }
   },
 
   init() {
@@ -558,7 +547,6 @@ const app = {
   loadFundData(code) {
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      // 使用强力随机数阻断 Safari TypeError 拦截问题
       script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?_nocache=${Date.now()}_${Math.random()}`;
       script.onload = () => {
         setTimeout(() => {

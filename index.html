@@ -9,7 +9,8 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
   
-  <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1692.0.min.js"></script>
+  <!-- 修复网络问题：替换为国内访问更稳定的 cdnjs 节点 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/aws-sdk/2.1692.0/aws-sdk.min.js"></script>
 
   <style>
     /* ========== 全局样式与变量 ========== */
@@ -37,6 +38,7 @@
       background: linear-gradient(180deg, #e3ecff 0%, #edf1fa 40%, #f4f6fb 100%); z-index: -1;
     }
 
+    /* 移动端基础容器布局 */
     .app-container { max-width: 100%; margin: 0 auto; height: 100vh; position: relative; display: flex; flex-direction: column; }
 
     .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; 
@@ -167,23 +169,29 @@
     .detail-tabs::-webkit-scrollbar { display:none;}
 
     /* =========================================================
-       电脑端 PC Web 美化及响应式排版 (当屏幕宽度 >= 768px 时)
+       电脑端 PC Web 美化及防遮挡排版 (当屏幕宽度 >= 768px 时)
        ========================================================= */
     @media (min-width: 768px) {
-      .app-container { max-width: 1200px; padding-left: 90px; } /* 左侧腾出空间给导航栏 */
+      /* 采用 Flexbox 布局，彻底解决固定定位导致的遮挡问题 */
+      .app-container { max-width: 1200px; flex-direction: row; align-items: stretch; }
 
-      /* 底部导航变身为高颜值的左侧边栏 */
+      /* 底部导航变身为高颜值的左侧边栏，作为实体元素挤占空间 */
       .tab-bar {
+        position: relative; /* 取消绝对定位 */
         width: 90px; height: 100vh; padding: 30px 0;
-        bottom: auto; top: 0; left: auto; right: auto;
+        bottom: auto; top: auto; left: auto;
         flex-direction: column; justify-content: flex-start;
         border-right: 1px solid rgba(0,0,0,0.06); border-top: none;
         background: rgba(255,255,255,0.85); box-shadow: 4px 0 20px rgba(0,0,0,0.02);
+        z-index: 10;
       }
       .tab-item { flex: none; height: 80px; margin-bottom: 15px; justify-content: center;}
       
-      /* 页面内容区域去除多余底部内边距 */
-      .page-view { left: 90px; width: calc(100% - 90px); padding-bottom: 20px; }
+      /* 页面内容区域自动占满剩余空间，不再被遮挡 */
+      .page-view { 
+        position: relative; /* 取消绝对定位，跟随 Flexbox 排列 */
+        width: 100%; flex: 1; padding-bottom: 20px; 
+      }
 
       /* PC 端精美 Hover 交互 */
       @media (hover: hover) {
@@ -204,7 +212,7 @@
 
       /* 弹窗从全屏变为居中 Dialog 对话框 */
       .modal-view { 
-        background: rgba(11,27,50, 0.4); /* 半透明暗色背景遮罩 */
+        background: rgba(11,27,50, 0.4); 
         backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
         align-items: center; justify-content: center; 
       }
@@ -214,7 +222,6 @@
         box-shadow: 0 20px 60px rgba(0,0,0,0.15);
         position: relative; overflow: hidden;
       }
-      /* 针对板块选择框的特殊适配 */
       #modal-sector-select { align-items: center; justify-content: center; }
       #modal-sector-select > div { border-radius: 24px !important; min-height: auto !important; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.15);}
     }
@@ -476,16 +483,15 @@ const app = {
   chartInfo: { data: [], touchIdx: -1 },
   masterFundList: [], searchTimer: null,
 
-  // 【核心功能修复】：将天天基金 UTC 时间戳转换为东八区准确日期
+  // 将天天基金 UTC 时间戳转换为东八区准确日期
   formatEMDate(ts, length = 10, offset = 0) {
-    // 增加 28800000 毫秒（即 8 小时），修正为中国时区
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
   },
 
   init() {
     const local = localStorage.getItem('fund_pwa_v6');
     if (local) this.data = JSON.parse(local);
-    this.initS3();
+    this.initS3(); // 增加了容错机制，避免网络加载失败卡死
     this.processGroupRisks();
     this.renderHomeGroups();
     this.renderHome();
@@ -542,6 +548,8 @@ const app = {
           script.remove();
         }, 50);
       };
+      // 添加 onerror，防止因为单个网络请求失败导致死等
+      script.onerror = () => { reject('网络异常或退市'); script.remove(); };
       document.head.appendChild(script);
     });
   },
@@ -818,7 +826,7 @@ const app = {
     if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
   },
 
-  // ========== 账户管理 (彻底优化的极速超高帧率拖拽排版) ==========
+  // ========== 账户管理 ==========
   openGroupMgr() {
     this.openModal('group-mgr');
     this.renderGroupMgrList();
@@ -1268,7 +1276,12 @@ const app = {
     const conf = JSON.parse(localStorage.getItem('r2_conf') || '{}');
     if (conf.ak) {
       document.getElementById('r2-bucket').value = conf.bucket; document.getElementById('r2-ak').value = conf.ak; document.getElementById('r2-sk').value = conf.sk; document.getElementById('r2-endpoint').value = conf.endpoint;
-      this.s3 = new AWS.S3({ endpoint: conf.endpoint, accessKeyId: conf.ak, secretAccessKey: conf.sk, s3ForcePathStyle: true, signatureVersion: 'v4', region: 'auto' });
+      // 容错机制：防止因为网络原因拦截了 aws 导致网页挂掉
+      if (typeof AWS !== 'undefined') {
+        this.s3 = new AWS.S3({ endpoint: conf.endpoint, accessKeyId: conf.ak, secretAccessKey: conf.sk, s3ForcePathStyle: true, signatureVersion: 'v4', region: 'auto' });
+      } else {
+        console.warn('云同步组件加载失败，您可能在使用限制较严的网络。');
+      }
     }
   },
   saveR2ParamsOnly() {
@@ -1278,7 +1291,8 @@ const app = {
     alert('参数保存成功！接下来请点击“拉取云端数据”或“上传覆盖”');
   },
   pullFromCloud() {
-    if(!this.s3) return alert('请先填写并保存参数');
+    if (typeof AWS === 'undefined') return alert('当前网络无法访问云同步服务，请切换网络(如使用手机数据)后再试。');
+    if (!this.s3) return alert('请先填写并保存参数');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
     this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
       if (err) {
@@ -1290,6 +1304,7 @@ const app = {
     });
   },
   pushToCloud() {
+    if (typeof AWS === 'undefined') return alert('当前网络无法访问云同步服务，请切换网络(如使用手机数据)后再试。');
     if (!this.s3) return alert('请先保存配置参数');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
     this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {

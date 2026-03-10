@@ -112,7 +112,7 @@
     select.sort-rule:focus { border-color: var(--blue); }
 
     /* ========== 卡片与列表双视图 (终极紧凑排版) ========== */
-    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; } /* 更小的最小宽度，一行能放更多 */
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; } 
     .card { background: var(--surface-color); border-radius: var(--radius-lg); padding: 14px; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8); position: relative; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); backdrop-filter: blur(10px);}
     .card.risk-highlight { border: 2px solid rgba(244, 63, 94, 0.4); box-shadow: 0 8px 20px rgba(244, 63, 94, 0.1); }
     
@@ -136,14 +136,18 @@
     .r-lbl { font-size: 10px; color: var(--text-sub); display: block; margin-bottom: 2px; font-weight: 600;}
     .r-val { font-size: 12px; font-weight: 800;}
     
-    .maxdrop-tag { font-size: 10px; background: linear-gradient(135deg, var(--text-sub) 0%, var(--text-main) 100%); color: white; padding: 2px 8px; border-radius: 10px; display: inline-block; font-weight: bold;}
+    /* 优化1：显著增大了20日跌幅的标签尺寸和权重 */
+    .maxdrop-tag { font-size: 12px; background: linear-gradient(135deg, #64748b 0%, #1e293b 100%); color: white; padding: 4px 10px; border-radius: 12px; display: inline-block; font-weight: 900; letter-spacing: 0.5px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);}
     
-    .list-table-container { width: 100%; overflow-x: auto; background: var(--surface-color); border-radius: var(--radius-lg); white-space: nowrap; padding-bottom: 8px; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8);}
+    .list-table-container { width: 100%; overflow-x: auto; background: var(--surface-color); border-radius: var(--radius-lg); white-space: nowrap; padding-bottom: 8px; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8); -webkit-overflow-scrolling: touch;}
     .l-header { display: flex; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;}
     .l-row { display: flex; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; align-items: center; cursor: pointer; position: relative; transition: background 0.3s;}
     .l-col-name { width: 140px; flex-shrink: 0; white-space: normal;}
     .l-col-rate { width: 70px; flex-shrink: 0; text-align: right; font-size: 13px; font-weight: 800;}
-    .l-col-rate.th { font-size: 11px; color: var(--text-sub); font-weight: bold;}
+    
+    /* 表头可点击样式 */
+    .l-col-rate.th { font-size: 12px; color: var(--text-sub); font-weight: 800; cursor: pointer; user-select: none; transition: color 0.2s;}
+    @media (hover: hover) { .l-col-rate.th:hover { color: var(--blue); } }
 
     .red { color: var(--red); } .green { color: var(--green); }
 
@@ -175,7 +179,7 @@
     
     .list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--surface-color); border-radius: var(--radius-md); margin-bottom: 8px; cursor: pointer; transition: all 0.3s; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8);}
     
-    canvas { display: block; width: 100%; height: 220px; margin-bottom: 12px;}
+    canvas { display: block; width: 100%; height: 240px; margin-bottom: 12px;}
     .detail-tabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto;}
     .detail-tabs::-webkit-scrollbar { display:none;}
 
@@ -285,12 +289,17 @@
           <div id="sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSortDir()">降序 ↓</div>
           <select id="sort-rule" class="sort-rule" onchange="app.renderHome()">
             <option value="daily">单日涨跌</option>
-            <option value="3">3日累计</option>
-            <option value="5">5日累计</option>
-            <option value="7">7日累计</option>
-            <option value="10">10日累计</option>
-            <option value="15">15日累计</option>
-            <option value="20">20日累计</option>
+            <option value="3日">3日累计</option>
+            <option value="5日">5日累计</option>
+            <option value="7日">7日累计</option>
+            <option value="10日">10日累计</option>
+            <option value="15日">15日累计</option>
+            <option value="20日">20日累计</option>
+            <!-- 下拉框同步拓展中长期供卡片和列表复用 -->
+            <option value="1月">近1月</option>
+            <option value="3月">近3月</option>
+            <option value="6月">近6月</option>
+            <option value="1年">近1年</option>
           </select>
         </div>
       </div>
@@ -335,12 +344,16 @@
           <div id="sec-sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSecSortDir()">降序 ↓</div>
           <select id="sec-sort-rule" class="sort-rule" onchange="app.renderSector()">
             <option value="daily">单日涨跌</option>
-            <option value="3">3日累计</option>
-            <option value="5">5日累计</option>
-            <option value="7">7日累计</option>
-            <option value="10">10日累计</option>
-            <option value="15">15日累计</option>
-            <option value="20">20日累计</option>
+            <option value="3日">3日累计</option>
+            <option value="5日">5日累计</option>
+            <option value="7日">7日累计</option>
+            <option value="10日">10日累计</option>
+            <option value="15日">15日累计</option>
+            <option value="20日">20日累计</option>
+            <option value="1月">近1月</option>
+            <option value="3月">近3月</option>
+            <option value="6月">近6月</option>
+            <option value="1年">近1年</option>
           </select>
         </div>
       </div>
@@ -363,7 +376,7 @@
         <button class="btn-primary" style="background:#fff; color:var(--blue); border:2px solid var(--blue-light); margin-top:8px; box-shadow:none;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button>
       </div>
       <div class="card">
-        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">系统管理</h3>
+        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">分组管理</h3>
         <button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="localStorage.clear(); location.reload();">🗑️ 清空本地缓存</button>
       </div>
     </div>
@@ -512,6 +525,34 @@ const app = {
     this.enablePCMouseScroll();
   },
 
+  // 列表表头排序循环点击事件 (供首页和板块页通用)
+  handleListSortClick(colName, isSector = false) {
+    const selectId = isSector ? 'sec-sort-rule' : 'sort-rule';
+    const select = document.getElementById(selectId);
+    
+    // 如果点击的恰好是当前正在排序的列
+    if (select.value === colName) {
+      if ((isSector ? this.secSortDir : this.sortDir) === 'desc') {
+        if (isSector) this.secSortDir = 'asc'; else this.sortDir = 'asc';
+      } else {
+        // 第三次点击，重置回默认的 单日跌涨降序
+        select.value = 'daily';
+        if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc';
+      }
+    } else {
+      // 点击了新的列，默认使用降序
+      select.value = colName;
+      if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc';
+    }
+    
+    // 同步更新上方的方向按钮文字
+    const btnId = isSector ? 'sec-sort-dir-btn' : 'sort-dir-btn';
+    const curDir = isSector ? this.secSortDir : this.sortDir;
+    document.getElementById(btnId).innerText = curDir === 'desc' ? '降序 ↓' : '升序 ↑';
+
+    if (isSector) this.renderSector(); else this.renderHome();
+  },
+
   // 检测外层点击事件 (用于 PC 端点击遮罩关闭弹窗)
   closeOutside(e, modalId) {
     if (e.target === e.currentTarget) {
@@ -560,7 +601,8 @@ const app = {
         setTimeout(() => {
           if (window.Data_netWorthTrend) {
             let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
-            if (nw.length > 120) nw = nw.slice(-120);
+            // 突破120天的限制，取近260个交易日，满足近1年的需求
+            if (nw.length > 260) nw = nw.slice(-260);
             const fund = { code, name: window.fS_name || code, netWorth: nw, sectors: this.data.fundsCache[code]?.sectors || [] };
             this.data.fundsCache[code] = fund;
             this.saveData();
@@ -606,11 +648,23 @@ const app = {
     const f = this.data.fundsCache[code];
     if (!f || !f.netWorth) return { code, name: '加载中...', isLoad: false };
     const nw = f.netWorth;
-    const rates = [3,5,7,10,15,20].map(d => ({ label: d+'日', val: this.calcRate(nw, d) }));
+    
+    // 全周期配置字典 (预估交易天数)
+    const listRatesCfg = [
+        { label: '3日', val: 3 }, { label: '5日', val: 5 }, { label: '7日', val: 7 },
+        { label: '10日', val: 10 }, { label: '15日', val: 15 }, { label: '20日', val: 20 },
+        { label: '1月', val: 21 }, { label: '3月', val: 63 }, { label: '6月', val: 126 }, { label: '1年', val: 252 }
+    ];
+    
+    // 卡片展示专供：只切取前6个短周期
+    const rates = listRatesCfg.slice(0, 6).map(d => ({ label: d.label, val: this.calcRate(nw, d.val) }));
+    // 列表拓展专供：全周期
+    const listRates = listRatesCfg.map(d => ({ label: d.label, val: this.calcRate(nw, d.val) }));
+
     const maxDropIn20 = this.calcMaxDrop(nw, 20);
     const change = this.calcRate(nw, 2);
     
-    return { ...f, isLoad: true, latestDate: this.formatEMDate(nw[nw.length-1].x, 10), latest: nw[nw.length-1].y.toFixed(4), change, rates, maxDropIn20, 
+    return { ...f, isLoad: true, latestDate: this.formatEMDate(nw[nw.length-1].x, 10), latest: nw[nw.length-1].y.toFixed(4), change, rates, listRates, maxDropIn20, 
       isRisk: maxDropIn20 !== null && parseFloat(maxDropIn20) <= -8.5,
       isDailyRisk: change !== '--' && parseFloat(change) <= -5.0
     };
@@ -658,14 +712,33 @@ const app = {
       </div>`;
   },
 
-  buildListHtml(funds, showDel = false) {
+  buildListHtml(funds, showDel = false, isSector = false) {
     if(funds.length === 0) return '';
-    let header = `<div class="l-header"><div class="l-col-name th">基金名称</div><div class="l-col-rate th" style="width:70px;">最新</div>
-      ${[3,5,7,10,15,20].map(d=>`<div class="l-col-rate th">${d}日</div>`).join('')}</div>`;
+    
+    const curSortRule = isSector ? document.getElementById('sec-sort-rule').value : document.getElementById('sort-rule').value;
+    const curSortDir = isSector ? this.secSortDir : this.sortDir;
+
+    // 渲染带箭头的表头
+    const renderTh = (label, colKey) => {
+      let arrow = '';
+      if (curSortRule === colKey) {
+        arrow = curSortDir === 'desc' ? ' <span style="color:var(--red);">↓</span>' : ' <span style="color:var(--green);">↑</span>';
+      }
+      return `<div class="l-col-rate th" onclick="app.handleListSortClick('${colKey}', ${isSector})">${label}${arrow}</div>`;
+    };
+
+    let headers = ['3日','5日','7日','10日','15日','20日','1月','3月','6月','1年'];
+    
+    let header = `<div class="l-header">
+      <div class="l-col-name th">基金名称</div>
+      ${renderTh('最新', 'daily')}
+      ${headers.map(h => renderTh(h, h)).join('')}
+    </div>`;
     
     let rows = funds.map(f => {
       if(!f.isLoad) return '';
-      let rates = f.rates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join('');
+      // 列表模式采用包含中长期数据的 f.listRates
+      let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join('');
       let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
       return `
         <div class="l-row" onclick="app.openDetail('${f.code}')">
@@ -711,11 +784,12 @@ const app = {
     
     const sortVal = document.getElementById('sort-rule').value;
     funds.sort((a, b) => {
-      let va = -9999, vb = -9999;
+      let va = -99999, vb = -99999;
       if(sortVal === 'daily') { va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; }
       else {
-        const ra = a.rates.find(r => r.label === sortVal+'日'); const rb = b.rates.find(r => r.label === sortVal+'日');
-        va = parseFloat(ra?.val)||0; vb = parseFloat(rb?.val)||0;
+        // 在排序时，使用 listRates (其中包含了长线周期)
+        const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal);
+        va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999;
       }
       if(va===vb) return 0;
       return this.sortDir === 'desc' ? vb - va : va - vb;
@@ -723,7 +797,7 @@ const app = {
 
     const container = document.getElementById('home-list');
     container.className = this.viewMode === 'card' ? 'card-grid' : '';
-    container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true);
+    container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true, false);
   },
 
   removeFundFromGroup(code) {
@@ -803,11 +877,11 @@ const app = {
     
     const sortVal = document.getElementById('sec-sort-rule').value;
     funds.sort((a, b) => {
-      let va = -9999, vb = -9999;
+      let va = -99999, vb = -99999;
       if(sortVal === 'daily') { va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; }
       else {
-        const ra = a.rates.find(r => r.label === sortVal+'日'); const rb = b.rates.find(r => r.label === sortVal+'日');
-        va = parseFloat(ra?.val)||0; vb = parseFloat(rb?.val)||0;
+        const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal);
+        va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999;
       }
       if(va===vb) return 0;
       return this.secSortDir === 'desc' ? vb - va : va - vb;
@@ -815,7 +889,7 @@ const app = {
 
     const container = document.getElementById('sector-list');
     container.className = this.secViewMode === 'card' ? 'card-grid' : '';
-    container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false);
+    container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false, true);
   },
   delSector(s) {
     if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
@@ -852,7 +926,7 @@ const app = {
     this.renderGroupMgrList();
   },
   createGroup() {
-    let name = prompt('新账户名称');
+    let name = prompt('新分组名称');
     if(name && name.trim()) {
       name = name.trim();
       if (this.data.groups.some(g => g.name === name)) { alert('分组名称已存在'); return; }
@@ -1081,7 +1155,7 @@ const app = {
 
     let tbl = nw.slice().reverse().map((item, i, arr) => {
       let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--';
-      return `<div class="list-item"><span style="color:var(--text-sub); font-size:12px; flex:1; font-weight:600;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:800; font-size:13px; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right; font-weight:800; font-size:13px;">${chg>0?'+':''}${chg}%</span></div>`;
+      return `<div class="list-item" style="padding:10px 14px;"><span style="color:var(--text-sub); font-size:13px; flex:1; font-weight:600;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:800; font-size:14px; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right; font-weight:800;">${chg>0?'+':''}${chg}%</span></div>`;
     }).join('');
     document.getElementById('det-table-area').innerHTML = tbl;
 
@@ -1232,7 +1306,7 @@ const app = {
   addFromSearch(code, e) {
     if (this.currentGroupId === 'default') {
       if (this.data.groups.length <= 1) {
-        alert('您还没有自建账户，请先点击"☰"新建账户！');
+        alert('您还没有自建分组，请先点击"☰"新建分组！');
       } else {
         alert('【全部】分组为系统默认记录，不能直接添加。请先在上方的标签栏点击选中您自己的分组，再进行搜索添加！');
       }
@@ -1261,7 +1335,7 @@ const app = {
     } else alert('该基金已在当前分组！');
   },
 
-  // ========== 持仓分析 (修复了涨幅乘以100及盘后数据抓取逻辑) ==========
+  // ========== 持仓分析 ==========
   async loadHoldings(code) {
     document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>';
     try {
@@ -1273,18 +1347,15 @@ const app = {
 
       const secids = holdings.map(h => ((h.code.startsWith('6')||h.code.startsWith('9'))?'1.':'0.')+h.code).join(',');
       
-      // 加上 fltt=2 参数，强制返回标准的百分比浮点数，同时请求 f60(昨收)、f2(最新) 作为备用
+      // 加上 fltt=2 参数，强制返回标准的百分比浮点数，并备用请求 f60(昨收)、f2(最新) 用于推算
       const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f60&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb');
       
       let qtMap = {};
       (qtData?.data?.diff || []).forEach(item => {
         let chg = 0;
-        // 如果 f3 有正常数值，直接采用（因为 fltt=2 返回的就是真实百分比如 1.5% 对应 1.5）
         if (item.f3 !== '-' && !isNaN(parseFloat(item.f3))) {
           chg = parseFloat(item.f3);
-        } 
-        // 如果遇到盘后或者凌晨数据清空，采用 最新价(f2) 和 昨收价(f60) 自动反算昨日尾盘涨幅
-        else if (item.f2 !== '-' && item.f60 !== '-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))) {
+        } else if (item.f2 !== '-' && item.f60 !== '-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))) {
           let f2 = parseFloat(item.f2);
           let f60 = parseFloat(item.f60);
           if (f60 > 0) chg = ((f2 - f60) / f60) * 100;

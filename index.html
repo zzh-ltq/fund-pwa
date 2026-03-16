@@ -330,7 +330,8 @@
         <input type="text" id="new-sector-input" placeholder="新建板块名称(限8字)" style="margin:0; flex:1;">
         <button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button>
       </div>
-      <div class="tabs-scroll" id="sector-tags" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px dashed #cbd5e1;"></div>
+      <!-- 修改点1：添加了 inline style 让标签换行，取消了原有的强制不换行 -->
+      <div class="tabs-scroll" id="sector-tags" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px dashed #cbd5e1; flex-wrap: wrap; white-space: normal; gap: 8px;"></div>
       
       <div class="action-bar-wrap" id="sector-action-wrap" style="display:none;">
         <div class="action-row">
@@ -1330,7 +1331,8 @@ const app = {
       this.saveData();
       if(e) e.currentTarget.querySelector('.c-tag').innerText = '加载中...';
       this.loadFundData(code).then(() => { 
-        alert('添加成功！'); this.closeModal('search'); this.processGroupRisks(); this.renderHome(); 
+        // 修改点2：移除了原有的 alert('添加成功！'); 实现无感添加
+        this.closeModal('search'); this.processGroupRisks(); this.renderHome(); 
       }).catch(() => alert('该基金可能已退市，无数据'));
     } else alert('该基金已在当前分组！');
   },

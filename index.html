@@ -734,7 +734,7 @@ const app = {
     let delBtn = showDel ? `<div class="c-del-btn" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
     
     // 【新增】渲染星标按钮 (如果有删除按钮，星标往左边靠一点)
-    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '12px'};" onclick="event.stopPropagation(); app.toggleStar('${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
+    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="event.stopPropagation(); app.toggleStar('${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
 
     return `
       <div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">

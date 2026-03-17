@@ -119,7 +119,12 @@
     .c-del-btn { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #94a3b8; font-size: 14px; border-radius: 50%; background: #f8fafc; z-index: 10; transition: all 0.3s;}
     .c-del-btn:hover { background: #ffe4e6; color: var(--red); transform: rotate(90deg); }
 
-    .c-title-area { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; padding-right: 28px;}
+    /* 【新增】星标按钮样式 */
+    .c-star-btn { position: absolute; top: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #cbd5e1; font-size: 16px; border-radius: 50%; background: transparent; z-index: 10; transition: all 0.3s; cursor: pointer; }
+    .c-star-btn:hover { transform: scale(1.1); color: #a855f7; }
+    .c-star-btn.starred { color: #a855f7; filter: drop-shadow(0 2px 4px rgba(168,85,247,0.3)); }
+
+    .c-title-area { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; padding-right: 50px;} /* 增加右侧间距避免遮挡星标 */
     .c-title { font-size: 14px; font-weight: 800; line-height: 1.3;}
     .c-code { font-size: 10px; background: #f1f5f9; padding: 2px 6px; border-radius: 8px; color: var(--text-sub); font-weight: 600;}
     .c-tag { font-size: 10px; background: var(--blue-light); color: var(--blue); padding: 2px 6px; border-radius: 8px; font-weight: 600;}
@@ -136,12 +141,16 @@
     .r-lbl { font-size: 10px; color: var(--text-sub); display: block; margin-bottom: 2px; font-weight: 600;}
     .r-val { font-size: 12px; font-weight: 800;}
     
-    /* 优化1：显著增大了20日跌幅的标签尺寸和权重 */
     .maxdrop-tag { font-size: 12px; background: linear-gradient(135deg, #64748b 0%, #1e293b 100%); color: white; padding: 4px 10px; border-radius: 12px; display: inline-block; font-weight: 900; letter-spacing: 0.5px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);}
     
     .list-table-container { width: 100%; overflow-x: auto; background: var(--surface-color); border-radius: var(--radius-lg); white-space: nowrap; padding-bottom: 8px; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8); -webkit-overflow-scrolling: touch;}
     .l-header { display: flex; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;}
     .l-row { display: flex; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; align-items: center; cursor: pointer; position: relative; transition: background 0.3s;}
+    
+    /* 【新增】列表项星标高亮样式 (紫色背景) */
+    .l-row.starred-row { background-color: #faf5ff; border-bottom-color: #f3e8ff;}
+    @media (hover: hover) { .l-row.starred-row:hover { background-color: #f3e8ff; transform: scale(1.005); border-radius: 8px;} }
+
     .l-col-name { width: 140px; flex-shrink: 0; white-space: normal;}
     .l-col-rate { width: 70px; flex-shrink: 0; text-align: right; font-size: 13px; font-weight: 800;}
     
@@ -179,6 +188,9 @@
     
     .list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--surface-color); border-radius: var(--radius-md); margin-bottom: 8px; cursor: pointer; transition: all 0.3s; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8);}
     
+    /* 【新增】板块搜索高亮样式 */
+    .action-pill.highlight-match { background: #fef08a; color: #854d0e; border: 1px solid #fde047; box-shadow: 0 2px 8px rgba(250, 204, 21, 0.3); transform: translateY(-1px);}
+
     canvas { display: block; width: 100%; height: 240px; margin-bottom: 12px;}
     .detail-tabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto;}
     .detail-tabs::-webkit-scrollbar { display:none;}
@@ -214,9 +226,9 @@
       /* PC 端精美 Hover 交互 */
       @media (hover: hover) {
         .card:hover { transform: translateY(-4px) scale(1.01); box-shadow: var(--shadow-hover); border-color: var(--blue-light);}
-        .l-row:hover { background: #f8fafc; transform: scale(1.005); border-radius: 8px;}
+        .l-row:hover:not(.starred-row) { background: #f8fafc; transform: scale(1.005); border-radius: 8px;}
         .list-item:hover { transform: translateX(4px); border-color: var(--blue-light); box-shadow: var(--shadow-hover);}
-        .action-pill:hover:not(.active) { background: var(--blue-light); color: var(--blue); }
+        .action-pill:hover:not(.active):not(.highlight-match) { background: var(--blue-light); color: var(--blue); }
         .nav-btn:hover { background: var(--blue); color: #fff; box-shadow: 0 4px 12px rgba(0, 102, 255, 0.25);}
         .mgr-btn:hover { background: var(--blue); color: #fff; box-shadow: 0 4px 12px rgba(0, 102, 255, 0.25);}
         .drag-handle:hover { color: var(--blue); }
@@ -326,11 +338,21 @@
       <div class="nav-title">🏷️ 板块分析</div>
     </div>
     <div class="scroll-area">
-      <div style="display:flex; gap:10px; margin-bottom: 12px;">
+      <div style="display:flex; gap:10px; margin-bottom: 8px;">
         <input type="text" id="new-sector-input" placeholder="新建板块名称(限8字)" style="margin:0; flex:1;">
         <button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button>
       </div>
-      <!-- 修改点1：添加了 inline style 让标签换行，取消了原有的强制不换行 -->
+
+      <!-- 【新增】板块搜索框 -->
+      <div style="display:flex; gap:10px; margin-bottom: 12px;">
+        <input type="text" id="search-sector-input" placeholder="搜索已建板块" style="margin:0; flex:1;" oninput="app.searchSector()">
+        <button class="btn-primary" style="width:70px; margin:0; background: var(--text-sub); box-shadow: none;" onclick="app.searchSector()">搜索</button>
+      </div>
+      <!-- 【新增】未命中搜索时的提示文本 -->
+      <div id="sector-search-msg" style="display:none; color:var(--red); font-size:12px; margin-bottom:12px; font-weight:bold;">
+        暂无相关板块，请在上方新建。
+      </div>
+
       <div class="tabs-scroll" id="sector-tags" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px dashed #cbd5e1; flex-wrap: wrap; white-space: normal; gap: 8px;"></div>
       
       <div class="action-bar-wrap" id="sector-action-wrap" style="display:none;">
@@ -501,6 +523,7 @@ const app = {
   s3: null,
   currentGroupId: 'default',
   activeSector: '',
+  sectorSearchKeyword: '', // 【新增】板块搜索关键字状态
   currentDetailCode: '',
   targetSectorCode: '',
   
@@ -588,7 +611,7 @@ const app = {
     
     if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); }
     if(tabId === 'rank') this.renderRank();
-    if(tabId === 'sector') this.renderSector();
+    if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
   },
 
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
@@ -604,7 +627,13 @@ const app = {
             let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
             // 突破120天的限制，取近260个交易日，满足近1年的需求
             if (nw.length > 260) nw = nw.slice(-260);
-            const fund = { code, name: window.fS_name || code, netWorth: nw, sectors: this.data.fundsCache[code]?.sectors || [] };
+            const fund = { 
+                code, 
+                name: window.fS_name || code, 
+                netWorth: nw, 
+                sectors: this.data.fundsCache[code]?.sectors || [],
+                isStarred: this.data.fundsCache[code]?.isStarred || false // 保留标记状态
+            };
             this.data.fundsCache[code] = fund;
             this.saveData();
             resolve(fund);
@@ -667,7 +696,8 @@ const app = {
     
     return { ...f, isLoad: true, latestDate: this.formatEMDate(nw[nw.length-1].x, 10), latest: nw[nw.length-1].y.toFixed(4), change, rates, listRates, maxDropIn20, 
       isRisk: maxDropIn20 !== null && parseFloat(maxDropIn20) <= -8.5,
-      isDailyRisk: change !== '--' && parseFloat(change) <= -5.0
+      isDailyRisk: change !== '--' && parseFloat(change) <= -5.0,
+      isStarred: !!f.isStarred
     };
   },
 
@@ -682,6 +712,18 @@ const app = {
     });
   },
 
+  // 【新增】切换基金星标状态
+  toggleStar(code) {
+    const f = this.data.fundsCache[code];
+    if (f) {
+        f.isStarred = !f.isStarred;
+        this.saveData();
+        // 重新渲染当前活动的视图
+        if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+        if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+    }
+  },
+
   buildCardHtml(f, isHomeGroup = false) {
     if(!f.isLoad) return `<div class="card"><div class="c-title">${f.code} 加载中</div></div>`;
     const col = f.change >= 0 ? 'red' : 'green';
@@ -690,11 +732,15 @@ const app = {
     
     let showDel = isHomeGroup && this.currentGroupId !== 'default';
     let delBtn = showDel ? `<div class="c-del-btn" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
+    
+    // 【新增】渲染星标按钮 (如果有删除按钮，星标往左边靠一点)
+    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="event.stopPropagation(); app.toggleStar('${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
 
     return `
       <div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">
         ${delBtn}
-        <div class="card-head" style="padding-right: ${showDel ? '35px' : '0'};">
+        ${starBtn}
+        <div class="card-head" style="padding-right: ${showDel ? '55px' : '25px'};">
           <div class="c-title-area">
             <span class="c-title">${f.name}</span><span class="c-code">${f.code}</span>
             ${tagsHtml}
@@ -741,8 +787,12 @@ const app = {
       // 列表模式采用包含中长期数据的 f.listRates
       let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join('');
       let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
+      
+      // 【新增】判断是否星标，赋予对应的特殊背景class
+      let rowClass = f.isStarred ? 'l-row starred-row' : 'l-row';
+
       return `
-        <div class="l-row" onclick="app.openDetail('${f.code}')">
+        <div class="${rowClass}" onclick="app.openDetail('${f.code}')">
           ${delBtn}
           <div class="l-col-name"><div style="font-weight:800; font-size:13px;">${f.name}</div><div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">${f.code}</div></div>
           <div class="l-col-rate" style="width:70px;">
@@ -852,8 +902,26 @@ const app = {
   // ========== 板块页 ==========
   addSector() {
     let val = document.getElementById('new-sector-input').value.trim();
-    if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { this.data.customSectors.push(val); this.saveData(); this.renderSector(); document.getElementById('new-sector-input').value=''; }
+    if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { 
+        this.data.customSectors.push(val); 
+        this.saveData(); 
+        
+        // 添加成功后清空搜索条件和搜索框，以便展示新添加的板块
+        this.sectorSearchKeyword = '';
+        const searchInput = document.getElementById('search-sector-input');
+        if(searchInput) searchInput.value = '';
+        
+        this.renderSector(); 
+        document.getElementById('new-sector-input').value=''; 
+    }
   },
+  
+  // 【新增】板块搜索
+  searchSector() {
+    this.sectorSearchKeyword = document.getElementById('search-sector-input').value.trim().toLowerCase();
+    this.renderSector();
+  },
+
   setSecViewMode(mode) {
     this.secViewMode = mode;
     document.getElementById('svt-card').className = mode === 'card' ? 'active' : '';
@@ -867,9 +935,30 @@ const app = {
     btn.className = 'sort-dir-btn active';
     this.renderSector();
   },
+
   renderSector() {
-    document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => `<div class="action-pill ${this.activeSector===s?'active':''}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#94a3b8; margin-left:6px;" onclick="event.stopPropagation(); app.delSector('${s}')">✕</span></div>`).join('');
+    let kw = this.sectorSearchKeyword;
+    let matchCount = 0;
+
+    // 渲染上方板块标签，附带高亮逻辑
+    document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => {
+      let isMatch = kw && s.toLowerCase().includes(kw);
+      if (isMatch) matchCount++;
+
+      let highlightCls = isMatch ? 'highlight-match' : '';
+      let activeCls = this.activeSector === s ? 'active' : '';
+
+      return `<div class="action-pill ${activeCls} ${highlightCls}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#94a3b8; margin-left:6px;" onclick="event.stopPropagation(); app.delSector('${s}')">✕</span></div>`;
+    }).join('');
     
+    // 如果处于搜索状态且没有命中任何板块，显示提示语
+    const msgEl = document.getElementById('sector-search-msg');
+    if (kw && matchCount === 0) {
+        msgEl.style.display = 'block';
+    } else {
+        msgEl.style.display = 'none';
+    }
+
     const wrap = document.getElementById('sector-action-wrap');
     if(!this.activeSector) { wrap.style.display = 'none'; document.getElementById('sector-list').innerHTML=''; return; }
     
@@ -892,6 +981,7 @@ const app = {
     container.className = this.secViewMode === 'card' ? 'card-grid' : '';
     container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false, true);
   },
+
   delSector(s) {
     if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
   },
@@ -1331,7 +1421,6 @@ const app = {
       this.saveData();
       if(e) e.currentTarget.querySelector('.c-tag').innerText = '加载中...';
       this.loadFundData(code).then(() => { 
-        // 修改点2：移除了原有的 alert('添加成功！'); 实现无感添加
         this.closeModal('search'); this.processGroupRisks(); this.renderHome(); 
       }).catch(() => alert('该基金可能已退市，无数据'));
     } else alert('该基金已在当前分组！');

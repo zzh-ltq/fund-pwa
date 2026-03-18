@@ -124,7 +124,7 @@
     .c-star-btn:hover { transform: scale(1.1); color: #a855f7; }
     .c-star-btn.starred { color: #a855f7; filter: drop-shadow(0 2px 4px rgba(168,85,247,0.3)); }
 
-    /* 【新增】奖牌图标样式 */
+    /* 奖牌图标样式 */
     .medal-icon { font-size: 15px; margin-right: 2px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.1)); }
 
     .c-title-area { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; padding-right: 50px;}
@@ -304,6 +304,8 @@
           <div id="sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSortDir()">降序 ↓</div>
           <select id="sort-rule" class="sort-rule" onchange="app.renderHome()">
             <option value="daily">单日涨跌</option>
+            <!-- 【新增选项】 -->
+            <option value="medal">优劣综合</option>
             <option value="3日">3日累计</option>
             <option value="5日">5日累计</option>
             <option value="7日">7日累计</option>
@@ -370,6 +372,8 @@
           <div id="sec-sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSecSortDir()">降序 ↓</div>
           <select id="sec-sort-rule" class="sort-rule" onchange="app.renderSector()">
             <option value="daily">单日涨跌</option>
+            <!-- 【新增选项】 -->
+            <option value="medal">优劣综合</option>
             <option value="3日">3日累计</option>
             <option value="5日">5日累计</option>
             <option value="7日">7日累计</option>
@@ -715,25 +719,21 @@ const app = {
     }
   },
 
-  // 【新增】核心打分评估函数：基于波达计数法 (Borda Count) 为基金排序颁发奖牌
+  // 基于波达计数法 (Borda Count) 为基金排序颁发奖牌
   calculateMedals(funds) {
-    // 少于3只基金不排奖牌
     if (!funds || funds.length < 3) {
         funds.forEach(f => f.medal = '');
         return;
     }
 
-    // 规定科学评估的切片维度（短中线为主，截至到 1 月）
     const evaluatePeriods = ['daily', '3日', '5日', '7日', '10日', '15日', '20日', '1月'];
 
-    // 初始化所有基金的得分和奖牌
     funds.forEach(f => {
         f.medalScore = 0;
         f.medal = '';
     });
 
     evaluatePeriods.forEach(p => {
-        // 构建当前维度下可用于排序的数值数组
         let values = funds.map(f => {
             let val = -9999;
             if (p === 'daily') {
@@ -745,23 +745,18 @@ const app = {
             return { code: f.code, val: isNaN(val) ? -9999 : val };
         });
 
-        // 依据涨幅进行降序排序
         values.sort((a, b) => b.val - a.val);
 
-        // 分配排名积分 (第一名得 funds.length 分，最后一名得 1 分)
         values.forEach((item, index) => {
             let fund = funds.find(f => f.code === item.code);
-            // 只有存在有效数据的基金才给分
             if (fund && item.val !== -9999) {
                 fund.medalScore += (funds.length - index);
             }
         });
     });
 
-    // 依据综合得分重新排序（不改变原始 funds 数组顺序，只用克隆体找前三名）
     let rankedFunds = [...funds].sort((a, b) => b.medalScore - a.medalScore);
 
-    // 颁发金银铜牌
     if (rankedFunds.length > 0 && rankedFunds[0].medalScore > 0) { rankedFunds[0].medal = '🥇'; }
     if (rankedFunds.length > 1 && rankedFunds[1].medalScore > 0) { rankedFunds[1].medal = '🥈'; }
     if (rankedFunds.length > 2 && rankedFunds[2].medalScore > 0) { rankedFunds[2].medal = '🥉'; }
@@ -880,8 +875,12 @@ const app = {
     const sortVal = document.getElementById('sort-rule').value;
     funds.sort((a, b) => {
       let va = -99999, vb = -99999;
-      if(sortVal === 'daily') { va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; }
-      else {
+      // 【新增判断】如果选择的是“优劣综合”，则依据奖牌分数比较
+      if(sortVal === 'daily') { 
+          va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; 
+      } else if (sortVal === 'medal') {
+          va = a.medalScore || 0; vb = b.medalScore || 0;
+      } else {
         const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal);
         va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999;
       }
@@ -1002,8 +1001,12 @@ const app = {
     const sortVal = document.getElementById('sec-sort-rule').value;
     funds.sort((a, b) => {
       let va = -99999, vb = -99999;
-      if(sortVal === 'daily') { va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; }
-      else {
+      // 【新增判断】如果选择的是“优劣综合”，则依据奖牌分数比较
+      if(sortVal === 'daily') { 
+          va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; 
+      } else if (sortVal === 'medal') {
+          va = a.medalScore || 0; vb = b.medalScore || 0;
+      } else {
         const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal);
         va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999;
       }

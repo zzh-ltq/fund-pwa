@@ -119,12 +119,15 @@
     .c-del-btn { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #94a3b8; font-size: 14px; border-radius: 50%; background: #f8fafc; z-index: 10; transition: all 0.3s;}
     .c-del-btn:hover { background: #ffe4e6; color: var(--red); transform: rotate(90deg); }
 
-    /* 【新增】星标按钮样式 */
+    /* 星标按钮样式 */
     .c-star-btn { position: absolute; top: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #cbd5e1; font-size: 16px; border-radius: 50%; background: transparent; z-index: 10; transition: all 0.3s; cursor: pointer; }
     .c-star-btn:hover { transform: scale(1.1); color: #a855f7; }
     .c-star-btn.starred { color: #a855f7; filter: drop-shadow(0 2px 4px rgba(168,85,247,0.3)); }
 
-    .c-title-area { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; padding-right: 50px;} /* 增加右侧间距避免遮挡星标 */
+    /* 【新增】奖牌图标样式 */
+    .medal-icon { font-size: 15px; margin-right: 2px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.1)); }
+
+    .c-title-area { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; padding-right: 50px;}
     .c-title { font-size: 14px; font-weight: 800; line-height: 1.3;}
     .c-code { font-size: 10px; background: #f1f5f9; padding: 2px 6px; border-radius: 8px; color: var(--text-sub); font-weight: 600;}
     .c-tag { font-size: 10px; background: var(--blue-light); color: var(--blue); padding: 2px 6px; border-radius: 8px; font-weight: 600;}
@@ -147,9 +150,9 @@
     .l-header { display: flex; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;}
     .l-row { display: flex; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; align-items: center; cursor: pointer; position: relative; transition: background 0.3s;}
     
-    /* 【修改后】列表项星标高亮样式 (加深紫色背景) */
-.l-row.starred-row { background-color: #f3e8ff; border-bottom-color: #e9d5ff;}
-@media (hover: hover) { .l-row.starred-row:hover { background-color: #e9d5ff; transform: scale(1.005); border-radius: 8px;} }
+    /* 列表项星标高亮样式 (加深紫色背景) */
+    .l-row.starred-row { background-color: #f3e8ff; border-bottom-color: #e9d5ff;}
+    @media (hover: hover) { .l-row.starred-row:hover { background-color: #e9d5ff; transform: scale(1.005); border-radius: 8px;} }
 
     .l-col-name { width: 140px; flex-shrink: 0; white-space: normal;}
     .l-col-rate { width: 70px; flex-shrink: 0; text-align: right; font-size: 13px; font-weight: 800;}
@@ -188,7 +191,7 @@
     
     .list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--surface-color); border-radius: var(--radius-md); margin-bottom: 8px; cursor: pointer; transition: all 0.3s; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8);}
     
-    /* 【新增】板块搜索高亮样式 */
+    /* 板块搜索高亮样式 */
     .action-pill.highlight-match { background: #fef08a; color: #854d0e; border: 1px solid #fde047; box-shadow: 0 2px 8px rgba(250, 204, 21, 0.3); transform: translateY(-1px);}
 
     canvas { display: block; width: 100%; height: 240px; margin-bottom: 12px;}
@@ -343,12 +346,12 @@
         <button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button>
       </div>
 
-      <!-- 【新增】板块搜索框 -->
+      <!-- 板块搜索框 -->
       <div style="display:flex; gap:10px; margin-bottom: 12px;">
         <input type="text" id="search-sector-input" placeholder="搜索已建板块" style="margin:0; flex:1;" oninput="app.searchSector()">
         <button class="btn-primary" style="width:70px; margin:0; background: var(--text-sub); box-shadow: none;" onclick="app.searchSector()">搜索</button>
       </div>
-      <!-- 【新增】未命中搜索时的提示文本 -->
+      <!-- 未命中搜索时的提示文本 -->
       <div id="sector-search-msg" style="display:none; color:var(--red); font-size:12px; margin-bottom:12px; font-weight:bold;">
         暂无相关板块，请在上方新建。
       </div>
@@ -523,7 +526,7 @@ const app = {
   s3: null,
   currentGroupId: 'default',
   activeSector: '',
-  sectorSearchKeyword: '', // 【新增】板块搜索关键字状态
+  sectorSearchKeyword: '',
   currentDetailCode: '',
   targetSectorCode: '',
   
@@ -549,27 +552,22 @@ const app = {
     this.enablePCMouseScroll();
   },
 
-  // 列表表头排序循环点击事件 (供首页和板块页通用)
   handleListSortClick(colName, isSector = false) {
     const selectId = isSector ? 'sec-sort-rule' : 'sort-rule';
     const select = document.getElementById(selectId);
     
-    // 如果点击的恰好是当前正在排序的列
     if (select.value === colName) {
       if ((isSector ? this.secSortDir : this.sortDir) === 'desc') {
         if (isSector) this.secSortDir = 'asc'; else this.sortDir = 'asc';
       } else {
-        // 第三次点击，重置回默认的 单日跌涨降序
         select.value = 'daily';
         if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc';
       }
     } else {
-      // 点击了新的列，默认使用降序
       select.value = colName;
       if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc';
     }
     
-    // 同步更新上方的方向按钮文字
     const btnId = isSector ? 'sec-sort-dir-btn' : 'sort-dir-btn';
     const curDir = isSector ? this.secSortDir : this.sortDir;
     document.getElementById(btnId).innerText = curDir === 'desc' ? '降序 ↓' : '升序 ↑';
@@ -577,7 +575,6 @@ const app = {
     if (isSector) this.renderSector(); else this.renderHome();
   },
 
-  // 检测外层点击事件 (用于 PC 端点击遮罩关闭弹窗)
   closeOutside(e, modalId) {
     if (e.target === e.currentTarget) {
       this.closeModal(modalId);
@@ -625,14 +622,13 @@ const app = {
         setTimeout(() => {
           if (window.Data_netWorthTrend) {
             let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
-            // 突破120天的限制，取近260个交易日，满足近1年的需求
             if (nw.length > 260) nw = nw.slice(-260);
             const fund = { 
                 code, 
                 name: window.fS_name || code, 
                 netWorth: nw, 
                 sectors: this.data.fundsCache[code]?.sectors || [],
-                isStarred: this.data.fundsCache[code]?.isStarred || false // 保留标记状态
+                isStarred: this.data.fundsCache[code]?.isStarred || false 
             };
             this.data.fundsCache[code] = fund;
             this.saveData();
@@ -679,16 +675,13 @@ const app = {
     if (!f || !f.netWorth) return { code, name: '加载中...', isLoad: false };
     const nw = f.netWorth;
     
-    // 全周期配置字典 (预估交易天数)
     const listRatesCfg = [
         { label: '3日', val: 3 }, { label: '5日', val: 5 }, { label: '7日', val: 7 },
         { label: '10日', val: 10 }, { label: '15日', val: 15 }, { label: '20日', val: 20 },
         { label: '1月', val: 21 }, { label: '3月', val: 63 }, { label: '6月', val: 126 }, { label: '1年', val: 252 }
     ];
     
-    // 卡片展示专供：只切取前6个短周期
     const rates = listRatesCfg.slice(0, 6).map(d => ({ label: d.label, val: this.calcRate(nw, d.val) }));
-    // 列表拓展专供：全周期
     const listRates = listRatesCfg.map(d => ({ label: d.label, val: this.calcRate(nw, d.val) }));
 
     const maxDropIn20 = this.calcMaxDrop(nw, 20);
@@ -712,16 +705,66 @@ const app = {
     });
   },
 
-  // 【新增】切换基金星标状态
   toggleStar(code) {
     const f = this.data.fundsCache[code];
     if (f) {
         f.isStarred = !f.isStarred;
         this.saveData();
-        // 重新渲染当前活动的视图
         if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
         if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
     }
+  },
+
+  // 【新增】核心打分评估函数：基于波达计数法 (Borda Count) 为基金排序颁发奖牌
+  calculateMedals(funds) {
+    // 少于3只基金不排奖牌
+    if (!funds || funds.length < 3) {
+        funds.forEach(f => f.medal = '');
+        return;
+    }
+
+    // 规定科学评估的切片维度（短中线为主，截至到 1 月）
+    const evaluatePeriods = ['daily', '3日', '5日', '7日', '10日', '15日', '20日', '1月'];
+
+    // 初始化所有基金的得分和奖牌
+    funds.forEach(f => {
+        f.medalScore = 0;
+        f.medal = '';
+    });
+
+    evaluatePeriods.forEach(p => {
+        // 构建当前维度下可用于排序的数值数组
+        let values = funds.map(f => {
+            let val = -9999;
+            if (p === 'daily') {
+                val = parseFloat(f.change);
+            } else {
+                let ra = f.listRates.find(r => r.label === p);
+                val = ra && ra.val !== '--' ? parseFloat(ra.val) : -9999;
+            }
+            return { code: f.code, val: isNaN(val) ? -9999 : val };
+        });
+
+        // 依据涨幅进行降序排序
+        values.sort((a, b) => b.val - a.val);
+
+        // 分配排名积分 (第一名得 funds.length 分，最后一名得 1 分)
+        values.forEach((item, index) => {
+            let fund = funds.find(f => f.code === item.code);
+            // 只有存在有效数据的基金才给分
+            if (fund && item.val !== -9999) {
+                fund.medalScore += (funds.length - index);
+            }
+        });
+    });
+
+    // 依据综合得分重新排序（不改变原始 funds 数组顺序，只用克隆体找前三名）
+    let rankedFunds = [...funds].sort((a, b) => b.medalScore - a.medalScore);
+
+    // 颁发金银铜牌
+    if (rankedFunds.length > 0 && rankedFunds[0].medalScore > 0) { rankedFunds[0].medal = '🥇'; }
+    if (rankedFunds.length > 1 && rankedFunds[1].medalScore > 0) { rankedFunds[1].medal = '🥈'; }
+    if (rankedFunds.length > 2 && rankedFunds[2].medalScore > 0) { rankedFunds[2].medal = '🥉'; }
   },
 
   buildCardHtml(f, isHomeGroup = false) {
@@ -732,9 +775,10 @@ const app = {
     
     let showDel = isHomeGroup && this.currentGroupId !== 'default';
     let delBtn = showDel ? `<div class="c-del-btn" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
-    
-    // 【新增】渲染星标按钮 (如果有删除按钮，星标往左边靠一点)
     let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="event.stopPropagation(); app.toggleStar('${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
+
+    // 组装带奖牌的标题
+    let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
 
     return `
       <div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">
@@ -742,7 +786,7 @@ const app = {
         ${starBtn}
         <div class="card-head" style="padding-right: ${showDel ? '55px' : '25px'};">
           <div class="c-title-area">
-            <span class="c-title">${f.name}</span><span class="c-code">${f.code}</span>
+            <span class="c-title">${titleHtml}</span><span class="c-code">${f.code}</span>
             ${tagsHtml}
             <span class="c-tag c-add-tag" onclick="event.stopPropagation(); app.openSectorSelect('${f.code}')">+ 板块</span>
           </div>
@@ -765,7 +809,6 @@ const app = {
     const curSortRule = isSector ? document.getElementById('sec-sort-rule').value : document.getElementById('sort-rule').value;
     const curSortDir = isSector ? this.secSortDir : this.sortDir;
 
-    // 渲染带箭头的表头
     const renderTh = (label, colKey) => {
       let arrow = '';
       if (curSortRule === colKey) {
@@ -784,17 +827,15 @@ const app = {
     
     let rows = funds.map(f => {
       if(!f.isLoad) return '';
-      // 列表模式采用包含中长期数据的 f.listRates
       let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join('');
       let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
-      
-      // 【新增】判断是否星标，赋予对应的特殊背景class
       let rowClass = f.isStarred ? 'l-row starred-row' : 'l-row';
+      let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
 
       return `
         <div class="${rowClass}" onclick="app.openDetail('${f.code}')">
           ${delBtn}
-          <div class="l-col-name"><div style="font-weight:800; font-size:13px;">${f.name}</div><div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">${f.code}</div></div>
+          <div class="l-col-name"><div style="font-weight:800; font-size:13px;">${titleHtml}</div><div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">${f.code}</div></div>
           <div class="l-col-rate" style="width:70px;">
             <div>${f.latest}</div><div class="${f.change>=0?'red':'green'}" style="font-size:11px; margin-top:2px;">${f.change>0?'+':''}${f.change}%</div>
           </div>
@@ -833,12 +874,14 @@ const app = {
     const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
     let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad);
     
+    // 【注入奖牌计算】：在排序显示之前计算该组基金的综合奖牌
+    this.calculateMedals(funds);
+
     const sortVal = document.getElementById('sort-rule').value;
     funds.sort((a, b) => {
       let va = -99999, vb = -99999;
       if(sortVal === 'daily') { va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; }
       else {
-        // 在排序时，使用 listRates (其中包含了长线周期)
         const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal);
         va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999;
       }
@@ -905,18 +948,14 @@ const app = {
     if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { 
         this.data.customSectors.push(val); 
         this.saveData(); 
-        
-        // 添加成功后清空搜索条件和搜索框，以便展示新添加的板块
         this.sectorSearchKeyword = '';
         const searchInput = document.getElementById('search-sector-input');
         if(searchInput) searchInput.value = '';
-        
         this.renderSector(); 
         document.getElementById('new-sector-input').value=''; 
     }
   },
   
-  // 【新增】板块搜索
   searchSector() {
     this.sectorSearchKeyword = document.getElementById('search-sector-input').value.trim().toLowerCase();
     this.renderSector();
@@ -940,24 +979,16 @@ const app = {
     let kw = this.sectorSearchKeyword;
     let matchCount = 0;
 
-    // 渲染上方板块标签，附带高亮逻辑
     document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => {
       let isMatch = kw && s.toLowerCase().includes(kw);
       if (isMatch) matchCount++;
-
       let highlightCls = isMatch ? 'highlight-match' : '';
       let activeCls = this.activeSector === s ? 'active' : '';
-
       return `<div class="action-pill ${activeCls} ${highlightCls}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#94a3b8; margin-left:6px;" onclick="event.stopPropagation(); app.delSector('${s}')">✕</span></div>`;
     }).join('');
     
-    // 如果处于搜索状态且没有命中任何板块，显示提示语
     const msgEl = document.getElementById('sector-search-msg');
-    if (kw && matchCount === 0) {
-        msgEl.style.display = 'block';
-    } else {
-        msgEl.style.display = 'none';
-    }
+    if (kw && matchCount === 0) { msgEl.style.display = 'block'; } else { msgEl.style.display = 'none'; }
 
     const wrap = document.getElementById('sector-action-wrap');
     if(!this.activeSector) { wrap.style.display = 'none'; document.getElementById('sector-list').innerHTML=''; return; }
@@ -965,6 +996,9 @@ const app = {
     wrap.style.display = 'block';
     let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
     
+    // 【注入奖牌计算】：在当前板块的基金中独立算排名
+    this.calculateMedals(funds);
+
     const sortVal = document.getElementById('sec-sort-rule').value;
     funds.sort((a, b) => {
       let va = -99999, vb = -99999;
@@ -1438,7 +1472,6 @@ const app = {
 
       const secids = holdings.map(h => ((h.code.startsWith('6')||h.code.startsWith('9'))?'1.':'0.')+h.code).join(',');
       
-      // 加上 fltt=2 参数，强制返回标准的百分比浮点数，并备用请求 f60(昨收)、f2(最新) 用于推算
       const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f60&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb');
       
       let qtMap = {};

@@ -539,7 +539,6 @@ const app = {
   chartInfo: { data: [], touchIdx: -1 },
   masterFundList: [], searchTimer: null,
 
-  // 将天天基金 UTC 时间戳转换为东八区准确日期
   formatEMDate(ts, length = 10, offset = 0) {
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
   },
@@ -717,15 +716,11 @@ const app = {
     }
   },
 
-  // 算法1：旧版波达计数法 (保留仅作兼容，供下拉菜单“优劣综合”使用)
+  // 基础算法：波达计数法 (保留数据供“优劣综合”排序使用)
   calculateMedals(funds) {
-    if (!funds || funds.length < 3) {
-        funds.forEach(f => f.medalScore = 0);
-        return;
-    }
-    const evaluatePeriods = ['daily', '3日', '5日', '7日', '10日', '15日', '20日', '1月'];
+    if (!funds || funds.length === 0) return;
     funds.forEach(f => { f.medalScore = 0; });
-
+    const evaluatePeriods = ['daily', '3日', '5日', '7日', '10日', '15日', '20日', '1月'];
     evaluatePeriods.forEach(p => {
         let values = funds.map(f => {
             let val = -9999;
@@ -743,54 +738,43 @@ const app = {
     });
   },
 
-  // 【新增量化模型】算法2：综合超级分 (强制接管奖牌显示 🥇🥈🥉)
+  // 【优化修复】量化模型：综合超级分
   calculateSuperScoreMedals(funds) {
-    if (!funds || funds.length < 3) {
-        funds.forEach(f => { f.superScore = 0; if(!f.medal) f.medal = ''; });
-        return;
-    }
-
-    // 1. 提取最近 40 个交易日计算原始数据
+    if (!funds || funds.length === 0) return;
+    
+    // 1. 计算原始指标
     funds.forEach(f => {
         f.superScore = 0;
-        f.medal = ''; // 强行清除旧版奖牌，确保奖牌只反映“超级分”
-        
         const nw = f.netWorth ? f.netWorth.slice(-40) : [];
         if (nw.length < 2) {
             f._rawRet = -9999; f._rawCalmar = -9999; f._rawWin = -9999;
             return;
         }
-
         const firstY = nw[0].y;
         const lastY = nw[nw.length - 1].y;
         const totalReturn = ((lastY - firstY) / firstY) * 100;
-
         let maxPeak = firstY;
         let maxDrop = 0;
         let winDays = 0;
-
         for (let i = 1; i < nw.length; i++) {
             if (nw[i].y > maxPeak) maxPeak = nw[i].y;
             const drop = ((maxPeak - nw[i].y) / maxPeak) * 100;
             if (drop > maxDrop) maxDrop = drop;
-
             if (nw[i].y > nw[i-1].y) winDays++;
         }
-
         f._rawRet = totalReturn;
-        // 卡玛比率 = 累计涨幅 / 期间最大回撤 (如果没回撤给0.01防止无穷大)
         f._rawCalmar = totalReturn / Math.max(maxDrop, 0.01);
         f._rawWin = (winDays / (nw.length - 1)) * 100;
     });
 
-    // 2. 组内独立排名打分
+    // 2. 排名打分 (修复了之前 _metricRank 模板字符串拼接产生的 undefined bug)
     const assignRankPoints = (metric) => {
         let sorted = [...funds].sort((a, b) => b[metric] - a[metric]);
         sorted.forEach((fund, index) => {
             if (fund[metric] !== -9999) {
-                fund[`_${metric}Rank`] = funds.length - index;
+                fund[`${metric}Rank`] = funds.length - index; 
             } else {
-                fund[`_${metric}Rank`] = 0;
+                fund[`${metric}Rank`] = 0; 
             }
         });
     };
@@ -799,18 +783,27 @@ const app = {
     assignRankPoints('_rawCalmar');
     assignRankPoints('_rawWin');
 
-    // 3. 计算终极超积分： 40%涨幅排行分 + 40%性价比排行分 + 20%胜率排行分
+    // 3. 计算超积分权重
     funds.forEach(f => {
         if (f._rawRet !== -9999) {
             f.superScore = (f._rawRetRank * 0.4) + (f._rawCalmarRank * 0.4) + (f._rawWinRank * 0.2);
         }
     });
+  },
 
-    // 4. 为最优选出的前三名发奖牌
-    let rankedFunds = [...funds].sort((a, b) => b.superScore - a.superScore);
-    if (rankedFunds.length > 0 && rankedFunds[0].superScore > 0) rankedFunds[0].medal = '🥇';
-    if (rankedFunds.length > 1 && rankedFunds[1].superScore > 0) rankedFunds[1].medal = '🥈';
-    if (rankedFunds.length > 2 && rankedFunds[2].superScore > 0) rankedFunds[2].medal = '🥉';
+  // 动态颁发奖牌：根据当前用户选择的排序规则，决定谁拿奖牌！
+  assignMedals(funds, sortVal) {
+      funds.forEach(f => f.medal = ''); // 先清空所有奖牌
+      if (!funds || funds.length < 3) return;
+
+      // 默认使用综合超级分颁发奖牌，如果用户专门选了“优劣综合”，则按旧版算
+      let metric = 'superScore'; 
+      if (sortVal === 'medal') metric = 'medalScore';
+
+      let ranked = [...funds].sort((a, b) => b[metric] - a[metric]);
+      if (ranked.length > 0 && ranked[0][metric] > 0) ranked[0].medal = '🥇';
+      if (ranked.length > 1 && ranked[1][metric] > 0) ranked[1].medal = '🥈';
+      if (ranked.length > 2 && ranked[2][metric] > 0) ranked[2].medal = '🥉';
   },
 
   buildCardHtml(f, isHomeGroup = false) {
@@ -919,11 +912,15 @@ const app = {
     const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
     let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad);
     
-    // 【计算两套排名体系】：既保证"优劣综合"排序可用，又用"超级分"更新奖牌
+    // 计算两种评分
     this.calculateMedals(funds);
     this.calculateSuperScoreMedals(funds);
-
+    
     const sortVal = document.getElementById('sort-rule').value;
+    
+    // 动态发奖牌 (让奖牌适配用户当前的排序逻辑)
+    this.assignMedals(funds, sortVal);
+
     funds.sort((a, b) => {
       let va = -99999, vb = -99999;
       if(sortVal === 'daily') { 
@@ -1047,10 +1044,15 @@ const app = {
     wrap.style.display = 'block';
     let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
     
+    // 计算两种评分
     this.calculateMedals(funds);
     this.calculateSuperScoreMedals(funds);
 
     const sortVal = document.getElementById('sec-sort-rule').value;
+    
+    // 动态发奖牌
+    this.assignMedals(funds, sortVal);
+
     funds.sort((a, b) => {
       let va = -99999, vb = -99999;
       if(sortVal === 'daily') { 

@@ -304,15 +304,14 @@
           <div id="sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSortDir()">降序 ↓</div>
           <select id="sort-rule" class="sort-rule" onchange="app.renderHome()">
             <option value="daily">单日涨跌</option>
-            <!-- 【新增选项】 -->
             <option value="medal">优劣综合</option>
+            <option value="super">综合超级分</option>
             <option value="3日">3日累计</option>
             <option value="5日">5日累计</option>
             <option value="7日">7日累计</option>
             <option value="10日">10日累计</option>
             <option value="15日">15日累计</option>
             <option value="20日">20日累计</option>
-            <!-- 下拉框同步拓展中长期供卡片和列表复用 -->
             <option value="1月">近1月</option>
             <option value="3月">近3月</option>
             <option value="6月">近6月</option>
@@ -353,7 +352,6 @@
         <input type="text" id="search-sector-input" placeholder="搜索已建板块" style="margin:0; flex:1;" oninput="app.searchSector()">
         <button class="btn-primary" style="width:70px; margin:0; background: var(--text-sub); box-shadow: none;" onclick="app.searchSector()">搜索</button>
       </div>
-      <!-- 未命中搜索时的提示文本 -->
       <div id="sector-search-msg" style="display:none; color:var(--red); font-size:12px; margin-bottom:12px; font-weight:bold;">
         暂无相关板块，请在上方新建。
       </div>
@@ -372,8 +370,8 @@
           <div id="sec-sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSecSortDir()">降序 ↓</div>
           <select id="sec-sort-rule" class="sort-rule" onchange="app.renderSector()">
             <option value="daily">单日涨跌</option>
-            <!-- 【新增选项】 -->
             <option value="medal">优劣综合</option>
+            <option value="super">综合超级分</option>
             <option value="3日">3日累计</option>
             <option value="5日">5日累计</option>
             <option value="7日">7日累计</option>
@@ -719,47 +717,100 @@ const app = {
     }
   },
 
-  // 基于波达计数法 (Borda Count) 为基金排序颁发奖牌
+  // 算法1：旧版波达计数法 (保留仅作兼容，供下拉菜单“优劣综合”使用)
   calculateMedals(funds) {
     if (!funds || funds.length < 3) {
-        funds.forEach(f => f.medal = '');
+        funds.forEach(f => f.medalScore = 0);
         return;
     }
-
     const evaluatePeriods = ['daily', '3日', '5日', '7日', '10日', '15日', '20日', '1月'];
-
-    funds.forEach(f => {
-        f.medalScore = 0;
-        f.medal = '';
-    });
+    funds.forEach(f => { f.medalScore = 0; });
 
     evaluatePeriods.forEach(p => {
         let values = funds.map(f => {
             let val = -9999;
-            if (p === 'daily') {
-                val = parseFloat(f.change);
-            } else {
+            if (p === 'daily') { val = parseFloat(f.change); } else {
                 let ra = f.listRates.find(r => r.label === p);
                 val = ra && ra.val !== '--' ? parseFloat(ra.val) : -9999;
             }
             return { code: f.code, val: isNaN(val) ? -9999 : val };
         });
-
         values.sort((a, b) => b.val - a.val);
-
         values.forEach((item, index) => {
             let fund = funds.find(f => f.code === item.code);
-            if (fund && item.val !== -9999) {
-                fund.medalScore += (funds.length - index);
-            }
+            if (fund && item.val !== -9999) fund.medalScore += (funds.length - index);
         });
     });
+  },
 
-    let rankedFunds = [...funds].sort((a, b) => b.medalScore - a.medalScore);
+  // 【新增量化模型】算法2：综合超级分 (强制接管奖牌显示 🥇🥈🥉)
+  calculateSuperScoreMedals(funds) {
+    if (!funds || funds.length < 3) {
+        funds.forEach(f => { f.superScore = 0; if(!f.medal) f.medal = ''; });
+        return;
+    }
 
-    if (rankedFunds.length > 0 && rankedFunds[0].medalScore > 0) { rankedFunds[0].medal = '🥇'; }
-    if (rankedFunds.length > 1 && rankedFunds[1].medalScore > 0) { rankedFunds[1].medal = '🥈'; }
-    if (rankedFunds.length > 2 && rankedFunds[2].medalScore > 0) { rankedFunds[2].medal = '🥉'; }
+    // 1. 提取最近 40 个交易日计算原始数据
+    funds.forEach(f => {
+        f.superScore = 0;
+        f.medal = ''; // 强行清除旧版奖牌，确保奖牌只反映“超级分”
+        
+        const nw = f.netWorth ? f.netWorth.slice(-40) : [];
+        if (nw.length < 2) {
+            f._rawRet = -9999; f._rawCalmar = -9999; f._rawWin = -9999;
+            return;
+        }
+
+        const firstY = nw[0].y;
+        const lastY = nw[nw.length - 1].y;
+        const totalReturn = ((lastY - firstY) / firstY) * 100;
+
+        let maxPeak = firstY;
+        let maxDrop = 0;
+        let winDays = 0;
+
+        for (let i = 1; i < nw.length; i++) {
+            if (nw[i].y > maxPeak) maxPeak = nw[i].y;
+            const drop = ((maxPeak - nw[i].y) / maxPeak) * 100;
+            if (drop > maxDrop) maxDrop = drop;
+
+            if (nw[i].y > nw[i-1].y) winDays++;
+        }
+
+        f._rawRet = totalReturn;
+        // 卡玛比率 = 累计涨幅 / 期间最大回撤 (如果没回撤给0.01防止无穷大)
+        f._rawCalmar = totalReturn / Math.max(maxDrop, 0.01);
+        f._rawWin = (winDays / (nw.length - 1)) * 100;
+    });
+
+    // 2. 组内独立排名打分
+    const assignRankPoints = (metric) => {
+        let sorted = [...funds].sort((a, b) => b[metric] - a[metric]);
+        sorted.forEach((fund, index) => {
+            if (fund[metric] !== -9999) {
+                fund[`_${metric}Rank`] = funds.length - index;
+            } else {
+                fund[`_${metric}Rank`] = 0;
+            }
+        });
+    };
+
+    assignRankPoints('_rawRet');
+    assignRankPoints('_rawCalmar');
+    assignRankPoints('_rawWin');
+
+    // 3. 计算终极超积分： 40%涨幅排行分 + 40%性价比排行分 + 20%胜率排行分
+    funds.forEach(f => {
+        if (f._rawRet !== -9999) {
+            f.superScore = (f._rawRetRank * 0.4) + (f._rawCalmarRank * 0.4) + (f._rawWinRank * 0.2);
+        }
+    });
+
+    // 4. 为最优选出的前三名发奖牌
+    let rankedFunds = [...funds].sort((a, b) => b.superScore - a.superScore);
+    if (rankedFunds.length > 0 && rankedFunds[0].superScore > 0) rankedFunds[0].medal = '🥇';
+    if (rankedFunds.length > 1 && rankedFunds[1].superScore > 0) rankedFunds[1].medal = '🥈';
+    if (rankedFunds.length > 2 && rankedFunds[2].superScore > 0) rankedFunds[2].medal = '🥉';
   },
 
   buildCardHtml(f, isHomeGroup = false) {
@@ -772,7 +823,6 @@ const app = {
     let delBtn = showDel ? `<div class="c-del-btn" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
     let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="event.stopPropagation(); app.toggleStar('${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
 
-    // 组装带奖牌的标题
     let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
 
     return `
@@ -869,17 +919,19 @@ const app = {
     const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
     let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad);
     
-    // 【注入奖牌计算】：在排序显示之前计算该组基金的综合奖牌
+    // 【计算两套排名体系】：既保证"优劣综合"排序可用，又用"超级分"更新奖牌
     this.calculateMedals(funds);
+    this.calculateSuperScoreMedals(funds);
 
     const sortVal = document.getElementById('sort-rule').value;
     funds.sort((a, b) => {
       let va = -99999, vb = -99999;
-      // 【新增判断】如果选择的是“优劣综合”，则依据奖牌分数比较
       if(sortVal === 'daily') { 
           va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; 
       } else if (sortVal === 'medal') {
           va = a.medalScore || 0; vb = b.medalScore || 0;
+      } else if (sortVal === 'super') {
+          va = a.superScore || 0; vb = b.superScore || 0;
       } else {
         const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal);
         va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999;
@@ -995,17 +1047,18 @@ const app = {
     wrap.style.display = 'block';
     let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
     
-    // 【注入奖牌计算】：在当前板块的基金中独立算排名
     this.calculateMedals(funds);
+    this.calculateSuperScoreMedals(funds);
 
     const sortVal = document.getElementById('sec-sort-rule').value;
     funds.sort((a, b) => {
       let va = -99999, vb = -99999;
-      // 【新增判断】如果选择的是“优劣综合”，则依据奖牌分数比较
       if(sortVal === 'daily') { 
           va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; 
       } else if (sortVal === 'medal') {
           va = a.medalScore || 0; vb = b.medalScore || 0;
+      } else if (sortVal === 'super') {
+          va = a.superScore || 0; vb = b.superScore || 0;
       } else {
         const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal);
         va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999;

@@ -744,16 +744,17 @@ const app = {
     });
   },
 
-  // 【终极提速】局部靶向 DOM 更新星标，不再重绘整个列表
-  toggleStar(code, event) {
+  // 【终极修复】将事件对象安全地作为参数传入，避免内联执行时找不到全局 event 报错
+  toggleStar(e, code) {
+    if (e) e.stopPropagation(); // 安全地阻止冒泡
     const f = this.data.fundsCache[code];
     if (f) {
         f.isStarred = !f.isStarred;
-        this.saveData(); // 默默保存到本地
+        this.saveData(); 
 
-        // 直接操纵当前点击的 DOM 节点，零延迟反馈
-        if (event && event.currentTarget) {
-            const btn = event.currentTarget;
+        // 靶向局部更新 DOM，极速反馈
+        if (e && e.currentTarget) {
+            const btn = e.currentTarget;
             if (f.isStarred) {
                 btn.classList.add('starred');
                 btn.innerText = '★';
@@ -766,11 +767,51 @@ const app = {
                 if(row) row.classList.remove('starred-row');
             }
         } else {
-           // 如果没有传入 event (理论上不会)，则回退到全量刷新
            if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
            if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
         }
     }
+  },
+
+  // 【配套修复】将所有其他的内联 DOM 操作同样修改，确保刷新后点击不会报错
+  removeFundFromGroup(e, code) {
+    if(e) e.stopPropagation();
+    if (!confirm('确定从该分组移除吗？')) return;
+    const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId);
+    if (!currentGroup) return;
+    currentGroup.fundCodes = currentGroup.fundCodes.filter(c => c !== code);
+
+    const otherGroups = this.data.groups.filter(g => g.id !== 'default' && g.id !== this.currentGroupId);
+    const existsInOther = otherGroups.some(g => g.fundCodes.includes(code));
+    if (!existsInOther) {
+      const defaultGroup = this.data.groups.find(g => g.id === 'default');
+      if (defaultGroup) defaultGroup.fundCodes = defaultGroup.fundCodes.filter(c => c !== code);
+    }
+    this.saveData(); this.renderHome(); 
+  },
+
+  removeSectorFromFund(e, code, sec) {
+    if(e) e.stopPropagation();
+    const f = this.data.fundsCache[code];
+    if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
+  },
+
+  openSectorSelect(e, code) {
+    if(e) e.stopPropagation();
+    if(this.data.customSectors.length===0) return alert('请先去板块页面创建板块');
+    this.targetSectorCode = code;
+    const f = this.data.fundsCache[code];
+    let html = this.data.customSectors.map(s => {
+      let isSel = f.sectors?.includes(s);
+      return `<div class="action-pill ${isSel?'active':''}" onclick="app.toggleFundSector('${s}')">${s}</div>`;
+    }).join('');
+    document.getElementById('sector-select-list').innerHTML = html;
+    this.openModal('sector-select');
+  },
+
+  delSector(e, s) {
+    if(e) e.stopPropagation();
+    if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
   },
 
   // 基础算法：波达计数法
@@ -863,13 +904,12 @@ const app = {
     if(!f.isLoad) return `<div class="card"><div class="c-title">${f.code} 加载中</div></div>`;
     const col = f.change >= 0 ? 'red' : 'green';
     let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
-    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="event.stopPropagation(); app.removeSectorFromFund('${f.code}','${s}')">${s}</span>`).join('');
     
-    let showDel = isHomeGroup && this.currentGroupId !== 'default';
-    let delBtn = showDel ? `<div class="c-del-btn" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
-    
-    // 给星标按钮传入 event
-    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="event.stopPropagation(); app.toggleStar('${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`;
+    // 修复：使用新的事件传递机制
+    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join('');
+    let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
+    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(event, '${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
+    let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`;
 
     let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
 
@@ -881,7 +921,7 @@ const app = {
           <div class="c-title-area">
             <span class="c-title">${titleHtml}</span><span class="c-code">${f.code}</span>
             ${tagsHtml}
-            <span class="c-tag c-add-tag" onclick="event.stopPropagation(); app.openSectorSelect('${f.code}')">+ 板块</span>
+            ${sectorBtn}
           </div>
         </div>
         <div class="c-main">
@@ -921,11 +961,13 @@ const app = {
     let rows = funds.map(f => {
       if(!f.isLoad) return '';
       let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join('');
-      let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
+      
+      // 修复：使用新的事件传递机制
+      let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
+      
       let rowClass = f.isStarred ? 'l-row starred-row' : 'l-row';
       let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
 
-      // 绑定唯一的 id="fund-row-${f.code}" 供局部高亮使用
       return `
         <div id="fund-row-${f.code}" class="${rowClass}" onclick="app.openDetail('${f.code}')">
           ${delBtn}
@@ -993,21 +1035,6 @@ const app = {
     const container = document.getElementById('home-list');
     container.className = this.viewMode === 'card' ? 'card-grid' : '';
     container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true, false);
-  },
-
-  removeFundFromGroup(code) {
-    if (!confirm('确定从该分组移除吗？')) return;
-    const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId);
-    if (!currentGroup) return;
-    currentGroup.fundCodes = currentGroup.fundCodes.filter(c => c !== code);
-
-    const otherGroups = this.data.groups.filter(g => g.id !== 'default' && g.id !== this.currentGroupId);
-    const existsInOther = otherGroups.some(g => g.fundCodes.includes(code));
-    if (!existsInOther) {
-      const defaultGroup = this.data.groups.find(g => g.id === 'default');
-      if (defaultGroup) defaultGroup.fundCodes = defaultGroup.fundCodes.filter(c => c !== code);
-    }
-    this.saveData(); this.renderHome(); 
   },
 
   // ========== 排名页 ==========
@@ -1085,7 +1112,9 @@ const app = {
       if (isMatch) matchCount++;
       let highlightCls = isMatch ? 'highlight-match' : '';
       let activeCls = this.activeSector === s ? 'active' : '';
-      return `<div class="action-pill ${activeCls} ${highlightCls}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#94a3b8; margin-left:6px;" onclick="event.stopPropagation(); app.delSector('${s}')">✕</span></div>`;
+      
+      // 修复：事件传递
+      return `<div class="action-pill ${activeCls} ${highlightCls}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#94a3b8; margin-left:6px;" onclick="app.delSector(event, '${s}')">✕</span></div>`;
     }).join('');
     
     const msgEl = document.getElementById('sector-search-msg');
@@ -1101,7 +1130,6 @@ const app = {
     this.calculateSuperScoreMedals(funds);
 
     const sortVal = document.getElementById('sec-sort-rule').value;
-    
     this.assignMedals(funds, sortVal);
 
     funds.sort((a, b) => {
@@ -1125,21 +1153,6 @@ const app = {
     container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false, true);
   },
 
-  delSector(s) {
-    if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
-  },
-  
-  openSectorSelect(code) {
-    if(this.data.customSectors.length===0) return alert('请先去板块页面创建板块');
-    this.targetSectorCode = code;
-    const f = this.data.fundsCache[code];
-    let html = this.data.customSectors.map(s => {
-      let isSel = f.sectors?.includes(s);
-      return `<div class="action-pill ${isSel?'active':''}" onclick="app.toggleFundSector('${s}')">${s}</div>`;
-    }).join('');
-    document.getElementById('sector-select-list').innerHTML = html;
-    this.openModal('sector-select');
-  },
   toggleFundSector(sec) {
     const f = this.data.fundsCache[this.targetSectorCode];
     if(!f.sectors) f.sectors = [];
@@ -1148,10 +1161,6 @@ const app = {
     this.saveData(); this.closeModal('sector-select'); 
     if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
     if(document.getElementById('view-sector').classList.contains('active')) this.renderSector();
-  },
-  removeSectorFromFund(code, sec) {
-    const f = this.data.fundsCache[code];
-    if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
   },
 
   // ========== 账户管理 ==========

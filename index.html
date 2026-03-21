@@ -48,6 +48,7 @@
     .page-view.active { display: flex; animation: fadeIn 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); }
     
     @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideDown { from { opacity: 0; transform: translate(-50%, -20px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
     /* ========== 弹窗容器 ========== */
     .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: fixed; top:0; left:0; z-index: 200; 
@@ -543,6 +544,21 @@ const app = {
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
   },
 
+  // 封装极简 Toast 轻提示，替代原生 alert
+  showToast(msg, type = 'success') {
+    const div = document.createElement('div');
+    div.innerText = msg;
+    const bg = type === 'success' ? 'var(--green)' : (type === 'error' ? 'var(--red)' : '#1e293b');
+    div.style.cssText = `position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${bg};color:#fff;padding:8px 20px;border-radius:24px;z-index:9999;font-weight:bold;box-shadow:0 6px 16px rgba(0,0,0,0.15);font-size:13px;animation:slideDown 0.3s cubic-bezier(0.2,0.8,0.2,1);`;
+    document.body.appendChild(div);
+    setTimeout(() => {
+      div.style.opacity = '0';
+      div.style.transform = 'translate(-50%, -10px)';
+      div.style.transition = 'all 0.3s';
+      setTimeout(() => div.remove(), 300);
+    }, 2000);
+  },
+
   init() {
     const local = localStorage.getItem('fund_pwa_v6');
     if (local) this.data = JSON.parse(local);
@@ -615,42 +631,70 @@ const app = {
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
-  loadFundData(code) {
+  // 【优化提速】修改数据请求方法，允许批量请求时暂不保存本地，消除 IO 阻塞
+  loadFundData(code, isBatch = false) {
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`;
       script.onload = () => {
-        setTimeout(() => {
-          if (window.Data_netWorthTrend) {
-            let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
-            if (nw.length > 260) nw = nw.slice(-260);
-            const fund = { 
-                code, 
-                name: window.fS_name || code, 
-                netWorth: nw, 
-                sectors: this.data.fundsCache[code]?.sectors || [],
-                isStarred: this.data.fundsCache[code]?.isStarred || false 
-            };
-            this.data.fundsCache[code] = fund;
-            this.saveData();
-            resolve(fund);
-          } else reject('无数据');
-          script.remove();
-        }, 50);
+        // 直接读取，不再 setTimeout 50ms 等待
+        if (window.Data_netWorthTrend) {
+          let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
+          if (nw.length > 260) nw = nw.slice(-260);
+          const fund = { 
+              code, 
+              name: window.fS_name || code, 
+              netWorth: nw, 
+              sectors: this.data.fundsCache[code]?.sectors || [],
+              isStarred: this.data.fundsCache[code]?.isStarred || false 
+          };
+          this.data.fundsCache[code] = fund;
+          
+          if (!isBatch) this.saveData(); // 非批量则单次保存
+          
+          // 擦除全局变量防污染
+          window.Data_netWorthTrend = null;
+          window.fS_name = null;
+          
+          resolve(fund);
+        } else {
+          reject('无数据');
+        }
+        script.remove();
       };
       script.onerror = () => { reject('网络异常或退市'); script.remove(); };
       document.head.appendChild(script);
     });
   },
 
+  // 【优化提速】改造全局刷新方法
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
-    if(codes.length === 0) return alert('没有需要更新的基金');
-    alert('正在后台拉取最新净值，请稍候...');
-    for (let code of codes) { try { await this.loadFundData(code); } catch(e) {} }
-    this.processGroupRisks();
-    this.renderHome();
-    alert('刷新完成！');
+    if(codes.length === 0) return this.showToast('没有需要更新的基金', 'error');
+    
+    const btn = document.querySelector('.nav-btn[onclick="app.refreshAll()"]');
+    const oldText = btn.innerText;
+    btn.innerText = '🔄更新中...';
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+    
+    try {
+        // 快速串行请求（消除本地存储和计时器开销）
+        for (let code of codes) { 
+            try { await this.loadFundData(code, true); } catch(e) {} 
+        }
+        
+        // 统一保存及渲染
+        this.saveData();
+        this.processGroupRisks();
+        this.renderHome();
+        
+        this.showToast('✅ 最新净值数据已更新');
+    } finally {
+        btn.innerText = oldText;
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+    }
   },
 
   calcRate(nw, days) {
@@ -738,7 +782,7 @@ const app = {
     });
   },
 
-  // 【优化修复】量化模型：综合超级分
+  // 量化模型：综合超级分
   calculateSuperScoreMedals(funds) {
     if (!funds || funds.length === 0) return;
     
@@ -767,7 +811,7 @@ const app = {
         f._rawWin = (winDays / (nw.length - 1)) * 100;
     });
 
-    // 2. 排名打分 (修复了之前 _metricRank 模板字符串拼接产生的 undefined bug)
+    // 2. 排名打分
     const assignRankPoints = (metric) => {
         let sorted = [...funds].sort((a, b) => b[metric] - a[metric]);
         sorted.forEach((fund, index) => {
@@ -799,8 +843,7 @@ const app = {
       // 默认使用综合超级分颁发奖牌，如果用户专门选了“优劣综合”，则按旧版算
       let metric = 'superScore'; 
       if (sortVal === 'medal') metric = 'medalScore';
-
-      let ranked = [...funds].sort((a, b) => b[metric] - a[metric]);
+    let ranked = [...funds].sort((a, b) => b[metric] - a[metric]);
       if (ranked.length > 0 && ranked[0][metric] > 0) ranked[0].medal = '🥇';
       if (ranked.length > 1 && ranked[1][metric] > 0) ranked[1].medal = '🥈';
       if (ranked.length > 2 && ranked[2][metric] > 0) ranked[2].medal = '🥉';
@@ -1130,7 +1173,7 @@ const app = {
     }
   },
   clearGroup(id) {
-    if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); alert('已清空'); this.renderHome(); } }
+    if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); this.showToast('已清空'); this.renderHome(); } }
   },
 
   renderGroupMgrList() {
@@ -1314,9 +1357,9 @@ const app = {
       if (defaultGroup && !defaultGroup.fundCodes.includes(this.currentDetailCode)) {
         defaultGroup.fundCodes.push(this.currentDetailCode);
       }
-      this.saveData(); alert('添加成功');
+      this.saveData(); this.showToast('添加成功');
       if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
-    } else alert('已存在');
+    } else this.showToast('已存在', 'error');
     sel.value = '';
   },
 
@@ -1514,8 +1557,8 @@ const app = {
       if(e) e.currentTarget.querySelector('.c-tag').innerText = '加载中...';
       this.loadFundData(code).then(() => { 
         this.closeModal('search'); this.processGroupRisks(); this.renderHome(); 
-      }).catch(() => alert('该基金可能已退市，无数据'));
-    } else alert('该基金已在当前分组！');
+      }).catch(() => this.showToast('该基金可能已退市', 'error'));
+    } else this.showToast('该基金已在当前分组', 'error');
   },
 
   // ========== 持仓分析 ==========

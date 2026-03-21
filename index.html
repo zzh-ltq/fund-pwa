@@ -121,7 +121,7 @@
     .c-del-btn:hover { background: #ffe4e6; color: var(--red); transform: rotate(90deg); }
 
     /* 星标按钮样式 */
-    .c-star-btn { position: absolute; top: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #cbd5e1; font-size: 16px; border-radius: 50%; background: transparent; z-index: 10; transition: all 0.3s; cursor: pointer; }
+    .c-star-btn { position: absolute; top: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #cbd5e1; font-size: 16px; border-radius: 50%; background: transparent; z-index: 10; transition: all 0.3s; cursor: pointer; user-select: none; }
     .c-star-btn:hover { transform: scale(1.1); color: #a855f7; }
     .c-star-btn.starred { color: #a855f7; filter: drop-shadow(0 2px 4px rgba(168,85,247,0.3)); }
 
@@ -544,7 +544,7 @@ const app = {
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
   },
 
-  // 封装极简 Toast 轻提示，替代原生 alert
+  // 封装极简 Toast 轻提示
   showToast(msg, type = 'success') {
     const div = document.createElement('div');
     div.innerText = msg;
@@ -631,13 +631,12 @@ const app = {
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
-  // 【优化提速】修改数据请求方法，允许批量请求时暂不保存本地，消除 IO 阻塞
+  // 极速拉取数据
   loadFundData(code, isBatch = false) {
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`;
       script.onload = () => {
-        // 直接读取，不再 setTimeout 50ms 等待
         if (window.Data_netWorthTrend) {
           let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
           if (nw.length > 260) nw = nw.slice(-260);
@@ -650,9 +649,8 @@ const app = {
           };
           this.data.fundsCache[code] = fund;
           
-          if (!isBatch) this.saveData(); // 非批量则单次保存
+          if (!isBatch) this.saveData();
           
-          // 擦除全局变量防污染
           window.Data_netWorthTrend = null;
           window.fS_name = null;
           
@@ -667,7 +665,7 @@ const app = {
     });
   },
 
-  // 【优化提速】改造全局刷新方法
+  // 极速刷新全部
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
     if(codes.length === 0) return this.showToast('没有需要更新的基金', 'error');
@@ -679,16 +677,12 @@ const app = {
     btn.style.pointerEvents = 'none';
     
     try {
-        // 快速串行请求（消除本地存储和计时器开销）
         for (let code of codes) { 
             try { await this.loadFundData(code, true); } catch(e) {} 
         }
-        
-        // 统一保存及渲染
         this.saveData();
         this.processGroupRisks();
         this.renderHome();
-        
         this.showToast('✅ 最新净值数据已更新');
     } finally {
         btn.innerText = oldText;
@@ -750,17 +744,36 @@ const app = {
     });
   },
 
-  toggleStar(code) {
+  // 【终极提速】局部靶向 DOM 更新星标，不再重绘整个列表
+  toggleStar(code, event) {
     const f = this.data.fundsCache[code];
     if (f) {
         f.isStarred = !f.isStarred;
-        this.saveData();
-        if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
-        if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+        this.saveData(); // 默默保存到本地
+
+        // 直接操纵当前点击的 DOM 节点，零延迟反馈
+        if (event && event.currentTarget) {
+            const btn = event.currentTarget;
+            if (f.isStarred) {
+                btn.classList.add('starred');
+                btn.innerText = '★';
+                const row = document.getElementById(`fund-row-${code}`);
+                if(row) row.classList.add('starred-row');
+            } else {
+                btn.classList.remove('starred');
+                btn.innerText = '☆';
+                const row = document.getElementById(`fund-row-${code}`);
+                if(row) row.classList.remove('starred-row');
+            }
+        } else {
+           // 如果没有传入 event (理论上不会)，则回退到全量刷新
+           if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+           if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+        }
     }
   },
 
-  // 基础算法：波达计数法 (保留数据供“优劣综合”排序使用)
+  // 基础算法：波达计数法
   calculateMedals(funds) {
     if (!funds || funds.length === 0) return;
     funds.forEach(f => { f.medalScore = 0; });
@@ -786,7 +799,6 @@ const app = {
   calculateSuperScoreMedals(funds) {
     if (!funds || funds.length === 0) return;
     
-    // 1. 计算原始指标
     funds.forEach(f => {
         f.superScore = 0;
         const nw = f.netWorth ? f.netWorth.slice(-40) : [];
@@ -811,7 +823,6 @@ const app = {
         f._rawWin = (winDays / (nw.length - 1)) * 100;
     });
 
-    // 2. 排名打分
     const assignRankPoints = (metric) => {
         let sorted = [...funds].sort((a, b) => b[metric] - a[metric]);
         sorted.forEach((fund, index) => {
@@ -827,7 +838,6 @@ const app = {
     assignRankPoints('_rawCalmar');
     assignRankPoints('_rawWin');
 
-    // 3. 计算超积分权重
     funds.forEach(f => {
         if (f._rawRet !== -9999) {
             f.superScore = (f._rawRetRank * 0.4) + (f._rawCalmarRank * 0.4) + (f._rawWinRank * 0.2);
@@ -835,15 +845,15 @@ const app = {
     });
   },
 
-  // 动态颁发奖牌：根据当前用户选择的排序规则，决定谁拿奖牌！
+  // 动态颁发奖牌
   assignMedals(funds, sortVal) {
-      funds.forEach(f => f.medal = ''); // 先清空所有奖牌
+      funds.forEach(f => f.medal = ''); 
       if (!funds || funds.length < 3) return;
 
-      // 默认使用综合超级分颁发奖牌，如果用户专门选了“优劣综合”，则按旧版算
       let metric = 'superScore'; 
       if (sortVal === 'medal') metric = 'medalScore';
-    let ranked = [...funds].sort((a, b) => b[metric] - a[metric]);
+
+      let ranked = [...funds].sort((a, b) => b[metric] - a[metric]);
       if (ranked.length > 0 && ranked[0][metric] > 0) ranked[0].medal = '🥇';
       if (ranked.length > 1 && ranked[1][metric] > 0) ranked[1].medal = '🥈';
       if (ranked.length > 2 && ranked[2][metric] > 0) ranked[2].medal = '🥉';
@@ -857,7 +867,9 @@ const app = {
     
     let showDel = isHomeGroup && this.currentGroupId !== 'default';
     let delBtn = showDel ? `<div class="c-del-btn" onclick="event.stopPropagation(); app.removeFundFromGroup('${f.code}')">✕</div>` : '';
-    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="event.stopPropagation(); app.toggleStar('${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
+    
+    // 给星标按钮传入 event
+    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="event.stopPropagation(); app.toggleStar('${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`;
 
     let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
 
@@ -913,8 +925,9 @@ const app = {
       let rowClass = f.isStarred ? 'l-row starred-row' : 'l-row';
       let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
 
+      // 绑定唯一的 id="fund-row-${f.code}" 供局部高亮使用
       return `
-        <div class="${rowClass}" onclick="app.openDetail('${f.code}')">
+        <div id="fund-row-${f.code}" class="${rowClass}" onclick="app.openDetail('${f.code}')">
           ${delBtn}
           <div class="l-col-name"><div style="font-weight:800; font-size:13px;">${titleHtml}</div><div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">${f.code}</div></div>
           <div class="l-col-rate" style="width:70px;">
@@ -955,13 +968,10 @@ const app = {
     const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
     let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad);
     
-    // 计算两种评分
     this.calculateMedals(funds);
     this.calculateSuperScoreMedals(funds);
     
     const sortVal = document.getElementById('sort-rule').value;
-    
-    // 动态发奖牌 (让奖牌适配用户当前的排序逻辑)
     this.assignMedals(funds, sortVal);
 
     funds.sort((a, b) => {
@@ -1087,13 +1097,11 @@ const app = {
     wrap.style.display = 'block';
     let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
     
-    // 计算两种评分
     this.calculateMedals(funds);
     this.calculateSuperScoreMedals(funds);
 
     const sortVal = document.getElementById('sec-sort-rule').value;
     
-    // 动态发奖牌
     this.assignMedals(funds, sortVal);
 
     funds.sort((a, b) => {

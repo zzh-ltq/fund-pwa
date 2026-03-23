@@ -199,14 +199,35 @@
     .detail-tabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto;}
     .detail-tabs::-webkit-scrollbar { display:none;}
 
-    /* PC端响应式 */
+    /* =========================================================
+       电脑端 PC Web 美化及防遮挡排版 (当屏幕宽度 >= 768px 时)
+       ========================================================= */
     @media (min-width: 768px) {
       .app-container { max-width: 1400px; flex-direction: row; align-items: stretch; padding: 20px; gap: 20px; }
-      .tab-bar { position: relative; width: 80px; height: calc(100vh - 40px); padding: 20px 0; bottom: auto; flex-direction: column; justify-content: flex-start; border-radius: 16px; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.8); box-shadow: var(--shadow-sm); }
+
+      /* 左侧导航栏变身为独立悬浮面板 */
+      .tab-bar {
+        position: relative; 
+        width: 80px; height: calc(100vh - 40px); padding: 20px 0;
+        bottom: auto; top: auto; left: auto;
+        flex-direction: column; justify-content: flex-start;
+        border-radius: 16px; border-top: none;
+        background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.8);
+        box-shadow: var(--shadow-sm); z-index: 10;
+      }
       .tab-item { flex: none; height: 75px; margin-bottom: 10px; justify-content: center;}
-      .page-view { position: relative; width: 100%; flex: 1; padding-bottom: 0; background: rgba(255,255,255,0.5); border-radius: 16px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.8); overflow: hidden; }
+      
+      /* 内容区域为独立的圆角面板 */
+      .page-view { 
+        position: relative; width: 100%; flex: 1; padding-bottom: 0; 
+        background: rgba(255,255,255,0.5); border-radius: 16px;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.8); overflow: hidden;
+      }
+      
       .nav-bar { background: transparent; backdrop-filter: none; border: none;}
       .scroll-area { padding: 20px; }
+
+      /* PC 端精美 Hover 交互 */
       @media (hover: hover) {
         .card:hover { transform: translateY(-4px) scale(1.01); box-shadow: var(--shadow-hover); border-color: var(--blue-light);}
         .l-row:hover:not(.starred-row) { background: #f8fafc; transform: scale(1.005); border-radius: 8px;}
@@ -216,12 +237,25 @@
         .mgr-btn:hover { background: var(--blue); color: #fff; box-shadow: 0 4px 12px rgba(0, 102, 255, 0.25);}
         .drag-handle:hover { color: var(--blue); }
       }
+
+      /* 滚动条美化 */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.4); border-radius: 10px; }
       ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.7); }
       ::-webkit-scrollbar-track { background: transparent; }
-      .modal-view { background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 40px; }
-      .modal-content { width: 800px; max-width: 100%; height: 85vh; max-height: 800px; background: var(--bg-color); border-radius: 20px; box-shadow: 0 24px 80px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.2); overflow: hidden; }
+
+      /* 弹窗核心逻辑：全屏暗色毛玻璃遮罩，内容居中拟态窗口 */
+      .modal-view { 
+        background: rgba(15, 23, 42, 0.4); 
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        align-items: center; justify-content: center; padding: 40px;
+      }
+      .modal-content {
+        width: 800px; max-width: 100%; height: 85vh; max-height: 800px;
+        background: var(--bg-color); border-radius: 20px;
+        box-shadow: 0 24px 80px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.2);
+        position: relative; overflow: hidden;
+      }
       #modal-sector-select { align-items: center; justify-content: center; }
       #modal-sector-select > div { border-radius: 20px !important; min-height: auto !important; max-width: 500px; width: 100%; box-shadow: 0 24px 80px rgba(0,0,0,0.2);}
     }
@@ -230,6 +264,8 @@
 <body>
 
 <div class="app-container">
+
+  <!-- ================= 底部菜单栏(移动)/侧边栏(PC) ================= -->
   <div class="tab-bar">
     <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
     <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
@@ -237,111 +273,1391 @@
     <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
   </div>
 
-  <!-- 自选首页 -->
+  <!-- ================= 视图1：自选首页 ================= -->
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
-      <div style="display:flex; gap:8px;"><div class="nav-btn" onclick="app.switchTab('sync')">☁️同步</div><div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div></div>
+      <div style="display:flex; gap:8px;">
+        <div class="nav-btn" onclick="app.switchTab('sync')">☁️同步</div>
+        <div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div>
+      </div>
       <div class="nav-title">📈 养鸡小能手</div>
       <div class="nav-btn" style="background:#fff;" onclick="app.openSearch()">🔍搜索</div>
     </div>
+    
     <div class="scroll-area">
-      <div class="tabs-wrapper"><div class="tabs-scroll" id="home-groups"></div><div class="tabs-fixed-right"><div class="mgr-btn" onclick="app.createGroup()">＋</div><div class="mgr-btn" onclick="app.openGroupMgr()">☰</div></div></div>
-      <div class="action-bar-wrap"><div class="action-row"><span style="font-size:12px; color:#64748b; font-weight:800;">当前分组基金明细</span><div class="view-toggle"><span id="vt-card" class="active" onclick="app.setViewMode('card')">卡片</span><span id="vt-list" onclick="app.setViewMode('list')">列表</span></div></div><div class="action-row" style="justify-content: flex-start; gap: 10px;"><div id="sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSortDir()">降序 ↓</div><select id="sort-rule" class="sort-rule" onchange="app.renderHome()"><option value="daily">单日涨跌</option><option value="medal">优劣综合</option><option value="super">综合超级分</option><option value="3日">3日累计</option><option value="5日">5日累计</option><option value="7日">7日累计</option><option value="10日">10日累计</option><option value="15日">15日累计</option><option value="20日">20日累计</option><option value="1月">近1月</option><option value="3月">近3月</option><option value="6月">近6月</option><option value="1年">近1年</option></select></div></div>
+      <div class="tabs-wrapper">
+        <div class="tabs-scroll" id="home-groups"></div>
+        <div class="tabs-fixed-right">
+          <div class="mgr-btn" onclick="app.createGroup()">＋</div>
+          <div class="mgr-btn" onclick="app.openGroupMgr()">☰</div>
+        </div>
+      </div>
+      
+      <div class="action-bar-wrap">
+        <div class="action-row">
+          <span style="font-size:12px; color:#64748b; font-weight:800;">当前分组基金明细</span>
+          <div class="view-toggle">
+            <span id="vt-card" class="active" onclick="app.setViewMode('card')">卡片</span>
+            <span id="vt-list" onclick="app.setViewMode('list')">列表</span>
+          </div>
+        </div>
+        <div class="action-row" style="justify-content: flex-start; gap: 10px;">
+          <div id="sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSortDir()">降序 ↓</div>
+          <select id="sort-rule" class="sort-rule" onchange="app.renderHome()">
+            <option value="daily">单日涨跌</option>
+            <option value="medal">优劣综合</option>
+            <option value="super">综合超级分</option>
+            <option value="3日">3日累计</option>
+            <option value="5日">5日累计</option>
+            <option value="7日">7日累计</option>
+            <option value="10日">10日累计</option>
+            <option value="15日">15日累计</option>
+            <option value="20日">20日累计</option>
+            <option value="1月">近1月</option>
+            <option value="3月">近3月</option>
+            <option value="6月">近6月</option>
+            <option value="1年">近1年</option>
+          </select>
+        </div>
+      </div>
+
       <div id="home-list"></div>
     </div>
   </div>
 
-  <!-- 排名页 -->
-  <div id="view-rank" class="page-view"><div class="nav-bar"><div class="nav-title">🏆 分组平均涨跌</div><div class="view-toggle"><span id="rank-desc" class="active" onclick="app.setRankDir('desc')">降序</span><span id="rank-asc" onclick="app.setRankDir('asc')">升序</span></div></div><div class="scroll-area" id="rank-list"></div></div>
+  <!-- ================= 视图2：排名页 ================= -->
+  <div id="view-rank" class="page-view">
+    <div class="nav-bar">
+      <div class="nav-title">🏆 分组平均涨跌</div>
+      <div class="view-toggle" style="margin-right:0;">
+        <span id="rank-desc" class="active" onclick="app.setRankDir('desc')">降序</span>
+        <span id="rank-asc" onclick="app.setRankDir('asc')">升序</span>
+      </div>
+    </div>
+    <div class="scroll-area" id="rank-list"></div>
+  </div>
 
-  <!-- 板块页 -->
-  <div id="view-sector" class="page-view"><div class="nav-bar"><div class="nav-title">🏷️ 板块分析</div></div><div class="scroll-area"><div style="display:flex; gap:10px; margin-bottom: 8px;"><input type="text" id="new-sector-input" placeholder="新建板块名称(限8字)" style="margin:0; flex:1;"><button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button></div><div style="display:flex; gap:10px; margin-bottom: 12px;"><input type="text" id="search-sector-input" placeholder="搜索已建板块" style="margin:0; flex:1;" oninput="app.searchSector()"><button class="btn-primary" style="width:70px; margin:0; background: var(--text-sub); box-shadow: none;" onclick="app.searchSector()">搜索</button></div><div id="sector-search-msg" style="display:none; color:var(--red); font-size:12px; margin-bottom:12px; font-weight:bold;">暂无相关板块，请在上方新建。</div><div class="tabs-scroll" id="sector-tags" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px dashed #cbd5e1; flex-wrap: wrap; white-space: normal; gap: 8px;"></div><div class="action-bar-wrap" id="sector-action-wrap" style="display:none;"><div class="action-row"><span id="sector-title-lbl" style="font-size:12px; font-weight:800; color:var(--text-main);">属于该板块的基金</span><div class="view-toggle"><span id="svt-card" class="active" onclick="app.setSecViewMode('card')">卡片</span><span id="svt-list" onclick="app.setSecViewMode('list')">列表</span></div></div><div class="action-row" style="justify-content: flex-start; gap: 10px;"><div id="sec-sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSecSortDir()">降序 ↓</div><select id="sec-sort-rule" class="sort-rule" onchange="app.renderSector()"><option value="daily">单日涨跌</option><option value="medal">优劣综合</option><option value="super">综合超级分</option><option value="3日">3日累计</option><option value="5日">5日累计</option><option value="7日">7日累计</option><option value="10日">10日累计</option><option value="15日">15日累计</option><option value="20日">20日累计</option><option value="1月">近1月</option><option value="3月">近3月</option><option value="6月">近6月</option><option value="1年">近1年</option></select></div></div><div id="sector-list"></div></div></div>
+  <!-- ================= 视图3：板块页 ================= -->
+  <div id="view-sector" class="page-view">
+    <div class="nav-bar">
+      <div class="nav-title">🏷️ 板块分析</div>
+    </div>
+    <div class="scroll-area">
+      <div style="display:flex; gap:10px; margin-bottom: 8px;">
+        <input type="text" id="new-sector-input" placeholder="新建板块名称(限8字)" style="margin:0; flex:1;">
+        <button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button>
+      </div>
 
-  <!-- 设置页 -->
-  <div id="view-sync" class="page-view"><div class="nav-bar"><div class="nav-title">⚙️ 设置中心</div></div><div class="scroll-area"><div class="card" style="margin-bottom: 12px;"><h3 style="margin-top:0; font-size: 14px;">Cloudflare R2 同步配置</h3><input type="text" id="r2-bucket" placeholder="Bucket Name"><input type="text" id="r2-ak" placeholder="Access Key ID"><input type="password" id="r2-sk" placeholder="Secret Access Key"><input type="text" id="r2-endpoint" placeholder="Endpoint URL"><button class="btn-primary" onclick="app.saveR2ParamsOnly()">💾 保存配置参数</button><button class="btn-primary btn-success" onclick="app.pullFromCloud()">📥 从云端拉取最新数据</button><button class="btn-primary" style="background:#fff; color:var(--blue); border:2px solid var(--blue-light); margin-top:8px;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button></div><div class="card"><h3 style="margin-top:0; font-size: 14px;">分组管理</h3><button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none;" onclick="localStorage.clear(); location.reload();">🗑️ 清空本地缓存</button></div></div></div>
+      <!-- 板块搜索框 -->
+      <div style="display:flex; gap:10px; margin-bottom: 12px;">
+        <input type="text" id="search-sector-input" placeholder="搜索已建板块" style="margin:0; flex:1;" oninput="app.searchSector()">
+        <button class="btn-primary" style="width:70px; margin:0; background: var(--text-sub); box-shadow: none;" onclick="app.searchSector()">搜索</button>
+      </div>
+      <div id="sector-search-msg" style="display:none; color:var(--red); font-size:12px; margin-bottom:12px; font-weight:bold;">
+        暂无相关板块，请在上方新建。
+      </div>
 
-  <!-- 分组管理弹窗 -->
-  <div id="modal-group-mgr" class="modal-view" onclick="app.closeOutside(event, 'group-mgr')"><div class="modal-content" onclick="event.stopPropagation()"><div class="nav-bar"><div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div><div class="nav-title">分组管理</div><div style="width:60px;"></div></div><div class="mgr-header"><span style="flex:1;">分组名称</span><div style="display:flex; width:100px; justify-content:space-between;"><span>修改</span><span>清空</span><span>排序</span></div></div><div class="mgr-list-wrap" id="mgr-scroll-box"><div id="group-mgr-list" style="position:relative;"></div></div><div class="mgr-bottom-bar" style="position: relative; padding: 12px;"><button class="btn-primary" style="border-radius:20px;" onclick="app.createGroup()">＋ 新建分组</button></div></div></div>
-  <!-- 板块选择弹窗 -->
-  <div id="modal-sector-select" class="modal-view" style="justify-content:flex-end;" onclick="app.closeOutside(event, 'sector-select')"><div style="background:var(--surface-color); border-radius:20px 20px 0 0; padding:20px 15px; min-height:40vh;" onclick="event.stopPropagation()"><div style="display:flex; justify-content:space-between; margin-bottom:12px; font-weight:800;"><span>选择板块 (最多2个)</span><span style="color:#94a3b8; cursor:pointer;" onclick="app.closeModal('sector-select')">✕</span></div><div id="sector-select-list" class="tabs-scroll" style="flex-wrap:wrap; white-space:normal; gap:8px;"></div></div></div>
-  <!-- 搜索弹窗 -->
-  <div id="modal-search" class="modal-view" onclick="app.closeOutside(event, 'search')"><div class="modal-content" onclick="event.stopPropagation()"><div class="nav-bar"><input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%; border-radius:14px;"><div class="nav-btn" style="background:none; box-shadow:none;" onclick="app.closeModal('search')">取消</div></div><div class="scroll-area" id="search-results"></div></div></div>
-  <!-- 详情弹窗 -->
-  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')"><div class="modal-content" onclick="event.stopPropagation()"><div class="nav-bar"><div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div><div class="nav-title">基金详情</div><div style="width:60px;"></div></div><div class="scroll-area"><div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;"><div><h2 id="det-name" style="margin:0 0 4px; font-size:15px;">--</h2><span id="det-code" class="c-code">--</span></div><select id="det-group-select" onchange="app.addToGroupFromDetail()" style="padding:6px 12px; border-radius:16px; background:var(--blue); color:#fff; font-weight:bold;"><option value="">+ 加自选</option></select></div><div class="detail-tabs" id="det-tabs"><div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div><div class="action-pill" onclick="app.renderDetailTab(30)">30日</div><div class="action-pill" onclick="app.renderDetailTab(60)">60日</div><div class="action-pill" onclick="app.renderDetailTab(90)">90日</div><div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div></div><div id="det-chart-area"><div class="card" style="padding:12px;"><div style="display:flex; justify-content:space-between;"><span>业绩走势</span><span>最大回撤 <span id="det-maxdrop" class="green">--</span></span></div><canvas id="det-canvas" onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()" ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas></div><div style="font-weight:800; margin:8px 0 6px;">历史净值明细</div><div id="det-table-area"></div></div><div id="det-hold-area" style="display:none;"></div></div></div></div>
+      <div class="tabs-scroll" id="sector-tags" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px dashed #cbd5e1; flex-wrap: wrap; white-space: normal; gap: 8px;"></div>
+      
+      <div class="action-bar-wrap" id="sector-action-wrap" style="display:none;">
+        <div class="action-row">
+          <span id="sector-title-lbl" style="font-size:12px; font-weight:800; color:var(--text-main);">属于该板块的基金</span>
+          <div class="view-toggle">
+            <span id="svt-card" class="active" onclick="app.setSecViewMode('card')">卡片</span>
+            <span id="svt-list" onclick="app.setSecViewMode('list')">列表</span>
+          </div>
+        </div>
+        <div class="action-row" style="justify-content: flex-start; gap: 10px;">
+          <div id="sec-sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSecSortDir()">降序 ↓</div>
+          <select id="sec-sort-rule" class="sort-rule" onchange="app.renderSector()">
+            <option value="daily">单日涨跌</option>
+            <option value="medal">优劣综合</option>
+            <option value="super">综合超级分</option>
+            <option value="3日">3日累计</option>
+            <option value="5日">5日累计</option>
+            <option value="7日">7日累计</option>
+            <option value="10日">10日累计</option>
+            <option value="15日">15日累计</option>
+            <option value="20日">20日累计</option>
+            <option value="1月">近1月</option>
+            <option value="3月">近3月</option>
+            <option value="6月">近6月</option>
+            <option value="1年">近1年</option>
+          </select>
+        </div>
+      </div>
+      <div id="sector-list"></div>
+    </div>
+  </div>
+
+  <!-- ================= 视图4：设置 ================= -->
+  <div id="view-sync" class="page-view">
+    <div class="nav-bar"><div class="nav-title">⚙️ 设置中心</div></div>
+    <div class="scroll-area">
+      <div class="card" style="margin-bottom: 12px;">
+        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">Cloudflare R2 同步配置</h3>
+        <input type="text" id="r2-bucket" placeholder="Bucket Name (如: fund-app)">
+        <input type="text" id="r2-ak" placeholder="Access Key ID">
+        <input type="password" id="r2-sk" placeholder="Secret Access Key">
+        <input type="text" id="r2-endpoint" placeholder="Endpoint URL">
+        <button class="btn-primary" onclick="app.saveR2ParamsOnly()">💾 保存配置参数</button>
+        <button class="btn-primary btn-success" onclick="app.pullFromCloud()">📥 从云端拉取最新数据</button>
+        <button class="btn-primary" style="background:#fff; color:var(--blue); border:2px solid var(--blue-light); margin-top:8px; box-shadow:none;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">分组管理</h3>
+        <button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="localStorage.clear(); location.reload();">🗑️ 清空本地缓存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗：分组管理 ================= -->
+  <div id="modal-group-mgr" class="modal-view" onclick="app.closeOutside(event, 'group-mgr')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="nav-bar">
+        <div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div>
+        <div class="nav-title">分组管理</div>
+        <div style="width:60px;"></div>
+      </div>
+      <div class="mgr-header">
+        <span style="flex:1;">分组名称</span>
+        <div style="display:flex; width:100px; justify-content:space-between;">
+          <span>修改</span><span>清空</span><span>排序</span>
+        </div>
+      </div>
+      
+      <div class="mgr-list-wrap" id="mgr-scroll-box">
+        <div id="group-mgr-list" style="position:relative;"></div>
+      </div>
+      
+      <div class="mgr-bottom-bar" style="position: relative; padding: 12px;">
+        <button class="btn-primary" style="border-radius:20px; margin-bottom: 0;" onclick="app.createGroup()">＋ 新建分组</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗：板块选择器 ================= -->
+  <div id="modal-sector-select" class="modal-view" style="justify-content:flex-end;" onclick="app.closeOutside(event, 'sector-select')">
+    <div style="background:var(--surface-color); border-radius:20px 20px 0 0; padding:20px 15px; min-height:40vh; border: 1px solid rgba(255,255,255,0.4);" onclick="event.stopPropagation()">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-weight:800; font-size: 14px;">
+        <span>选择板块 (最多2个)</span>
+        <span style="color:#94a3b8; cursor:pointer; font-size: 16px;" onclick="app.closeModal('sector-select')">✕</span>
+      </div>
+      <div id="sector-select-list" class="tabs-scroll" style="flex-wrap:wrap; white-space:normal; gap:8px; cursor:auto;"></div>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗：基金搜索 ================= -->
+  <div id="modal-search" class="modal-view" onclick="app.closeOutside(event, 'search')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="nav-bar">
+        <input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%; border-radius: 14px; padding: 6px 12px;">
+        <div class="nav-btn" style="background:none; box-shadow:none; color: var(--text-sub);" onclick="app.closeModal('search')">取消</div>
+      </div>
+      <div class="scroll-area" id="search-results"></div>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗：基金详情 ================= -->
+  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="nav-bar">
+        <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
+        <div class="nav-title">基金详情</div>
+        <div style="width:60px;"></div>
+      </div>
+      <div class="scroll-area">
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+          <div>
+            <h2 id="det-name" style="margin:0 0 4px; font-size:15px; font-weight:800;">--</h2>
+            <span id="det-code" class="c-code">--</span>
+          </div>
+          <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="padding:6px 12px; border-radius:16px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 4px 10px rgba(0, 102, 255, 0.25);">
+            <option value="">+ 加自选</option>
+          </select>
+        </div>
+
+        <div class="detail-tabs" id="det-tabs">
+          <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
+          <div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div>
+        </div>
+
+        <div id="det-chart-area">
+          <div class="card" style="padding:12px; margin-bottom: 12px;">
+            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px; padding:0 2px;">
+              <span style="color:#1e293b; font-weight:800;">业绩走势(累计涨跌)</span>
+              <span style="color:#64748b;">最大回撤 <span id="det-maxdrop" class="green">--</span></span>
+            </div>
+            <canvas id="det-canvas" 
+                    onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()"
+                    ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas>
+          </div>
+          <div style="font-weight:800; font-size:14px; margin-bottom:8px; padding-left: 2px;">历史净值明细</div>
+          <div id="det-table-area"></div>
+        </div>
+
+        <div id="det-hold-area" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
+<!-- 核心业务逻辑 -->
 <script>
-function fetchJSONP(url, callbackName = 'callback') { return new Promise((resolve, reject) => { const cb = 'jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000); const script = document.createElement('script'); const sep = url.includes('?') ? '&' : '?'; script.src = `${url}${sep}${callbackName}=${cb}`; window[cb] = (data) => { resolve(data); delete window[cb]; script.remove(); }; script.onerror = () => { reject('JSONP Network Error'); script.remove(); }; document.head.appendChild(script); }); }
+function fetchJSONP(url, callbackName = 'callback') {
+  return new Promise((resolve, reject) => {
+    const cb = 'jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+    const script = document.createElement('script');
+    const sep = url.includes('?') ? '&' : '?';
+    script.src = `${url}${sep}${callbackName}=${cb}`;
+    window[cb] = (data) => { resolve(data); delete window[cb]; script.remove(); };
+    script.onerror = () => { reject('JSONP Network Error'); script.remove(); };
+    document.head.appendChild(script);
+  });
+}
 
 const app = {
-  data: { groups: [{ id: 'default', name: '全部', fundCodes: [] }], fundsCache: {}, customSectors: [] },
-  s3: null, currentGroupId: 'default', activeSector: '', sectorSearchKeyword: '', currentDetailCode: '', targetSectorCode: '',
-  viewMode: 'card', secViewMode: 'card', sortDir: 'desc', secSortDir: 'desc', rankDir: 'desc',
+  data: {
+    groups: [{ id: 'default', name: '全部', fundCodes: [] }],
+    fundsCache: {},
+    customSectors: []
+  },
+  s3: null,
+  currentGroupId: 'default',
+  activeSector: '',
+  sectorSearchKeyword: '',
+  currentDetailCode: '',
+  targetSectorCode: '',
+  
+  viewMode: 'card', secViewMode: 'card',
+  sortDir: 'desc', secSortDir: 'desc', rankDir: 'desc',
+  
   dragState: { isDragging: false, startIndex: -1, currentIndex: -1, startY: 0, startTop: 0, dragEl: null, items: [], itemHeight: 50 },
-  chartInfo: { data: [], touchIdx: -1 }, masterFundList: [], searchTimer: null,
-  formatEMDate(ts, length = 10, offset = 0) { return new Date(ts + 28800000).toISOString().slice(offset, offset + length); },
-  showToast(msg, type = 'success') { const div = document.createElement('div'); div.innerText = msg; const bg = type === 'success' ? 'var(--green)' : (type === 'error' ? 'var(--red)' : '#1e293b'); div.style.cssText = `position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${bg};color:#fff;padding:8px 20px;border-radius:24px;z-index:9999;font-weight:bold;box-shadow:0 6px 16px rgba(0,0,0,0.15);font-size:13px;animation:slideDown 0.3s cubic-bezier(0.2,0.8,0.2,1);`; document.body.appendChild(div); setTimeout(() => { div.style.opacity = '0'; div.style.transform = 'translate(-50%, -10px)'; div.style.transition = 'all 0.3s'; setTimeout(() => div.remove(), 300); }, 2000); },
-  init() { const local = localStorage.getItem('fund_pwa_v6'); if (local) this.data = JSON.parse(local); this.initS3(); this.processGroupRisks(); this.renderHomeGroups(); this.renderHome(); this.enablePCMouseScroll(); },
-  closeOutside(e, modalId) { if (e.target === e.currentTarget) this.closeModal(modalId); },
-  enablePCMouseScroll() { const sliders = document.querySelectorAll('.tabs-scroll'); sliders.forEach(slider => { let isDown = false, startX, scrollLeft; slider.addEventListener('mousedown', (e) => { isDown = true; startX = e.pageX - slider.offsetLeft; scrollLeft = slider.scrollLeft; slider.style.cursor = 'grabbing'; }); slider.addEventListener('mouseleave', () => { isDown = false; slider.style.cursor = 'grab'; }); slider.addEventListener('mouseup', () => { isDown = false; slider.style.cursor = 'grab'; }); slider.addEventListener('mousemove', (e) => { if(!isDown) return; e.preventDefault(); const x = e.pageX - slider.offsetLeft; const walk = (x - startX) * 2; slider.scrollLeft = scrollLeft - walk; }); }); },
-  saveData() { localStorage.setItem('fund_pwa_v6', JSON.stringify(this.data)); this.processGroupRisks(); },
-  switchTab(tabId) { document.querySelectorAll('.page-view, .tab-item').forEach(el => el.classList.remove('active')); document.getElementById('view-' + tabId).classList.add('active'); document.getElementById('tab-btn-' + tabId).classList.add('active'); if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); } if(tabId === 'rank') this.renderRank(); if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); } },
-  openModal(id) { document.getElementById('modal-' + id).classList.add('active'); }, closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
-  loadFundData(code, isBatch = false) { return new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`; script.onload = () => { if (window.Data_netWorthTrend) { let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); if (nw.length > 260) nw = nw.slice(-260); const fund = { code, name: window.fS_name || code, netWorth: nw, sectors: this.data.fundsCache[code]?.sectors || [], isStarred: this.data.fundsCache[code]?.isStarred || false }; this.data.fundsCache[code] = fund; if (!isBatch) this.saveData(); window.Data_netWorthTrend = null; window.fS_name = null; resolve(fund); } else reject('无数据'); script.remove(); }; script.onerror = () => { reject('网络异常'); script.remove(); }; document.head.appendChild(script); }); },
-  async refreshAll() { const codes = this.data.groups[0].fundCodes; if(codes.length === 0) return this.showToast('没有需要更新的基金', 'error'); const btn = document.querySelector('.nav-btn[onclick="app.refreshAll()"]'); const oldText = btn.innerText; btn.innerText = '🔄更新中...'; btn.style.opacity = '0.5'; btn.style.pointerEvents = 'none'; try { for (let code of codes) { try { await this.loadFundData(code, true); } catch(e) { } } this.saveData(); this.processGroupRisks(); this.renderHome(); this.showToast('✅ 最新净值数据已更新'); } finally { btn.innerText = oldText; btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; } },
-  calcRate(nw, days) { if (!nw || nw.length < days) return '--'; const last = nw[nw.length-1].y; const prev = nw[nw.length-days].y; return (((last - prev)/prev)*100).toFixed(2); },
-  calcMaxDrop(nw, days) { if (!nw || nw.length < 2) return null; const slice = nw.slice(-Math.min(days, nw.length)); const latest = slice[slice.length-1].y; let maxDrop = 0; for (let i = 0; i < slice.length-1; i++) { const drop = ((latest - slice[i].y) / slice[i].y) * 100; if (drop < maxDrop) maxDrop = drop; } return maxDrop === 0 ? null : maxDrop.toFixed(2); },
-  formatFund(code) { const f = this.data.fundsCache[code]; if (!f || !f.netWorth) return { code, name: '加载中...', isLoad: false }; const nw = f.netWorth; const listRatesCfg = [{ label: '3日', val: 3 }, { label: '5日', val: 5 }, { label: '7日', val: 7 }, { label: '10日', val: 10 }, { label: '15日', val: 15 }, { label: '20日', val: 20 }, { label: '1月', val: 21 }, { label: '3月', val: 63 }, { label: '6月', val: 126 }, { label: '1年', val: 252 }]; const rates = listRatesCfg.slice(0,6).map(d => ({ label: d.label, val: this.calcRate(nw, d.val) })); const listRates = listRatesCfg.map(d => ({ label: d.label, val: this.calcRate(nw, d.val) })); const maxDropIn20 = this.calcMaxDrop(nw, 20); const change = this.calcRate(nw, 2); return { ...f, isLoad: true, latestDate: this.formatEMDate(nw[nw.length-1].x, 10), latest: nw[nw.length-1].y.toFixed(4), change, rates, listRates, maxDropIn20, isRisk: maxDropIn20 !== null && parseFloat(maxDropIn20) <= -8.5, isDailyRisk: change !== '--' && parseFloat(change) <= -5.0, isStarred: !!f.isStarred }; },
-  processGroupRisks() { this.data.groups.forEach(g => { g.has20Risk = false; g.hasDailyRisk = false; g.fundCodes.forEach(c => { const f = this.formatFund(c); if(f.isRisk) g.has20Risk = true; if(f.isDailyRisk) g.hasDailyRisk = true; }); }); },
-  // 【核心修复】星标操作：更新状态后强制刷新当前视图，彻底解决刷新后点击无响应问题
-  toggleStar(e, code) { if (e) e.stopPropagation(); const f = this.data.fundsCache[code]; if (f) { f.isStarred = !f.isStarred; this.saveData(); const homeActive = document.getElementById('view-home').classList.contains('active'); const sectorActive = document.getElementById('view-sector').classList.contains('active'); if (homeActive) this.renderHome(); else if (sectorActive) this.renderSector(); } },
-  removeFundFromGroup(e, code) { if(e) e.stopPropagation(); if (!confirm('确定从该分组移除吗？')) return; const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId); if (!currentGroup) return; currentGroup.fundCodes = currentGroup.fundCodes.filter(c => c !== code); const otherGroups = this.data.groups.filter(g => g.id !== 'default' && g.id !== this.currentGroupId); const existsInOther = otherGroups.some(g => g.fundCodes.includes(code)); if (!existsInOther) { const defaultGroup = this.data.groups.find(g => g.id === 'default'); if (defaultGroup) defaultGroup.fundCodes = defaultGroup.fundCodes.filter(c => c !== code); } this.saveData(); this.renderHome(); },
-  removeSectorFromFund(e, code, sec) { if(e) e.stopPropagation(); const f = this.data.fundsCache[code]; if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); } },
-  openSectorSelect(e, code) { if(e) e.stopPropagation(); if(this.data.customSectors.length===0) return alert('请先去板块页面创建板块'); this.targetSectorCode = code; const f = this.data.fundsCache[code]; let html = this.data.customSectors.map(s => `<div class="action-pill ${f.sectors?.includes(s)?'active':''}" onclick="app.toggleFundSector('${s}')">${s}</div>`).join(''); document.getElementById('sector-select-list').innerHTML = html; this.openModal('sector-select'); },
-  delSector(e, s) { if(e) e.stopPropagation(); if(confirm('删除板块?')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); } },
-  calculateMedals(funds) { if (!funds.length) return; funds.forEach(f => { f.medalScore = 0; }); const evaluatePeriods = ['daily', '3日', '5日', '7日', '10日', '15日', '20日', '1月']; evaluatePeriods.forEach(p => { let values = funds.map(f => { let val = -9999; if (p === 'daily') val = parseFloat(f.change); else { let ra = f.listRates.find(r => r.label === p); val = ra && ra.val !== '--' ? parseFloat(ra.val) : -9999; } return { code: f.code, val }; }); values.sort((a,b)=>b.val - a.val); values.forEach((item, idx) => { let fund = funds.find(f => f.code === item.code); if (fund && item.val !== -9999) fund.medalScore += (funds.length - idx); }); }); },
-  calculateSuperScoreMedals(funds) { if (!funds.length) return; funds.forEach(f => { f.superScore = 0; const nw = f.netWorth ? f.netWorth.slice(-40) : []; if (nw.length < 2) { f._rawRet = -9999; f._rawCalmar = -9999; f._rawWin = -9999; return; } const firstY = nw[0].y, lastY = nw[nw.length-1].y; const totalReturn = ((lastY - firstY)/firstY)*100; let maxPeak = firstY, maxDrop = 0, winDays = 0; for (let i=1;i<nw.length;i++) { if (nw[i].y > maxPeak) maxPeak = nw[i].y; const drop = ((maxPeak - nw[i].y)/maxPeak)*100; if (drop > maxDrop) maxDrop = drop; if (nw[i].y > nw[i-1].y) winDays++; } f._rawRet = totalReturn; f._rawCalmar = totalReturn / Math.max(maxDrop, 0.01); f._rawWin = (winDays/(nw.length-1))*100; }); const assign = (metric) => { let sorted = [...funds].sort((a,b)=>b[metric]-a[metric]); sorted.forEach((fund,idx)=> { if (fund[metric] !== -9999) fund[`${metric}Rank`] = funds.length - idx; else fund[`${metric}Rank`] = 0; }); }; assign('_rawRet'); assign('_rawCalmar'); assign('_rawWin'); funds.forEach(f => { if (f._rawRet !== -9999) f.superScore = (f._rawRetRank * 0.4) + (f._rawCalmarRank * 0.4) + (f._rawWinRank * 0.2); }); },
-  assignMedals(funds, sortVal) { funds.forEach(f=>f.medal=''); if(funds.length<3) return; let metric = sortVal==='medal'?'medalScore':'superScore'; let ranked = [...funds].sort((a,b)=>b[metric]-a[metric]); if(ranked[0][metric]>0) ranked[0].medal='🥇'; if(ranked[1][metric]>0) ranked[1].medal='🥈'; if(ranked[2][metric]>0) ranked[2].medal='🥉'; },
-  buildCardHtml(f, isHomeGroup = false) { if(!f.isLoad) return `<div class="card"><div class="c-title">${f.code} 加载中</div></div>`; const col = f.change >= 0 ? 'red' : 'green'; let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join(''); let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join(''); let showDel = isHomeGroup && this.currentGroupId !== 'default'; let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : ''; let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(event, '${f.code}')">${f.isStarred ? '★' : '☆'}</div>`; let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`; let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`; return `<div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">${delBtn}${starBtn}<div class="card-head" style="padding-right: ${showDel ? '55px' : '25px'};"><div class="c-title-area"><span class="c-title">${titleHtml}</span><span class="c-code">${f.code}</span>${tagsHtml}${sectorBtn}</div></div><div class="c-main"><span style="font-size:12px; font-weight:700;">${f.latestDate}</span><div style="display:flex; gap:10px; align-items:center;"><div class="c-val">${f.latest}</div><div class="c-chg ${col}">${f.change > 0 ? '+' : ''}${f.change}%</div></div></div><div class="rates-row">${ratesHtml}</div>${f.maxDropIn20 !== null ? `<div class="maxdrop-tag">20日跌幅 ${f.maxDropIn20}%</div>` : ''}</div>`; },
-  buildListHtml(funds, showDel = false, isSector = false) { if(funds.length === 0) return ''; const curSortRule = isSector ? document.getElementById('sec-sort-rule').value : document.getElementById('sort-rule').value; const curSortDir = isSector ? this.secSortDir : this.sortDir; const renderTh = (label, colKey) => { let arrow = (curSortRule === colKey) ? (curSortDir === 'desc' ? ' ↓' : ' ↑') : ''; return `<div class="l-col-rate th" onclick="app.handleListSortClick('${colKey}', ${isSector})">${label}${arrow}</div>`; }; let headers = ['3日','5日','7日','10日','15日','20日','1月','3月','6月','1年']; let header = `<div class="l-header"><div class="l-col-name th">基金名称</div>${renderTh('最新', 'daily')}${headers.map(h=>renderTh(h, h)).join('')}</div>`; let rows = funds.map(f => { if(!f.isLoad) return ''; let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join(''); let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : ''; let rowClass = f.isStarred ? 'l-row starred-row' : 'l-row'; let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`; return `<div id="fund-row-${f.code}" class="${rowClass}" onclick="app.openDetail('${f.code}')">${delBtn}<div class="l-col-name"><div style="font-weight:800; font-size:13px;">${titleHtml}</div><div style="font-size:10px; color:#94a3b8;">${f.code}</div></div><div class="l-col-rate"><div>${f.latest}</div><div class="${f.change>=0?'red':'green'}" style="font-size:11px;">${f.change>0?'+':''}${f.change}%</div></div>${rates}</div>`; }).join(''); return `<div class="list-table-container">${header}${rows}</div>`; },
-  handleListSortClick(colName, isSector) { const selectId = isSector ? 'sec-sort-rule' : 'sort-rule'; const select = document.getElementById(selectId); if (select.value === colName) { if ((isSector ? this.secSortDir : this.sortDir) === 'desc') { if (isSector) this.secSortDir = 'asc'; else this.sortDir = 'asc'; } else { select.value = 'daily'; if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc'; } } else { select.value = colName; if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc'; } const btnId = isSector ? 'sec-sort-dir-btn' : 'sort-dir-btn'; const curDir = isSector ? this.secSortDir : this.sortDir; document.getElementById(btnId).innerText = curDir === 'desc' ? '降序 ↓' : '升序 ↑'; if (isSector) this.renderSector(); else this.renderHome(); },
-  setViewMode(mode) { this.viewMode = mode; document.getElementById('vt-card').className = mode === 'card' ? 'active' : ''; document.getElementById('vt-list').className = mode === 'list' ? 'active' : ''; this.renderHome(); },
-  toggleSortDir() { this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc'; document.getElementById('sort-dir-btn').innerText = this.sortDir === 'desc' ? '降序 ↓' : '升序 ↑'; this.renderHome(); },
-  renderHomeGroups() { let html = this.data.groups.map(g => { let badge = ''; if(g.has20Risk) badge += '<span class="badge warning">!</span>'; if(g.hasDailyRisk) badge += '<span class="badge heart">💚</span>'; return `<div class="action-pill ${g.id === this.currentGroupId ? 'active' : ''}" onclick="app.currentGroupId='${g.id}'; app.renderHomeGroups(); app.renderHome();">${g.name} ${badge}</div>`; }).join(''); document.getElementById('home-groups').innerHTML = html; },
-  renderHome() { const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0]; let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad); this.calculateMedals(funds); this.calculateSuperScoreMedals(funds); const sortVal = document.getElementById('sort-rule').value; this.assignMedals(funds, sortVal); funds.sort((a,b) => { let va = -99999, vb = -99999; if(sortVal === 'daily') { va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; } else if (sortVal === 'medal') { va = a.medalScore || 0; vb = b.medalScore || 0; } else if (sortVal === 'super') { va = a.superScore || 0; vb = b.superScore || 0; } else { const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal); va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999; } if(va===vb) return 0; return this.sortDir === 'desc' ? vb - va : va - vb; }); const container = document.getElementById('home-list'); container.className = this.viewMode === 'card' ? 'card-grid' : ''; container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true, false); },
-  setRankDir(dir) { this.rankDir = dir; document.getElementById('rank-desc').className = dir === 'desc' ? 'active' : ''; document.getElementById('rank-asc').className = dir === 'asc' ? 'active' : ''; this.renderRank(); },
-  renderRank() { let list = []; this.data.groups.slice(1).forEach(g => { let sum = 0, count = 0; g.fundCodes.forEach(c => { let f = this.formatFund(c); if(f.isLoad && f.change!=='--') { sum+=parseFloat(f.change); count++; } }); if(count>0) list.push({ id: g.id, name: g.name, avg: (sum/count).toFixed(2), has20Risk: g.has20Risk, hasDailyRisk: g.hasDailyRisk }); }); list.sort((a,b) => this.rankDir === 'desc' ? b.avg - a.avg : a.avg - b.avg); let html = list.map(l => { let badge = ''; if(l.has20Risk) badge += '<span class="badge warning">!</span>'; if(l.hasDailyRisk) badge += '<span class="badge heart">💚</span>'; return `<div class="list-item" onclick="app.currentGroupId='${l.id}'; app.switchTab('home');"><div><b>${l.name}</b> ${badge}</div><span class="${l.avg>=0?'red':'green'}" style="font-weight:bold;">${l.avg>0?'+':''}${l.avg}%</span></div>`; }).join(''); document.getElementById('rank-list').innerHTML = html || '<div style="text-align:center; color:#94a3b8;">暂无自建分组数据</div>'; },
-  addSector() { let val = document.getElementById('new-sector-input').value.trim(); if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { this.data.customSectors.push(val); this.saveData(); this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); document.getElementById('new-sector-input').value=''; } },
-  searchSector() { this.sectorSearchKeyword = document.getElementById('search-sector-input').value.trim().toLowerCase(); this.renderSector(); },
-  setSecViewMode(mode) { this.secViewMode = mode; document.getElementById('svt-card').className = mode === 'card' ? 'active' : ''; document.getElementById('svt-list').className = mode === 'list' ? 'active' : ''; this.renderSector(); },
-  toggleSecSortDir() { this.secSortDir = this.secSortDir === 'desc' ? 'asc' : 'desc'; document.getElementById('sec-sort-dir-btn').innerText = this.secSortDir === 'desc' ? '降序 ↓' : '升序 ↑'; this.renderSector(); },
-  renderSector() { let kw = this.sectorSearchKeyword; let matchCount = 0; document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => { let isMatch = kw && s.toLowerCase().includes(kw); if(isMatch) matchCount++; let highlightCls = isMatch ? 'highlight-match' : ''; let activeCls = this.activeSector === s ? 'active' : ''; return `<div class="action-pill ${activeCls} ${highlightCls}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#94a3b8; margin-left:6px;" onclick="app.delSector(event, '${s}')">✕</span></div>`; }).join(''); const msgEl = document.getElementById('sector-search-msg'); if(kw && matchCount===0) msgEl.style.display='block'; else msgEl.style.display='none'; const wrap = document.getElementById('sector-action-wrap'); if(!this.activeSector) { wrap.style.display='none'; document.getElementById('sector-list').innerHTML=''; return; } wrap.style.display='block'; let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code)); this.calculateMedals(funds); this.calculateSuperScoreMedals(funds); const sortVal = document.getElementById('sec-sort-rule').value; this.assignMedals(funds, sortVal); funds.sort((a,b) => { let va = -99999, vb = -99999; if(sortVal === 'daily') { va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; } else if (sortVal === 'medal') { va = a.medalScore || 0; vb = b.medalScore || 0; } else if (sortVal === 'super') { va = a.superScore || 0; vb = b.superScore || 0; } else { const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal); va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999; } if(va===vb) return 0; return this.secSortDir === 'desc' ? vb - va : va - vb; }); const container = document.getElementById('sector-list'); container.className = this.secViewMode === 'card' ? 'card-grid' : ''; container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false, true); },
-  toggleFundSector(sec) { const f = this.data.fundsCache[this.targetSectorCode]; if(!f.sectors) f.sectors = []; if(f.sectors.includes(sec)) { f.sectors = f.sectors.filter(s=>s!==sec); } else { if(f.sectors.length>=2) return alert('最多选2个'); f.sectors.push(sec); } this.saveData(); this.closeModal('sector-select'); if(document.getElementById('view-home').classList.contains('active')) this.renderHome(); if(document.getElementById('view-sector').classList.contains('active')) this.renderSector(); },
-  openGroupMgr() { this.openModal('group-mgr'); this.renderGroupMgrList(); },
-  createGroup() { let name = prompt('新分组名称'); if(name && name.trim()) { name = name.trim(); if (this.data.groups.some(g => g.name === name)) { alert('分组名称已存在'); return; } this.data.groups.push({id:'g_'+Date.now(), name, fundCodes:[]}); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups(); } },
-  delGroup(id) { if(confirm('确定删除?')) { this.data.groups = this.data.groups.filter(g=>g.id!==id); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups(); } },
-  renameGroup(id) { let g = this.data.groups.find(g=>g.id===id); if(g) { let nn = prompt('修改名称', g.name); if(nn && nn.trim()) { nn = nn.trim(); if (nn !== g.name && this.data.groups.some(g2 => g2.name === nn)) { alert('名称已存在'); return; } g.name = nn; this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups(); } } },
-  clearGroup(id) { if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); this.showToast('已清空'); this.renderHome(); } } },
-  renderGroupMgrList() { const box = document.getElementById('group-mgr-list'); const h = this.dragState.itemHeight; box.style.height = (this.data.groups.length * h) + 'px'; let html = this.data.groups.map((g, i) => { let top = i * h; let left = g.id==='default' ? `<div class="m-del disabled"></div><b>${g.name}</b>` : `<div class="m-del" onclick="app.delGroup('${g.id}')"></div><b>${g.name}</b>`; let right = (g.id === 'default') ? `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f1f5f9;" onclick="app.clearGroup('${g.id}')">▤</div><div style="width:30px;"></div>` : `<div class="m-btn" style="background:var(--blue-light);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f1f5f9;" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`; return `<div id="mgr-item-${i}" class="mgr-item" style="top:${top}px;"><div class="m-left">${left}</div><div class="m-actions">${right}</div></div>`; }).join(''); box.innerHTML = html; setTimeout(() => { document.querySelectorAll('.drag-handle').forEach(el => { if (el.dataset.idx !== undefined) el.addEventListener('mousedown', (e) => app.ds(e, parseInt(el.dataset.idx)), {passive: false}); el.addEventListener('touchstart', (e) => app.ds(e, parseInt(el.dataset.idx)), {passive: false}); }); }, 50); },
-  ds(e, i) { if (e.button !== 0 && e.button !== undefined) return; if (i===undefined || i===0) return; e.preventDefault(); if (e.type==='touchstart') e.preventDefault(); const scrollBox = document.getElementById('mgr-scroll-box'); scrollBox.style.overflow = 'hidden'; scrollBox.style.touchAction = 'none'; const clientY = e.touches ? e.touches[0].clientY : e.clientY; this.dragState.isDragging = true; this.dragState.startIndex = i; this.dragState.currentIndex = i; this.dragState.dragEl = document.getElementById(`mgr-item-${i}`); if (this.dragState.dragEl) this.dragState.dragEl.classList.add('dragging'); this.dragState.startY = clientY; this.dragState.startTop = i * this.dragState.itemHeight; this.dragState.items = []; for(let j=0;j<this.data.groups.length;j++) this.dragState.items.push({ origIndex: j, currIndex: j }); this._moveHandler = (ev) => this.dm(ev); this._endHandler = () => this.de(); document.addEventListener('mousemove', this._moveHandler, { passive: false }); document.addEventListener('touchmove', this._moveHandler, { passive: false }); document.addEventListener('mouseup', this._endHandler); document.addEventListener('touchend', this._endHandler); document.addEventListener('touchcancel', this._endHandler); },
-  dm(e) { if (!this.dragState.isDragging) return; e.preventDefault(); if (this._dmTicking) return; this._dmTicking = true; requestAnimationFrame(() => { const clientY = e.touches ? e.touches[0].clientY : e.clientY; const deltaY = clientY - this.dragState.startY; const h = this.dragState.itemHeight; const maxTop = (this.data.groups.length-1)*h; let newTop = this.dragState.startTop + deltaY; if (newTop < h) newTop = h; if (newTop > maxTop) newTop = maxTop; if (this.dragState.dragEl) this.dragState.dragEl.style.top = newTop + 'px'; let targetIdx = Math.round(newTop / h); if (targetIdx < 1) targetIdx = 1; if (targetIdx > this.data.groups.length-1) targetIdx = this.data.groups.length-1; if (targetIdx !== this.dragState.currentIndex) { let oldIdx = this.dragState.currentIndex; this.dragState.currentIndex = targetIdx; this.dragState.items.forEach(item => { if (item.origIndex === this.dragState.startIndex) item.currIndex = targetIdx; else { if (targetIdx < oldIdx && item.currIndex >= targetIdx && item.currIndex < oldIdx) item.currIndex++; else if (targetIdx > oldIdx && item.currIndex <= targetIdx && item.currIndex > oldIdx) item.currIndex--; } }); this.dragState.items.forEach(item => { if (item.origIndex !== this.dragState.startIndex) { let el = document.getElementById(`mgr-item-${item.origIndex}`); if (el) el.style.top = (item.currIndex * h) + 'px'; } }); } this._dmTicking = false; }); },
-  de() { this.dragState.isDragging = false; const scrollBox = document.getElementById('mgr-scroll-box'); scrollBox.style.overflow = 'auto'; scrollBox.style.touchAction = ''; document.removeEventListener('mousemove', this._moveHandler); document.removeEventListener('touchmove', this._moveHandler); document.removeEventListener('mouseup', this._endHandler); document.removeEventListener('touchend', this._endHandler); document.removeEventListener('touchcancel', this._endHandler); if (this.dragState.dragEl) { this.dragState.dragEl.classList.remove('dragging'); this.dragState.dragEl.style.top = (this.dragState.currentIndex * this.dragState.itemHeight) + 'px'; } if (this.dragState.startIndex !== this.dragState.currentIndex) { let newGroups = new Array(this.data.groups.length); this.dragState.items.forEach(item => { newGroups[item.currIndex] = this.data.groups[item.origIndex]; }); this.data.groups = newGroups; this.saveData(); this.renderHomeGroups(); } setTimeout(() => this.renderGroupMgrList(), 200); },
-  openDetail(code) { this.currentDetailCode = code; const f = this.data.fundsCache[code]; document.getElementById('det-name').innerText = f.name; document.getElementById('det-code').innerText = f.code; let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join(''); document.getElementById('det-group-select').innerHTML = opts; this.renderDetailTab(30); this.openModal('detail'); },
-  addToGroupFromDetail() { const sel = document.getElementById('det-group-select'); const gid = sel.value; if(!gid) return; const g = this.data.groups.find(g => g.id === gid); if(g && !g.fundCodes.includes(this.currentDetailCode)) { g.fundCodes.push(this.currentDetailCode); const defaultGroup = this.data.groups.find(g => g.id === 'default'); if (defaultGroup && !defaultGroup.fundCodes.includes(this.currentDetailCode)) defaultGroup.fundCodes.push(this.currentDetailCode); this.saveData(); this.showToast('添加成功'); if(document.getElementById('view-home').classList.contains('active')) this.renderHome(); } else this.showToast('已存在', 'error'); sel.value = ''; },
-  renderDetailTab(days) { document.querySelectorAll('#det-tabs .action-pill').forEach(el=>el.classList.remove('active')); event && event.currentTarget.classList.add('active'); if(days === 'hold') { document.getElementById('det-chart-area').style.display = 'none'; document.getElementById('det-hold-area').style.display = 'block'; this.loadHoldings(this.currentDetailCode); return; } document.getElementById('det-chart-area').style.display = 'block'; document.getElementById('det-hold-area').style.display = 'none'; const f = this.data.fundsCache[this.currentDetailCode]; const nw = f.netWorth.slice(-days); if(nw.length<2) return; let tbl = nw.slice().reverse().map((item,i,arr) => { let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--'; return `<div class="list-item" style="padding:10px;"><span style="flex:1; font-size:13px;">${this.formatEMDate(item.x,10)}</span><span style="flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right;">${chg>0?'+':''}${chg}%</span></div>`; }).join(''); document.getElementById('det-table-area').innerHTML = tbl; const base = nw[0].y; let maxDrawdown = 0, maxPeak = nw[0].y; this.chartInfo.data = nw.map(item => { const rate = ((item.y-base)/base*100); if(item.y > maxPeak) maxPeak = item.y; const drop = ((maxPeak - item.y) / maxPeak * 100); if(drop > maxDrawdown) maxDrawdown = drop; return { date: this.formatEMDate(item.x,5,5), fullDate: this.formatEMDate(item.x,10), y: item.y, rate }; }); document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%'; this.chartInfo.touchIdx = -1; this.drawChart(); },
-  drawChart() { const canvas = document.getElementById('det-canvas'); const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect(); const dpr = window.devicePixelRatio||1; canvas.width = rect.width*dpr; canvas.height = rect.height*dpr; ctx.scale(dpr,dpr); const w=rect.width, h=rect.height; ctx.clearRect(0,0,w,h); const data=this.chartInfo.data; if(data.length<2) return; const values=data.map(d=>d.rate); const max=Math.max(...values,0)+1, min=Math.min(...values,0)-1; const pad={t:20,b:20,l:40,r:10}, dw=w-pad.l-pad.r, dh=h-pad.t-pad.b; const getX=i=>pad.l+(i/(data.length-1))*dw, getY=v=>pad.t+dh-((v-min)/(max-min))*dh; ctx.font='9px sans-serif'; ctx.textAlign='right'; [min,0,max].forEach(v=>{ let y=getY(v); ctx.fillStyle='#f1f5f9'; ctx.fillRect(pad.l,y,dw,1); ctx.fillStyle=v>0?'#f43f5e':(v<0?'#10b981':'#94a3b8'); ctx.fillText(v===0?'0.00%':(v>0?'+':'')+v.toFixed(2)+'%', pad.l-5,y); }); ctx.beginPath(); ctx.moveTo(getX(0),getY(data[0].rate)); data.forEach((d,i)=>ctx.lineTo(getX(i),getY(d.rate))); ctx.lineTo(getX(data.length-1),h-pad.b); ctx.lineTo(getX(0),h-pad.b); ctx.closePath(); const grd=ctx.createLinearGradient(0,pad.t,0,h-pad.b); grd.addColorStop(0,'rgba(0,102,255,0.15)'); grd.addColorStop(1,'rgba(0,102,255,0.01)'); ctx.fillStyle=grd; ctx.fill(); ctx.beginPath(); ctx.moveTo(getX(0),getY(data[0].rate)); data.forEach((d,i)=>ctx.lineTo(getX(i),getY(d.rate))); ctx.strokeStyle='#0066ff'; ctx.lineWidth=2; ctx.stroke(); const idx=this.chartInfo.touchIdx; if(idx!==-1 && data[idx]){ const cx=getX(idx), cy=getY(data[idx].rate); ctx.beginPath(); ctx.moveTo(cx,pad.t); ctx.lineTo(cx,h-pad.b); ctx.strokeStyle='#94a3b8'; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(cx,cy,3,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#f43f5e'; ctx.lineWidth=2; ctx.stroke(); let bx=cx-35; if(bx<pad.l) bx=pad.l; if(bx+70>w-pad.r) bx=w-pad.r-70; ctx.fillStyle='#1e293b'; ctx.beginPath(); ctx.roundRect(bx,h-pad.b+2,70,18,6); ctx.fill(); ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.fillText(data[idx].fullDate,bx+35,h-pad.b+11); const tip=`涨跌: ${data[idx].rate>0?'+':''}${data[idx].rate.toFixed(2)}% | 净值: ${data[idx].y.toFixed(4)}`; const tw=ctx.measureText(tip).width+12; let tx=cx-tw/2; if(tx<pad.l) tx=pad.l; if(tx+tw>w-pad.r) tx=w-pad.r-tw; let ty=cy-32; if(ty<5) ty=cy+10; ctx.fillStyle='rgba(255,255,255,0.95)'; ctx.beginPath(); ctx.roundRect(tx,ty,tw,24,6); ctx.fill(); ctx.strokeStyle='#e2e8f0'; ctx.stroke(); ctx.fillStyle=data[idx].rate>=0?'#f43f5e':'#10b981'; ctx.fillText(tip,tx+tw/2,ty+12); } },
-  onChartTouch(e) { if(this.chartInfo.data.length===0) return; const rect=e.target.getBoundingClientRect(); const clientX=e.touches?e.touches[0].clientX:e.clientX; let x=clientX-rect.left-40; let dw=rect.width-50; if(x<0) x=0; if(x>dw) x=dw; let idx=Math.round((x/dw)*(this.chartInfo.data.length-1)); if(idx!==this.chartInfo.touchIdx){ this.chartInfo.touchIdx=idx; this.drawChart(); } },
-  onChartEnd() { this.chartInfo.touchIdx=-1; this.drawChart(); },
-  loadMasterList() { return new Promise((resolve) => { if (this.masterFundList && this.masterFundList.length>0) return resolve(true); if (document.body.getAttribute('data-dict-loading')==='1') { let timer = setInterval(()=>{ if(this.masterFundList.length>0){ clearInterval(timer); resolve(true); }},100); return; } document.body.setAttribute('data-dict-loading','1'); const script = document.createElement('script'); script.src = `https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`; script.charset='utf-8'; script.onload = () => { let findTimer = setInterval(()=>{ if(window.r && window.r.length>0){ clearInterval(findTimer); this.masterFundList=window.r; delete window.r; document.body.setAttribute('data-dict-loading','0'); resolve(true); } },100); }; script.onerror = () => { document.body.setAttribute('data-dict-loading','0'); resolve(false); }; document.head.appendChild(script); }); },
-  openSearch() { this.openModal('search'); const searchInput = document.getElementById('search-input'); searchInput.value=''; document.getElementById('search-results').innerHTML=''; searchInput.focus(); this.loadMasterList(); },
-  doSearch() { clearTimeout(this.searchTimer); const kw = document.getElementById('search-input').value.trim().toLowerCase(); const box = document.getElementById('search-results'); if(kw.length<2){ box.innerHTML=''; return; } box.innerHTML='<div style="text-align:center; padding:20px; color:#94a3b8;">检索中...</div>'; this.searchTimer = setTimeout(async () => { const ready = await this.loadMasterList(); if(!ready || this.masterFundList.length===0) { box.innerHTML='<div style="text-align:center; color:var(--red);">字典加载失败</div>'; return; } const res = this.masterFundList.filter(i=>i[0].includes(kw)||i[2].toLowerCase().includes(kw)||i[1].toLowerCase().includes(kw)).slice(0,20); if(res.length===0) box.innerHTML='<div style="text-align:center; color:#94a3b8;">无结果</div>'; else box.innerHTML = res.map(i => `<div class="list-item" style="cursor:pointer;" onclick="app.addFromSearch('${i[0]}', event)"><span style="flex:1;"><b>${i[2]}</b> <span class="c-code">${i[0]}</span></span><span class="c-tag" style="padding:6px 12px;">+ 添加</span></div>`).join(''); },300); },
-  addFromSearch(code, e) { if (this.currentGroupId === 'default') { if (this.data.groups.length <= 1) alert('您还没有自建分组，请先点击"☰"新建分组！'); else alert('【全部】分组为系统默认记录，不能直接添加。请先在上方的标签栏点击选中您自己的分组，再进行搜索添加！'); return; } let added=false; const activeGroup = this.data.groups.find(g=>g.id===this.currentGroupId); if(activeGroup && !activeGroup.fundCodes.includes(code)) { activeGroup.fundCodes.push(code); added=true; } const defaultGroup = this.data.groups[0]; if(!defaultGroup.fundCodes.includes(code)) { defaultGroup.fundCodes.push(code); added=true; } if(added){ this.saveData(); if(e) e.currentTarget.querySelector('.c-tag').innerText='加载中...'; this.loadFundData(code).then(()=>{ this.closeModal('search'); this.processGroupRisks(); this.renderHome(); }).catch(()=>this.showToast('该基金可能已退市','error')); } else this.showToast('该基金已在当前分组','error'); },
-  async loadHoldings(code) { document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px;">抓取中...</div>'; try { const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || []; const holdings = heavy.map(h=> ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); if(holdings.length===0) throw new Error(); const secids = holdings.map(h=> ((h.code.startsWith('6')||h.code.startsWith('9'))?'1.':'0.')+h.code).join(','); const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f60&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb'); let qtMap={}; (qtData?.data?.diff||[]).forEach(item=>{ let chg=0; if(item.f3!=='-' && !isNaN(parseFloat(item.f3))) chg=parseFloat(item.f3); else if(item.f2!=='-' && item.f60!=='-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))){ let f2=parseFloat(item.f2), f60=parseFloat(item.f60); if(f60>0) chg=((f2-f60)/f60)*100; } qtMap[item.f12]=Number(chg.toFixed(2)); }); let sumR=0, est=0; let hHtml = holdings.map(h=>{ let chg=qtMap[h.code]||0; sumR+=h.ratio; est+=(h.ratio/100)*chg; return `<div class="list-item"><span style="flex:2; font-weight:800;">${h.name} <span class="c-code">${h.code}</span></span><span style="flex:1; text-align:center;">${h.ratio}%</span><span style="flex:1; text-align:right;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg}%</span></div>`; }).join(''); document.getElementById('det-hold-area').innerHTML = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between;"><span>前十总占比</span><span style="font-weight:900;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between;"><span>加权估算涨幅</span><span style="font-weight:900;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>${hHtml}`; } catch(e) { document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px;">暂无股票持仓数据</div>'; } },
-  initS3() { const conf = JSON.parse(localStorage.getItem('r2_conf') || '{}'); if (conf.ak) { document.getElementById('r2-bucket').value = conf.bucket; document.getElementById('r2-ak').value = conf.ak; document.getElementById('r2-sk').value = conf.sk; document.getElementById('r2-endpoint').value = conf.endpoint; if (typeof AWS !== 'undefined') this.s3 = new AWS.S3({ endpoint: conf.endpoint, accessKeyId: conf.ak, secretAccessKey: conf.sk, s3ForcePathStyle: true, signatureVersion: 'v4', region: 'auto' }); } },
-  saveR2ParamsOnly() { const conf = { bucket: document.getElementById('r2-bucket').value.trim(), ak: document.getElementById('r2-ak').value.trim(), sk: document.getElementById('r2-sk').value.trim(), endpoint: document.getElementById('r2-endpoint').value.trim().replace(/\/+$/, '') }; if(conf.endpoint.endsWith('/'+conf.bucket)) conf.endpoint = conf.endpoint.replace('/'+conf.bucket, ''); localStorage.setItem('r2_conf', JSON.stringify(conf)); this.initS3(); alert('参数保存成功！'); },
-  pullFromCloud() { if (typeof AWS === 'undefined') return alert('当前网络无法访问云同步服务，请切换网络后再试。'); if (!this.s3) return alert('请先填写并保存参数'); const conf = JSON.parse(localStorage.getItem('r2_conf')); this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => { if (err) { if(err.code === 'NoSuchKey') alert('云端没有找到数据，请点击【强制覆盖上传】初始化云端。'); else alert('拉取失败: ' + err.code); } else { this.data = JSON.parse(data.Body.toString()); this.saveData(); alert('数据同步成功！'); this.switchTab('home'); } }); },
-  pushToCloud() { if (typeof AWS === 'undefined') return alert('当前网络无法访问云同步服务，请切换网络后再试。'); if (!this.s3) return alert('请先保存配置参数'); const conf = JSON.parse(localStorage.getItem('r2_conf')); this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => { if (err) alert('上传失败: ' + err.message); else alert('已成功覆盖云端！'); }); }
+  chartInfo: { data: [], touchIdx: -1 },
+  masterFundList: [], searchTimer: null,
+
+  formatEMDate(ts, length = 10, offset = 0) {
+    return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
+  },
+
+  // 封装极简 Toast 轻提示
+  showToast(msg, type = 'success') {
+    const div = document.createElement('div');
+    div.innerText = msg;
+    const bg = type === 'success' ? 'var(--green)' : (type === 'error' ? 'var(--red)' : '#1e293b');
+    div.style.cssText = `position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${bg};color:#fff;padding:8px 20px;border-radius:24px;z-index:9999;font-weight:bold;box-shadow:0 6px 16px rgba(0,0,0,0.15);font-size:13px;animation:slideDown 0.3s cubic-bezier(0.2,0.8,0.2,1);`;
+    document.body.appendChild(div);
+    setTimeout(() => {
+      div.style.opacity = '0';
+      div.style.transform = 'translate(-50%, -10px)';
+      div.style.transition = 'all 0.3s';
+      setTimeout(() => div.remove(), 300);
+    }, 2000);
+  },
+
+  init() {
+    const local = localStorage.getItem('fund_pwa_v6');
+    if (local) this.data = JSON.parse(local);
+    this.initS3(); 
+    this.processGroupRisks();
+    this.renderHomeGroups();
+    this.renderHome();
+    this.enablePCMouseScroll();
+  },
+
+  handleListSortClick(colName, isSector = false) {
+    const selectId = isSector ? 'sec-sort-rule' : 'sort-rule';
+    const select = document.getElementById(selectId);
+    
+    if (select.value === colName) {
+      if ((isSector ? this.secSortDir : this.sortDir) === 'desc') {
+        if (isSector) this.secSortDir = 'asc'; else this.sortDir = 'asc';
+      } else {
+        select.value = 'daily';
+        if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc';
+      }
+    } else {
+      select.value = colName;
+      if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc';
+    }
+    
+    const btnId = isSector ? 'sec-sort-dir-btn' : 'sort-dir-btn';
+    const curDir = isSector ? this.secSortDir : this.sortDir;
+    document.getElementById(btnId).innerText = curDir === 'desc' ? '降序 ↓' : '升序 ↑';
+
+    if (isSector) this.renderSector(); else this.renderHome();
+  },
+
+  closeOutside(e, modalId) {
+    if (e.target === e.currentTarget) {
+      this.closeModal(modalId);
+    }
+  },
+
+  enablePCMouseScroll() {
+    const sliders = document.querySelectorAll('.tabs-scroll');
+    sliders.forEach(slider => {
+      let isDown = false; let startX; let scrollLeft;
+      slider.addEventListener('mousedown', (e) => { isDown = true; startX = e.pageX - slider.offsetLeft; scrollLeft = slider.scrollLeft; slider.style.cursor = 'grabbing';});
+      slider.addEventListener('mouseleave', () => { isDown = false; slider.style.cursor = 'grab';});
+      slider.addEventListener('mouseup', () => { isDown = false; slider.style.cursor = 'grab';});
+      slider.addEventListener('mousemove', (e) => {
+        if(!isDown) return; e.preventDefault();
+        const x = e.pageX - slider.offsetLeft; const walk = (x - startX) * 2; 
+        slider.scrollLeft = scrollLeft - walk;
+      });
+    });
+  },
+
+  saveData() {
+    localStorage.setItem('fund_pwa_v6', JSON.stringify(this.data));
+    this.processGroupRisks();
+  },
+
+  switchTab(tabId) {
+    document.querySelectorAll('.page-view, .tab-item').forEach(el => el.classList.remove('active'));
+    document.getElementById('view-' + tabId).classList.add('active');
+    document.getElementById('tab-btn-' + tabId).classList.add('active');
+    
+    if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); }
+    if(tabId === 'rank') this.renderRank();
+    if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
+  },
+
+  openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
+  closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
+
+  // 极速拉取数据
+  loadFundData(code, isBatch = false) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`;
+      script.onload = () => {
+        if (window.Data_netWorthTrend) {
+          let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
+          if (nw.length > 260) nw = nw.slice(-260);
+          const fund = { 
+              code, 
+              name: window.fS_name || code, 
+              netWorth: nw, 
+              sectors: this.data.fundsCache[code]?.sectors || [],
+              isStarred: this.data.fundsCache[code]?.isStarred || false 
+          };
+          this.data.fundsCache[code] = fund;
+          
+          if (!isBatch) this.saveData();
+          
+          window.Data_netWorthTrend = null;
+          window.fS_name = null;
+          
+          resolve(fund);
+        } else {
+          reject('无数据');
+        }
+        script.remove();
+      };
+      script.onerror = () => { reject('网络异常或退市'); script.remove(); };
+      document.head.appendChild(script);
+    });
+  },
+
+  // 极速刷新全部
+  async refreshAll() {
+    const codes = this.data.groups[0].fundCodes;
+    if(codes.length === 0) return this.showToast('没有需要更新的基金', 'error');
+    
+    const btn = document.querySelector('.nav-btn[onclick="app.refreshAll()"]');
+    const oldText = btn.innerText;
+    btn.innerText = '🔄更新中...';
+    btn.style.opacity = '0.5';
+    btn.style.pointerEvents = 'none';
+    
+    try {
+        for (let code of codes) { 
+            try { await this.loadFundData(code, true); } catch(e) {} 
+        }
+        this.saveData();
+        this.processGroupRisks();
+        this.renderHome();
+        this.showToast('✅ 最新净值数据已更新');
+    } finally {
+        btn.innerText = oldText;
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+    }
+  },
+
+  calcRate(nw, days) {
+    if (!nw || nw.length < days) return '--';
+    const last = nw[nw.length-1].y;
+    const prev = nw[nw.length-days].y;
+    return (((last - prev)/prev)*100).toFixed(2);
+  },
+  calcMaxDrop(nw, days) {
+    if (!nw || nw.length < 2) return null;
+    const slice = nw.slice(-Math.min(days, nw.length));
+    const latest = slice[slice.length - 1].y;
+    let maxDrop = 0; 
+    for (let i = 0; i < slice.length - 1; i++) {
+        const drop = ((latest - slice[i].y) / slice[i].y) * 100;
+        if (drop < maxDrop) maxDrop = drop;
+    }
+    return maxDrop === 0 ? null : maxDrop.toFixed(2);
+  },
+
+  formatFund(code) {
+    const f = this.data.fundsCache[code];
+    if (!f || !f.netWorth) return { code, name: '加载中...', isLoad: false };
+    const nw = f.netWorth;
+    
+    const listRatesCfg = [
+        { label: '3日', val: 3 }, { label: '5日', val: 5 }, { label: '7日', val: 7 },
+        { label: '10日', val: 10 }, { label: '15日', val: 15 }, { label: '20日', val: 20 },
+        { label: '1月', val: 21 }, { label: '3月', val: 63 }, { label: '6月', val: 126 }, { label: '1年', val: 252 }
+    ];
+    
+    const rates = listRatesCfg.slice(0, 6).map(d => ({ label: d.label, val: this.calcRate(nw, d.val) }));
+    const listRates = listRatesCfg.map(d => ({ label: d.label, val: this.calcRate(nw, d.val) }));
+
+    const maxDropIn20 = this.calcMaxDrop(nw, 20);
+    const change = this.calcRate(nw, 2);
+    
+    return { ...f, isLoad: true, latestDate: this.formatEMDate(nw[nw.length-1].x, 10), latest: nw[nw.length-1].y.toFixed(4), change, rates, listRates, maxDropIn20, 
+      isRisk: maxDropIn20 !== null && parseFloat(maxDropIn20) <= -8.5,
+      isDailyRisk: change !== '--' && parseFloat(change) <= -5.0,
+      isStarred: !!f.isStarred
+    };
+  },
+
+  processGroupRisks() {
+    this.data.groups.forEach(g => {
+      g.has20Risk = false; g.hasDailyRisk = false;
+      g.fundCodes.forEach(c => {
+        const f = this.formatFund(c);
+        if(f.isRisk) g.has20Risk = true;
+        if(f.isDailyRisk) g.hasDailyRisk = true;
+      });
+    });
+  },
+
+  // 【终极修复】将事件对象安全地作为参数传入，避免内联执行时找不到全局 event 报错
+  toggleStar(e, code) {
+    if (e) e.stopPropagation(); // 安全地阻止冒泡
+    const f = this.data.fundsCache[code];
+    if (f) {
+        f.isStarred = !f.isStarred;
+        this.saveData(); 
+
+        // 靶向局部更新 DOM，极速反馈
+        if (e && e.currentTarget) {
+            const btn = e.currentTarget;
+            if (f.isStarred) {
+                btn.classList.add('starred');
+                btn.innerText = '★';
+                const row = document.getElementById(`fund-row-${code}`);
+                if(row) row.classList.add('starred-row');
+            } else {
+                btn.classList.remove('starred');
+                btn.innerText = '☆';
+                const row = document.getElementById(`fund-row-${code}`);
+                if(row) row.classList.remove('starred-row');
+            }
+        } else {
+           if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+           if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+        }
+    }
+  },
+
+  // 【配套修复】将所有其他的内联 DOM 操作同样修改，确保刷新后点击不会报错
+  removeFundFromGroup(e, code) {
+    if(e) e.stopPropagation();
+    if (!confirm('确定从该分组移除吗？')) return;
+    const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId);
+    if (!currentGroup) return;
+    currentGroup.fundCodes = currentGroup.fundCodes.filter(c => c !== code);
+
+    const otherGroups = this.data.groups.filter(g => g.id !== 'default' && g.id !== this.currentGroupId);
+    const existsInOther = otherGroups.some(g => g.fundCodes.includes(code));
+    if (!existsInOther) {
+      const defaultGroup = this.data.groups.find(g => g.id === 'default');
+      if (defaultGroup) defaultGroup.fundCodes = defaultGroup.fundCodes.filter(c => c !== code);
+    }
+    this.saveData(); this.renderHome(); 
+  },
+
+  removeSectorFromFund(e, code, sec) {
+    if(e) e.stopPropagation();
+    const f = this.data.fundsCache[code];
+    if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
+  },
+
+  openSectorSelect(e, code) {
+    if(e) e.stopPropagation();
+    if(this.data.customSectors.length===0) return alert('请先去板块页面创建板块');
+    this.targetSectorCode = code;
+    const f = this.data.fundsCache[code];
+    let html = this.data.customSectors.map(s => {
+      let isSel = f.sectors?.includes(s);
+      return `<div class="action-pill ${isSel?'active':''}" onclick="app.toggleFundSector('${s}')">${s}</div>`;
+    }).join('');
+    document.getElementById('sector-select-list').innerHTML = html;
+    this.openModal('sector-select');
+  },
+
+  delSector(e, s) {
+    if(e) e.stopPropagation();
+    if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
+  },
+
+  // 基础算法：波达计数法
+  calculateMedals(funds) {
+    if (!funds || funds.length === 0) return;
+    funds.forEach(f => { f.medalScore = 0; });
+    const evaluatePeriods = ['daily', '3日', '5日', '7日', '10日', '15日', '20日', '1月'];
+    evaluatePeriods.forEach(p => {
+        let values = funds.map(f => {
+            let val = -9999;
+            if (p === 'daily') { val = parseFloat(f.change); } else {
+                let ra = f.listRates.find(r => r.label === p);
+                val = ra && ra.val !== '--' ? parseFloat(ra.val) : -9999;
+            }
+            return { code: f.code, val: isNaN(val) ? -9999 : val };
+        });
+        values.sort((a, b) => b.val - a.val);
+        values.forEach((item, index) => {
+            let fund = funds.find(f => f.code === item.code);
+            if (fund && item.val !== -9999) fund.medalScore += (funds.length - index);
+        });
+    });
+  },
+
+  // 量化模型：综合超级分
+  calculateSuperScoreMedals(funds) {
+    if (!funds || funds.length === 0) return;
+    
+    funds.forEach(f => {
+        f.superScore = 0;
+        const nw = f.netWorth ? f.netWorth.slice(-40) : [];
+        if (nw.length < 2) {
+            f._rawRet = -9999; f._rawCalmar = -9999; f._rawWin = -9999;
+            return;
+        }
+        const firstY = nw[0].y;
+        const lastY = nw[nw.length - 1].y;
+        const totalReturn = ((lastY - firstY) / firstY) * 100;
+        let maxPeak = firstY;
+        let maxDrop = 0;
+        let winDays = 0;
+        for (let i = 1; i < nw.length; i++) {
+            if (nw[i].y > maxPeak) maxPeak = nw[i].y;
+            const drop = ((maxPeak - nw[i].y) / maxPeak) * 100;
+            if (drop > maxDrop) maxDrop = drop;
+            if (nw[i].y > nw[i-1].y) winDays++;
+        }
+        f._rawRet = totalReturn;
+        f._rawCalmar = totalReturn / Math.max(maxDrop, 0.01);
+        f._rawWin = (winDays / (nw.length - 1)) * 100;
+    });
+
+    const assignRankPoints = (metric) => {
+        let sorted = [...funds].sort((a, b) => b[metric] - a[metric]);
+        sorted.forEach((fund, index) => {
+            if (fund[metric] !== -9999) {
+                fund[`${metric}Rank`] = funds.length - index; 
+            } else {
+                fund[`${metric}Rank`] = 0; 
+            }
+        });
+    };
+
+    assignRankPoints('_rawRet');
+    assignRankPoints('_rawCalmar');
+    assignRankPoints('_rawWin');
+
+    funds.forEach(f => {
+        if (f._rawRet !== -9999) {
+            f.superScore = (f._rawRetRank * 0.4) + (f._rawCalmarRank * 0.4) + (f._rawWinRank * 0.2);
+        }
+    });
+  },
+
+  // 动态颁发奖牌
+  assignMedals(funds, sortVal) {
+      funds.forEach(f => f.medal = ''); 
+      if (!funds || funds.length < 3) return;
+
+      let metric = 'superScore'; 
+      if (sortVal === 'medal') metric = 'medalScore';
+
+      let ranked = [...funds].sort((a, b) => b[metric] - a[metric]);
+      if (ranked.length > 0 && ranked[0][metric] > 0) ranked[0].medal = '🥇';
+      if (ranked.length > 1 && ranked[1][metric] > 0) ranked[1].medal = '🥈';
+      if (ranked.length > 2 && ranked[2][metric] > 0) ranked[2].medal = '🥉';
+  },
+
+  buildCardHtml(f, isHomeGroup = false) {
+    if(!f.isLoad) return `<div class="card"><div class="c-title">${f.code} 加载中</div></div>`;
+    const col = f.change >= 0 ? 'red' : 'green';
+    let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
+    
+    // 修复：使用新的事件传递机制
+    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join('');
+    let showDel = isHomeGroup && this.currentGroupId !== 'default';
+    let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
+    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(event, '${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
+    let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`;
+
+    let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
+
+    return `
+      <div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">
+        ${delBtn}
+        ${starBtn}
+        <div class="card-head" style="padding-right: ${showDel ? '55px' : '25px'};">
+          <div class="c-title-area">
+            <span class="c-title">${titleHtml}</span><span class="c-code">${f.code}</span>
+            ${tagsHtml}
+            ${sectorBtn}
+          </div>
+        </div>
+        <div class="c-main">
+          <span style="font-size:12px; font-weight:700; color:#94a3b8;">${f.latestDate}</span>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <div class="c-val">${f.latest}</div>
+            <div class="c-chg ${col}">${f.change > 0 ? '+' : ''}${f.change}%</div>
+          </div>
+        </div>
+        <div class="rates-row">${ratesHtml}</div>
+        ${f.maxDropIn20 !== null ? `<div class="maxdrop-tag">20日跌幅 ${f.maxDropIn20}%</div>` : ''}
+      </div>`;
+  },
+
+  buildListHtml(funds, showDel = false, isSector = false) {
+    if(funds.length === 0) return '';
+    
+    const curSortRule = isSector ? document.getElementById('sec-sort-rule').value : document.getElementById('sort-rule').value;
+    const curSortDir = isSector ? this.secSortDir : this.sortDir;
+
+    const renderTh = (label, colKey) => {
+      let arrow = '';
+      if (curSortRule === colKey) {
+        arrow = curSortDir === 'desc' ? ' <span style="color:var(--red);">↓</span>' : ' <span style="color:var(--green);">↑</span>';
+      }
+      return `<div class="l-col-rate th" onclick="app.handleListSortClick('${colKey}', ${isSector})">${label}${arrow}</div>`;
+    };
+
+    let headers = ['3日','5日','7日','10日','15日','20日','1月','3月','6月','1年'];
+    
+    let header = `<div class="l-header">
+      <div class="l-col-name th">基金名称</div>
+      ${renderTh('最新', 'daily')}
+      ${headers.map(h => renderTh(h, h)).join('')}
+    </div>`;
+    
+    let rows = funds.map(f => {
+      if(!f.isLoad) return '';
+      let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join('');
+      
+      // 修复：使用新的事件传递机制
+      let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
+      
+      let rowClass = f.isStarred ? 'l-row starred-row' : 'l-row';
+      let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
+
+      return `
+        <div id="fund-row-${f.code}" class="${rowClass}" onclick="app.openDetail('${f.code}')">
+          ${delBtn}
+          <div class="l-col-name"><div style="font-weight:800; font-size:13px;">${titleHtml}</div><div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">${f.code}</div></div>
+          <div class="l-col-rate" style="width:70px;">
+            <div>${f.latest}</div><div class="${f.change>=0?'red':'green'}" style="font-size:11px; margin-top:2px;">${f.change>0?'+':''}${f.change}%</div>
+          </div>
+          ${rates}
+        </div>`;
+    }).join('');
+    return `<div class="list-table-container">${header}${rows}</div>`;
+  },
+
+  // ========== 自选首页逻辑 ==========
+  setViewMode(mode) {
+    this.viewMode = mode;
+    document.getElementById('vt-card').className = mode === 'card' ? 'active' : '';
+    document.getElementById('vt-list').className = mode === 'list' ? 'active' : '';
+    this.renderHome();
+  },
+  toggleSortDir() {
+    this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc';
+    const btn = document.getElementById('sort-dir-btn');
+    btn.innerText = this.sortDir === 'desc' ? '降序 ↓' : '升序 ↑';
+    btn.className = 'sort-dir-btn active';
+    this.renderHome();
+  },
+
+  renderHomeGroups() {
+    let html = this.data.groups.map(g => {
+      let badge = '';
+      if(g.has20Risk) badge += '<span class="badge warning">!</span>';
+      if(g.hasDailyRisk) badge += '<span class="badge heart">💚</span>';
+      return `<div class="action-pill ${g.id === this.currentGroupId ? 'active' : ''}" onclick="app.currentGroupId='${g.id}'; app.renderHomeGroups(); app.renderHome();">${g.name} ${badge}</div>`;
+    }).join('');
+    document.getElementById('home-groups').innerHTML = html;
+  },
+
+  renderHome() {
+    const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
+    let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad);
+    
+    this.calculateMedals(funds);
+    this.calculateSuperScoreMedals(funds);
+    
+    const sortVal = document.getElementById('sort-rule').value;
+    this.assignMedals(funds, sortVal);
+
+    funds.sort((a, b) => {
+      let va = -99999, vb = -99999;
+      if(sortVal === 'daily') { 
+          va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; 
+      } else if (sortVal === 'medal') {
+          va = a.medalScore || 0; vb = b.medalScore || 0;
+      } else if (sortVal === 'super') {
+          va = a.superScore || 0; vb = b.superScore || 0;
+      } else {
+        const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal);
+        va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999;
+      }
+      if(va===vb) return 0;
+      return this.sortDir === 'desc' ? vb - va : va - vb;
+    });
+
+    const container = document.getElementById('home-list');
+    container.className = this.viewMode === 'card' ? 'card-grid' : '';
+    container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true, false);
+  },
+
+  // ========== 排名页 ==========
+  setRankDir(dir) {
+    this.rankDir = dir;
+    document.getElementById('rank-desc').className = dir === 'desc' ? 'active' : '';
+    document.getElementById('rank-asc').className = dir === 'asc' ? 'active' : '';
+    this.renderRank();
+  },
+  renderRank() {
+    let list = [];
+    this.data.groups.slice(1).forEach(g => {
+      let sum = 0, count = 0;
+      g.fundCodes.forEach(c => { 
+        let f = this.formatFund(c); 
+        if(f.isLoad && f.change!=='--') { sum+=parseFloat(f.change); count++; } 
+      });
+      if(count>0) list.push({ id: g.id, name: g.name, avg: (sum/count).toFixed(2), has20Risk: g.has20Risk, hasDailyRisk: g.hasDailyRisk });
+    });
+    
+    list.sort((a,b) => this.rankDir === 'desc' ? b.avg - a.avg : a.avg - b.avg);
+    
+    let html = list.map(l => {
+      let badge = '';
+      if(l.has20Risk) badge += '<span class="badge warning">!</span>';
+      if(l.hasDailyRisk) badge += '<span class="badge heart">💚</span>';
+      return `<div class="list-item" onclick="app.currentGroupId='${l.id}'; app.switchTab('home');">
+        <div><b style="font-size:14px;">${l.name}</b> ${badge}</div>
+        <span class="${l.avg>=0?'red':'green'}" style="font-size:15px; font-weight:bold; background:#f8fafc; padding:4px 10px; border-radius:12px;">${l.avg>0?'+':''}${l.avg}%</span>
+      </div>`;
+    }).join('');
+    
+    document.getElementById('rank-list').innerHTML = html || '<div style="text-align:center; color:#94a3b8; font-weight:bold; margin-top:50px;">暂无自建分组数据</div>';
+  },
+
+  // ========== 板块页 ==========
+  addSector() {
+    let val = document.getElementById('new-sector-input').value.trim();
+    if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { 
+        this.data.customSectors.push(val); 
+        this.saveData(); 
+        this.sectorSearchKeyword = '';
+        const searchInput = document.getElementById('search-sector-input');
+        if(searchInput) searchInput.value = '';
+        this.renderSector(); 
+        document.getElementById('new-sector-input').value=''; 
+    }
+  },
+  
+  searchSector() {
+    this.sectorSearchKeyword = document.getElementById('search-sector-input').value.trim().toLowerCase();
+    this.renderSector();
+  },
+
+  setSecViewMode(mode) {
+    this.secViewMode = mode;
+    document.getElementById('svt-card').className = mode === 'card' ? 'active' : '';
+    document.getElementById('svt-list').className = mode === 'list' ? 'active' : '';
+    this.renderSector();
+  },
+  toggleSecSortDir() {
+    this.secSortDir = this.secSortDir === 'desc' ? 'asc' : 'desc';
+    const btn = document.getElementById('sec-sort-dir-btn');
+    btn.innerText = this.secSortDir === 'desc' ? '降序 ↓' : '升序 ↑';
+    btn.className = 'sort-dir-btn active';
+    this.renderSector();
+  },
+
+  renderSector() {
+    let kw = this.sectorSearchKeyword;
+    let matchCount = 0;
+
+    document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => {
+      let isMatch = kw && s.toLowerCase().includes(kw);
+      if (isMatch) matchCount++;
+      let highlightCls = isMatch ? 'highlight-match' : '';
+      let activeCls = this.activeSector === s ? 'active' : '';
+      
+      // 修复：事件传递
+      return `<div class="action-pill ${activeCls} ${highlightCls}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#94a3b8; margin-left:6px;" onclick="app.delSector(event, '${s}')">✕</span></div>`;
+    }).join('');
+    
+    const msgEl = document.getElementById('sector-search-msg');
+    if (kw && matchCount === 0) { msgEl.style.display = 'block'; } else { msgEl.style.display = 'none'; }
+
+    const wrap = document.getElementById('sector-action-wrap');
+    if(!this.activeSector) { wrap.style.display = 'none'; document.getElementById('sector-list').innerHTML=''; return; }
+    
+    wrap.style.display = 'block';
+    let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
+    
+    this.calculateMedals(funds);
+    this.calculateSuperScoreMedals(funds);
+
+    const sortVal = document.getElementById('sec-sort-rule').value;
+    this.assignMedals(funds, sortVal);
+
+    funds.sort((a, b) => {
+      let va = -99999, vb = -99999;
+      if(sortVal === 'daily') { 
+          va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; 
+      } else if (sortVal === 'medal') {
+          va = a.medalScore || 0; vb = b.medalScore || 0;
+      } else if (sortVal === 'super') {
+          va = a.superScore || 0; vb = b.superScore || 0;
+      } else {
+        const ra = a.listRates.find(r => r.label === sortVal); const rb = b.listRates.find(r => r.label === sortVal);
+        va = parseFloat(ra?.val)|| -99999; vb = parseFloat(rb?.val)|| -99999;
+      }
+      if(va===vb) return 0;
+      return this.secSortDir === 'desc' ? vb - va : va - vb;
+    });
+
+    const container = document.getElementById('sector-list');
+    container.className = this.secViewMode === 'card' ? 'card-grid' : '';
+    container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false, true);
+  },
+
+  toggleFundSector(sec) {
+    const f = this.data.fundsCache[this.targetSectorCode];
+    if(!f.sectors) f.sectors = [];
+    if(f.sectors.includes(sec)) { f.sectors = f.sectors.filter(s=>s!==sec); }
+    else { if(f.sectors.length>=2) return alert('最多选2个'); f.sectors.push(sec); }
+    this.saveData(); this.closeModal('sector-select'); 
+    if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
+    if(document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+  },
+
+  // ========== 账户管理 ==========
+  openGroupMgr() {
+    this.openModal('group-mgr');
+    this.renderGroupMgrList();
+  },
+  createGroup() {
+    let name = prompt('新分组名称');
+    if(name && name.trim()) {
+      name = name.trim();
+      if (this.data.groups.some(g => g.name === name)) { alert('分组名称已存在'); return; }
+      this.data.groups.push({id:'g_'+Date.now(), name, fundCodes:[]});
+      this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();
+    }
+  },
+  delGroup(id) { if(confirm('确定删除?')) { this.data.groups = this.data.groups.filter(g=>g.id!==id); this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();} },
+  renameGroup(id) {
+    let g = this.data.groups.find(g=>g.id===id);
+    if(g) {
+      let nn = prompt('修改名称', g.name);
+      if(nn && nn.trim()) {
+        nn = nn.trim();
+        if (nn !== g.name && this.data.groups.some(g2 => g2.name === nn)) { alert('名称已存在'); return; }
+        g.name = nn; this.saveData(); this.renderGroupMgrList(); this.renderHomeGroups();
+      }
+    }
+  },
+  clearGroup(id) {
+    if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); this.showToast('已清空'); this.renderHome(); } }
+  },
+
+  renderGroupMgrList() {
+    const box = document.getElementById('group-mgr-list');
+    const h = this.dragState.itemHeight;
+    box.style.height = (this.data.groups.length * h) + 'px';
+    
+    let html = this.data.groups.map((g, i) => {
+      let top = i * h;
+      let left = g.id==='default' ? `<div class="m-del disabled"></div><b>${g.name}</b>` : `<div class="m-del" onclick="app.delGroup('${g.id}')"></div><b>${g.name}</b>`;
+      let right;
+      if (g.id === 'default') {
+        right = `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f1f5f9;" onclick="app.clearGroup('${g.id}')">▤</div><div style="width:30px;"></div>`;
+      } else {
+        right = `<div class="m-btn" style="background:var(--blue-light); color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f1f5f9; color:var(--text-sub);" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`;
+      }
+      
+      return `<div id="mgr-item-${i}" class="mgr-item" style="top:${top}px;">
+                <div class="m-left">${left}</div><div class="m-actions">${right}</div>
+              </div>`;
+    }).join('');
+    box.innerHTML = html;
+
+    setTimeout(() => {
+      document.querySelectorAll('.drag-handle').forEach(el => {
+        if (el.dataset.idx === undefined) return;
+        el.addEventListener('mousedown', (e) => app.ds(e, parseInt(el.dataset.idx)), {passive: false});
+        el.addEventListener('touchstart', (e) => app.ds(e, parseInt(el.dataset.idx)), {passive: false});
+      });
+    }, 50);
+  },
+
+  ds(e, i) {
+    if (e.button !== undefined && e.button !== 0) return; 
+    if (i === undefined || isNaN(i) || i === 0) return; 
+    e.preventDefault(); 
+    if (e.type === 'touchstart') e.preventDefault();
+
+    const scrollBox = document.getElementById('mgr-scroll-box');
+    scrollBox.style.overflow = 'hidden';
+    scrollBox.style.touchAction = 'none';
+
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    this.dragState.isDragging = true;
+    this.dragState.startIndex = i;
+    this.dragState.currentIndex = i;
+    this.dragState.dragEl = document.getElementById(`mgr-item-${i}`);
+    
+    if (this.dragState.dragEl) {
+      this.dragState.dragEl.classList.add('dragging');
+    }
+
+    this.dragState.startY = clientY;
+    this.dragState.startTop = i * this.dragState.itemHeight;
+
+    this.dragState.items = [];
+    for(let j=0; j<this.data.groups.length; j++) {
+      this.dragState.items.push({ origIndex: j, currIndex: j });
+    }
+
+    this._moveHandler = (ev) => this.dm(ev);
+    this._endHandler = () => this.de();
+
+    document.addEventListener('mousemove', this._moveHandler, { passive: false });
+    document.addEventListener('touchmove', this._moveHandler, { passive: false });
+    document.addEventListener('mouseup', this._endHandler);
+    document.addEventListener('touchend', this._endHandler);
+    document.addEventListener('touchcancel', this._endHandler); 
+  },
+
+  dm(e) {
+    if (!this.dragState.isDragging) return;
+    e.preventDefault(); 
+
+    if (this._dmTicking) return;
+    this._dmTicking = true;
+
+    requestAnimationFrame(() => {
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const deltaY = clientY - this.dragState.startY;
+      const h = this.dragState.itemHeight;
+      const maxTop = (this.data.groups.length - 1) * h;
+      
+      let newTop = this.dragState.startTop + deltaY;
+      if (newTop < h) newTop = h; 
+      if (newTop > maxTop) newTop = maxTop;
+
+      if (this.dragState.dragEl) {
+        this.dragState.dragEl.style.top = newTop + 'px';
+      }
+
+      let targetIdx = Math.round(newTop / h);
+      if (targetIdx < 1) targetIdx = 1;
+      if (targetIdx > this.data.groups.length - 1) targetIdx = this.data.groups.length - 1;
+
+      if (targetIdx !== this.dragState.currentIndex) {
+        let oldIdx = this.dragState.currentIndex;
+        this.dragState.currentIndex = targetIdx;
+
+        this.dragState.items.forEach(item => {
+          if (item.origIndex === this.dragState.startIndex) {
+             item.currIndex = targetIdx;
+          } else {
+             if (targetIdx < oldIdx && item.currIndex >= targetIdx && item.currIndex < oldIdx) {
+                item.currIndex++;
+             } else if (targetIdx > oldIdx && item.currIndex <= targetIdx && item.currIndex > oldIdx) {
+                item.currIndex--;
+             }
+          }
+        });
+
+        this.dragState.items.forEach(item => {
+          if (item.origIndex !== this.dragState.startIndex) {
+            let el = document.getElementById(`mgr-item-${item.origIndex}`);
+            if (el) {
+              el.style.top = (item.currIndex * h) + 'px';
+            }
+          }
+        });
+      }
+      this._dmTicking = false;
+    });
+  },
+
+  de() {
+    this.dragState.isDragging = false;
+
+    const scrollBox = document.getElementById('mgr-scroll-box');
+    scrollBox.style.overflow = 'auto';
+    scrollBox.style.touchAction = '';
+
+    document.removeEventListener('mousemove', this._moveHandler);
+    document.removeEventListener('touchmove', this._moveHandler);
+    document.removeEventListener('mouseup', this._endHandler);
+    document.removeEventListener('touchend', this._endHandler);
+    document.removeEventListener('touchcancel', this._endHandler);
+
+    if (this.dragState.dragEl) {
+      this.dragState.dragEl.classList.remove('dragging');
+      this.dragState.dragEl.style.top = (this.dragState.currentIndex * this.dragState.itemHeight) + 'px';
+    }
+
+    if (this.dragState.startIndex !== this.dragState.currentIndex) {
+      let newGroups = new Array(this.data.groups.length);
+      this.dragState.items.forEach(item => {
+        newGroups[item.currIndex] = this.data.groups[item.origIndex];
+      });
+      this.data.groups = newGroups;
+
+      this.saveData();
+      this.renderHomeGroups();
+    }
+    
+    setTimeout(() => {
+       this.renderGroupMgrList();
+    }, 200);
+  },
+
+  // ========== 详情与图表 ==========
+  openDetail(code) {
+    this.currentDetailCode = code;
+    const f = this.data.fundsCache[code];
+    document.getElementById('det-name').innerText = f.name;
+    document.getElementById('det-code').innerText = f.code;
+    
+    let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+    document.getElementById('det-group-select').innerHTML = opts;
+
+    this.renderDetailTab(30);
+    this.openModal('detail');
+  },
+
+  addToGroupFromDetail() {
+    const sel = document.getElementById('det-group-select');
+    const gid = sel.value; if(!gid) return;
+    const g = this.data.groups.find(g => g.id === gid);
+    if(g && !g.fundCodes.includes(this.currentDetailCode)) {
+      g.fundCodes.push(this.currentDetailCode);
+      const defaultGroup = this.data.groups.find(g => g.id === 'default');
+      if (defaultGroup && !defaultGroup.fundCodes.includes(this.currentDetailCode)) {
+        defaultGroup.fundCodes.push(this.currentDetailCode);
+      }
+      this.saveData(); this.showToast('添加成功');
+      if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
+    } else this.showToast('已存在', 'error');
+    sel.value = '';
+  },
+
+  renderDetailTab(days) {
+    document.querySelectorAll('#det-tabs .action-pill').forEach(el => el.classList.remove('active'));
+    event && event.currentTarget.classList.add('active');
+
+    if(days === 'hold') {
+      document.getElementById('det-chart-area').style.display = 'none';
+      document.getElementById('det-hold-area').style.display = 'block';
+      this.loadHoldings(this.currentDetailCode); return;
+    }
+    document.getElementById('det-chart-area').style.display = 'block';
+    document.getElementById('det-hold-area').style.display = 'none';
+
+    const f = this.data.fundsCache[this.currentDetailCode];
+    const nw = f.netWorth.slice(-days);
+    if(nw.length < 2) return;
+
+    let tbl = nw.slice().reverse().map((item, i, arr) => {
+      let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--';
+      return `<div class="list-item" style="padding:10px 14px;"><span style="color:var(--text-sub); font-size:13px; flex:1; font-weight:600;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:800; font-size:14px; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right; font-weight:800;">${chg>0?'+':''}${chg}%</span></div>`;
+    }).join('');
+    document.getElementById('det-table-area').innerHTML = tbl;
+
+    const base = nw[0].y;
+    let maxDrawdown = 0, maxPeak = nw[0].y;
+    this.chartInfo.data = nw.map(item => {
+      const rate = ((item.y-base)/base*100);
+      if(item.y > maxPeak) maxPeak = item.y;
+      const drop = ((maxPeak - item.y) / maxPeak * 100);
+      if(drop > maxDrawdown) maxDrawdown = drop;
+      return { date: this.formatEMDate(item.x, 5, 5), fullDate: this.formatEMDate(item.x, 10), y: item.y, rate };
+    });
+    
+    document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%';
+    this.chartInfo.touchIdx = -1;
+    this.drawChart();
+  },
+
+  drawChart() {
+    const canvas = document.getElementById('det-canvas');
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0,0,w,h);
+    const data = this.chartInfo.data; if(data.length<2) return;
+
+    const values = data.map(d=>d.rate);
+    const max = Math.max(...values, 0) + 1; const min = Math.min(...values, 0) - 1;
+    const pad = {t:20, b:20, l:40, r:10}, dw = w-pad.l-pad.r, dh = h-pad.t-pad.b;
+
+    const getX = i => pad.l + (i/(data.length-1))*dw;
+    const getY = v => pad.t + dh - ((v-min)/(max-min))*dh;
+
+    ctx.font = '9px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    [min, 0, max].forEach(v => {
+      let y = getY(v);
+      ctx.fillStyle = '#f1f5f9'; ctx.fillRect(pad.l, y, dw, 1);
+      ctx.fillStyle = v>0?'#f43f5e':(v<0?'#10b981':'#94a3b8');
+      let txt = v===0 ? '0.00%' : (v>0?'+':'')+v.toFixed(2)+'%';
+      ctx.fillText(txt, pad.l-5, y);
+    });
+
+    ctx.beginPath(); ctx.moveTo(getX(0), getY(data[0].rate));
+    data.forEach((d,i) => ctx.lineTo(getX(i), getY(d.rate)));
+    
+    ctx.lineTo(getX(data.length-1), h-pad.b); ctx.lineTo(getX(0), h-pad.b); ctx.closePath();
+    const grd = ctx.createLinearGradient(0,pad.t,0,h-pad.b);
+    grd.addColorStop(0,'rgba(0,102,255,0.15)'); grd.addColorStop(1,'rgba(0,102,255,0.01)');
+    ctx.fillStyle = grd; ctx.fill();
+
+    ctx.beginPath(); ctx.moveTo(getX(0), getY(data[0].rate));
+    data.forEach((d,i) => ctx.lineTo(getX(i), getY(d.rate)));
+    ctx.strokeStyle = '#0066ff'; ctx.lineWidth = 2; ctx.stroke();
+
+    const idx = this.chartInfo.touchIdx;
+    if(idx !== -1 && data[idx]) {
+      const cx = getX(idx), cy = getY(data[idx].rate);
+      ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h-pad.b);
+      ctx.strokeStyle = '#94a3b8'; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(cx,cy,3,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill(); ctx.strokeStyle='#f43f5e'; ctx.lineWidth=2; ctx.stroke();
+      
+      let bx = cx - 35; if(bx < pad.l) bx = pad.l; if(bx+70 > w-pad.r) bx = w-pad.r-70;
+      ctx.fillStyle = '#1e293b'; ctx.beginPath(); ctx.roundRect(bx, h-pad.b+2, 70, 18, 6); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(data[idx].fullDate, bx+35, h-pad.b+11);
+
+      const tip = `涨跌: ${data[idx].rate>0?'+':''}${data[idx].rate.toFixed(2)}% | 净值: ${data[idx].y.toFixed(4)}`;
+      const tw = ctx.measureText(tip).width + 12;
+      let tx = cx - tw/2; if(tx < pad.l) tx = pad.l; if(tx+tw > w-pad.r) tx = w-pad.r-tw;
+      let ty = cy - 32; if(ty < 5) ty = cy + 10;
+      
+      ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.beginPath(); ctx.roundRect(tx, ty, tw, 24, 6); ctx.fill();
+      ctx.strokeStyle = '#e2e8f0'; ctx.stroke();
+      ctx.fillStyle = data[idx].rate>=0?'#f43f5e':'#10b981'; ctx.fillText(tip, tx+tw/2, ty+12);
+    }
+  },
+
+  onChartTouch(e) {
+    if(this.chartInfo.data.length === 0) return;
+    const rect = e.target.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    let x = clientX - rect.left - 40;
+    let dw = rect.width - 50;
+    if(x<0) x=0; if(x>dw) x=dw;
+    let idx = Math.round((x/dw)*(this.chartInfo.data.length-1));
+    if(idx !== this.chartInfo.touchIdx) { this.chartInfo.touchIdx = idx; this.drawChart(); }
+  },
+  onChartEnd() { this.chartInfo.touchIdx = -1; this.drawChart(); },
+
+  // ========== 极速搜索 ==========
+  loadMasterList() {
+    return new Promise((resolve) => {
+      if (this.masterFundList && this.masterFundList.length > 0) return resolve(true);
+      if (document.body.getAttribute('data-dict-loading') === '1') {
+        let checkTimer = setInterval(() => { if (this.masterFundList.length > 0) { clearInterval(checkTimer); resolve(true); } }, 100);
+        return;
+      }
+      document.body.setAttribute('data-dict-loading', '1');
+      const script = document.createElement('script');
+      script.src = `https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`;
+      script.charset = 'utf-8'; 
+      script.onload = () => {
+        let retryCount = 0;
+        let findTimer = setInterval(() => {
+          if (window.r && window.r.length > 0) {
+            clearInterval(findTimer); this.masterFundList = window.r; delete window.r; document.body.setAttribute('data-dict-loading', '0'); resolve(true);
+          } else { retryCount++; if (retryCount > 50) { clearInterval(findTimer); document.body.setAttribute('data-dict-loading', '0'); resolve(false); } }
+        }, 100);
+      };
+      script.onerror = () => { document.body.setAttribute('data-dict-loading', '0'); resolve(false); };
+      document.head.appendChild(script);
+    });
+  },
+
+  openSearch() { 
+    this.openModal('search'); 
+    const searchInput = document.getElementById('search-input');
+    searchInput.value = ''; document.getElementById('search-results').innerHTML = ''; searchInput.focus(); 
+    this.loadMasterList(); 
+  },
+
+  doSearch() {
+    clearTimeout(this.searchTimer);
+    const kw = document.getElementById('search-input').value.trim().toLowerCase();
+    const box = document.getElementById('search-results');
+    if (kw.length < 2) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">检索中...</div>';
+    
+    this.searchTimer = setTimeout(async () => {
+      const isReady = await this.loadMasterList();
+      if (!isReady || this.masterFundList.length === 0) { box.innerHTML = '<div style="text-align:center; color:var(--red); padding:20px;">字典加载失败</div>'; return; }
+
+      const res = this.masterFundList.filter(i => i[0].includes(kw) || i[2].toLowerCase().includes(kw) || i[1].toLowerCase().includes(kw)).slice(0, 20); 
+      if (res.length === 0) box.innerHTML = '<div style="text-align:center; color:#94a3b8; padding:20px;">无结果</div>';
+      else {
+        box.innerHTML = res.map(i => `
+          <div class="list-item" style="cursor:pointer;" onclick="app.addFromSearch('${i[0]}', event)">
+            <span style="flex:1;"><b style="font-size:14px; color:var(--text-main);">${i[2]}</b> <span class="c-code" style="margin-left:6px;">${i[0]}</span></span>
+            <span class="c-tag" style="padding:6px 12px; border-radius:12px; cursor:pointer;">+ 添加</span>
+          </div>`).join('');
+      }
+    }, 300);
+  },
+
+  addFromSearch(code, e) {
+    if (this.currentGroupId === 'default') {
+      if (this.data.groups.length <= 1) {
+        alert('您还没有自建分组，请先点击"☰"新建分组！');
+      } else {
+        alert('【全部】分组为系统默认记录，不能直接添加。请先在上方的标签栏点击选中您自己的分组，再进行搜索添加！');
+      }
+      return;
+    }
+
+    let added = false;
+    const activeGroup = this.data.groups.find(g => g.id === this.currentGroupId);
+    if (activeGroup && !activeGroup.fundCodes.includes(code)) { 
+      activeGroup.fundCodes.push(code); 
+      added = true; 
+    }
+    
+    const defaultGroup = this.data.groups[0];
+    if (!defaultGroup.fundCodes.includes(code)) { 
+      defaultGroup.fundCodes.push(code); 
+      added = true; 
+    }
+
+    if (added) {
+      this.saveData();
+      if(e) e.currentTarget.querySelector('.c-tag').innerText = '加载中...';
+      this.loadFundData(code).then(() => { 
+        this.closeModal('search'); this.processGroupRisks(); this.renderHome(); 
+      }).catch(() => this.showToast('该基金可能已退市', 'error'));
+    } else this.showToast('该基金已在当前分组', 'error');
+  },
+
+  // ========== 持仓分析 ==========
+  async loadHoldings(code) {
+    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>';
+    try {
+      const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb');
+      const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || [];
+      const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || [];
+      const holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) }));
+      if(holdings.length === 0) throw new Error();
+
+      const secids = holdings.map(h => ((h.code.startsWith('6')||h.code.startsWith('9'))?'1.':'0.')+h.code).join(',');
+      
+      const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f60&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb');
+      
+      let qtMap = {};
+      (qtData?.data?.diff || []).forEach(item => {
+        let chg = 0;
+        if (item.f3 !== '-' && !isNaN(parseFloat(item.f3))) {
+          chg = parseFloat(item.f3);
+        } else if (item.f2 !== '-' && item.f60 !== '-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))) {
+          let f2 = parseFloat(item.f2);
+          let f60 = parseFloat(item.f60);
+          if (f60 > 0) chg = ((f2 - f60) / f60) * 100;
+        }
+        qtMap[item.f12] = Number(chg.toFixed(2));
+      });
+      
+      let sumR = 0, est = 0;
+      let hHtml = holdings.map(h => {
+        let chg = qtMap[h.code] || 0;
+        sumR += h.ratio; est += (h.ratio/100)*chg;
+        return `<div class="list-item"><span style="flex:2; font-weight:800; font-size:13px;">${h.name} <span class="c-code">${h.code}</span></span><span style="flex:1;text-align:center; color:var(--text-sub); font-size:12px;">${h.ratio}%</span><span style="flex:1;text-align:right; font-weight:800; font-size:13px;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg}%</span></div>`;
+      }).join('');
+
+      document.getElementById('det-hold-area').innerHTML = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px;"><span>前十总占比</span><span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px;"><span>加权估算涨幅</span><span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>${hHtml}`;
+    } catch(e) { document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">暂无股票持仓数据</div>'; }
+  },
+
+  // ========== 云端同步功能 ==========
+  initS3() {
+    const conf = JSON.parse(localStorage.getItem('r2_conf') || '{}');
+    if (conf.ak) {
+      document.getElementById('r2-bucket').value = conf.bucket; document.getElementById('r2-ak').value = conf.ak; document.getElementById('r2-sk').value = conf.sk; document.getElementById('r2-endpoint').value = conf.endpoint;
+      if (typeof AWS !== 'undefined') {
+        this.s3 = new AWS.S3({ endpoint: conf.endpoint, accessKeyId: conf.ak, secretAccessKey: conf.sk, s3ForcePathStyle: true, signatureVersion: 'v4', region: 'auto' });
+      } else {
+        console.warn('云同步组件加载失败，您可能在使用限制较严的网络。');
+      }
+    }
+  },
+  saveR2ParamsOnly() {
+    const conf = { bucket: document.getElementById('r2-bucket').value.trim(), ak: document.getElementById('r2-ak').value.trim(), sk: document.getElementById('r2-sk').value.trim(), endpoint: document.getElementById('r2-endpoint').value.trim().replace(/\/+$/, '') };
+    if(conf.endpoint.endsWith('/'+conf.bucket)) conf.endpoint = conf.endpoint.replace('/'+conf.bucket, '');
+    localStorage.setItem('r2_conf', JSON.stringify(conf)); this.initS3();
+    alert('参数保存成功！接下来请点击“拉取云端数据”或“上传覆盖”');
+  },
+  pullFromCloud() {
+    if (typeof AWS === 'undefined') return alert('当前网络无法访问云同步服务，请切换网络(如使用手机数据)后再试。');
+    if (!this.s3) return alert('请先填写并保存参数');
+    const conf = JSON.parse(localStorage.getItem('r2_conf'));
+    this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
+      if (err) {
+        if(err.code === 'NoSuchKey') alert('云端没有找到数据，如果您是第一次使用，请点击【强制覆盖上传】初始化云端。');
+        else alert('拉取失败: ' + err.code);
+      } else { 
+        this.data = JSON.parse(data.Body.toString()); this.saveData(); alert('数据同步成功！'); this.switchTab('home'); 
+      }
+    });
+  },
+  pushToCloud() {
+    if (typeof AWS === 'undefined') return alert('当前网络无法访问云同步服务，请切换网络(如使用手机数据)后再试。');
+    if (!this.s3) return alert('请先保存配置参数');
+    const conf = JSON.parse(localStorage.getItem('r2_conf'));
+    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {
+      if (err) alert('上传失败: ' + err.message); else alert('已成功覆盖云端！');
+    });
+  }
 };
+
 window.onload = () => app.init();
 </script>
 </body>

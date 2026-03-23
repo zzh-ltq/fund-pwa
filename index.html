@@ -689,7 +689,7 @@ const app = {
     });
   },
 
-  // 【重构优化】全新的带模态框的全局刷新逻辑
+ // 极速刷新全部
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
     if(!codes || codes.length === 0) return this.showToast('没有需要更新的基金', 'error');
@@ -713,15 +713,12 @@ const app = {
             progressText.innerText = `${current} / ${total}`;
         }
         
-        // 统一保存及渲染
+        // 数据拉取完毕后，统一保存到本地缓存
         this.saveData();
-        this.processGroupRisks();
         
-        // 判断当前处于哪个页面进行对应的刷新
-        if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
-        if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+        // 核心修改点：直接强制刷新当前页面 (等同于按 F5)
+        window.location.reload();
         
-        this.showToast('✅ 最新净值数据已更新');
     } finally {
         loadingModal.classList.remove('active');
     }

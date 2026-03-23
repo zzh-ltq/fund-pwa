@@ -471,12 +471,13 @@
     </div>
   </div>
 
-  <!-- ================= 弹窗：全局刷新极速加载中 ================= -->
+  <!-- ================= 弹窗：全局加载中进度 ================= -->
   <div id="modal-loading" class="modal-view">
     <div style="width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: transparent; margin-top: -10vh;">
         <div class="loading-spinner"></div>
-        <div style="font-weight: 800; color: var(--text-main); font-size: 16px; text-shadow: 0 2px 4px rgba(255,255,255,0.8);">极速更新中...</div>
-        <div style="font-size: 13px; color: var(--text-sub); margin-top: 8px; font-weight: bold;">数据保存后将自动重载页面</div>
+        <div style="font-weight: 800; color: var(--text-main); font-size: 16px; text-shadow: 0 2px 4px rgba(255,255,255,0.8);">数据极速更新中...</div>
+        <div id="loading-progress-text" style="font-size: 18px; color: var(--blue); font-weight: 900; margin-top: 8px;">0 / 0</div>
+        <div style="font-size: 12px; color: var(--text-sub); margin-top: 8px; font-weight: bold;">更新保存后将自动重载页面</div>
     </div>
   </div>
 
@@ -652,7 +653,6 @@ const app = {
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
-  // 【优化】带超时的极速并行请求
   loadFundData(code, isBatch = false) {
     return new Promise((resolve) => {
       const script = document.createElement('script');
@@ -696,25 +696,32 @@ const app = {
     });
   },
 
-  // 【重构】极速并发刷新 + 弹窗遮罩 + 强制刷新网页
+  // 【优化】带进度条显示的全局刷新
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
-    if(codes.length === 0) return this.showToast('没有需要更新的基金', 'error');
+    const total = codes.length;
+    if(total === 0) return this.showToast('没有需要更新的基金', 'error');
     
     const loadingModal = document.getElementById('modal-loading');
+    const progressText = document.getElementById('loading-progress-text');
     loadingModal.style.display = 'flex';
+    progressText.innerText = `0 / ${total}`;
     
+    let completed = 0;
+
     try {
-        // 利用 Promise.all 进行极速并发请求，瞬间完成
-        const promises = codes.map(code => this.loadFundData(code, true));
+        // 利用 Promise.all 进行并发请求，并在每个 promise 解决时更新进度条
+        const promises = codes.map(code => {
+            return this.loadFundData(code, true).then(() => {
+                completed++;
+                progressText.innerText = `${completed} / ${total}`;
+            });
+        });
+        
         await Promise.all(promises);
         
-        // 统一保存到硬盘
         this.saveData();
-        
-        // 数据落地完毕，彻底刷新当前网页，根除事件丢失
-        location.reload();
-        
+        location.reload(); // 数据保存完毕，强制重载页面
     } catch(err) {
         loadingModal.style.display = 'none';
         this.showToast('更新异常，请检查网络', 'error');
@@ -774,7 +781,7 @@ const app = {
     });
   },
 
-  // 【优化】局部靶向更新星标：参数改为 (DOM对象, 基金代码, 原生Event)
+  // 局部靶向更新星标
   toggleStar(btnEl, code, e) {
     if (e) e.stopPropagation();
     const f = this.data.fundsCache[code];
@@ -782,7 +789,6 @@ const app = {
         f.isStarred = !f.isStarred;
         this.saveData(); 
 
-        // 强行直接操纵传入的 DOM 按钮，零延迟
         if (btnEl) {
             if (f.isStarred) {
                 btnEl.classList.add('starred');
@@ -791,7 +797,6 @@ const app = {
                 btnEl.classList.remove('starred');
                 btnEl.innerText = '☆';
             }
-            // 同步修改列表背景
             const row = document.getElementById(`fund-row-${code}`);
             if(row) {
                 if(f.isStarred) row.classList.add('starred-row');
@@ -801,7 +806,6 @@ const app = {
     }
   },
 
-  // 安全事件防冒泡
   removeFundFromGroup(e, code) {
     if(e) e.stopPropagation();
     if (!confirm('确定从该分组移除吗？')) return;
@@ -842,7 +846,6 @@ const app = {
     if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
   },
 
-  // 基础算法：波达计数法
   calculateMedals(funds) {
     if (!funds || funds.length === 0) return;
     funds.forEach(f => { f.medalScore = 0; });
@@ -864,7 +867,6 @@ const app = {
     });
   },
 
-  // 量化模型：综合超级分
   calculateSuperScoreMedals(funds) {
     if (!funds || funds.length === 0) return;
     
@@ -914,7 +916,6 @@ const app = {
     });
   },
 
-  // 动态颁发奖牌
   assignMedals(funds, sortVal) {
       funds.forEach(f => f.medal = ''); 
       if (!funds || funds.length < 3) return;
@@ -933,11 +934,9 @@ const app = {
     const col = f.change >= 0 ? 'red' : 'green';
     let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
     
-    // 内联绑定参数更新
     let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join('');
     let showDel = isHomeGroup && this.currentGroupId !== 'default';
     let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
-    // 星星专属绑定 this 和 event
     let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(this, '${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`;
     let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`;
 
@@ -1010,7 +1009,6 @@ const app = {
     return `<div class="list-table-container">${header}${rows}</div>`;
   },
 
-  // ========== 自选首页逻辑 ==========
   setViewMode(mode) {
     this.viewMode = mode;
     document.getElementById('vt-card').className = mode === 'card' ? 'active' : '';
@@ -1066,7 +1064,6 @@ const app = {
     container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f, true)).join('') : this.buildListHtml(funds, true, false);
   },
 
-  // ========== 排名页 ==========
   setRankDir(dir) {
     this.rankDir = dir;
     document.getElementById('rank-desc').className = dir === 'desc' ? 'active' : '';
@@ -1099,7 +1096,6 @@ const app = {
     document.getElementById('rank-list').innerHTML = html || '<div style="text-align:center; color:#94a3b8; font-weight:bold; margin-top:50px;">暂无自建分组数据</div>';
   },
 
-  // ========== 板块页 ==========
   addSector() {
     let val = document.getElementById('new-sector-input').value.trim();
     if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { 
@@ -1181,7 +1177,6 @@ const app = {
     container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false, true);
   },
 
-  // ========== 账户管理 ==========
   openGroupMgr() {
     this.openModal('group-mgr');
     this.renderGroupMgrList();
@@ -1368,7 +1363,6 @@ const app = {
     }, 200);
   },
 
-  // ========== 详情与图表 ==========
   openDetail(code) {
     this.currentDetailCode = code;
     const f = this.data.fundsCache[code];
@@ -1564,7 +1558,8 @@ const app = {
     }, 300);
   },
 
-  addFromSearch(code, e) {
+  // 【优化】添加基金时先拉取数据，防止出现空数据占位
+  async addFromSearch(code, e) {
     if (this.currentGroupId === 'default') {
       if (this.data.groups.length <= 1) {
         alert('您还没有自建分组，请先点击"☰"新建分组！');
@@ -1572,6 +1567,19 @@ const app = {
         alert('【全部】分组为系统默认记录，不能直接添加。请先在上方的标签栏点击选中您自己的分组，再进行搜索添加！');
       }
       return;
+    }
+
+    const btn = e ? e.currentTarget.querySelector('.c-tag') : null;
+    const originalText = btn ? btn.innerText : '+ 添加';
+    if (btn) btn.innerText = '拉取中...';
+
+    // 先去拉取数据，确保是活着的有效基金
+    const fundData = await this.loadFundData(code, false);
+
+    if (!fundData || !fundData.netWorth || fundData.netWorth.length === 0) {
+        if (btn) btn.innerText = originalText;
+        this.showToast('该基金暂无净值数据，无法添加', 'error');
+        return; 
     }
 
     let added = false;
@@ -1589,11 +1597,14 @@ const app = {
 
     if (added) {
       this.saveData();
-      if(e) e.currentTarget.querySelector('.c-tag').innerText = '加载中...';
-      this.loadFundData(code).then(() => { 
-        this.closeModal('search'); this.processGroupRisks(); this.renderHome(); 
-      }).catch(() => this.showToast('该基金可能已退市', 'error'));
-    } else this.showToast('该基金已在当前分组', 'error');
+      this.closeModal('search'); 
+      this.processGroupRisks(); 
+      this.renderHome(); 
+      this.showToast('✅ 添加成功');
+    } else {
+      if (btn) btn.innerText = originalText;
+      this.showToast('该基金已在当前分组', 'error');
+    }
   },
 
   // ========== 持仓分析 ==========
@@ -1634,7 +1645,6 @@ const app = {
     } catch(e) { document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">暂无股票持仓数据</div>'; }
   },
 
-  // ========== 云端同步功能 ==========
   initS3() {
     const conf = JSON.parse(localStorage.getItem('r2_conf') || '{}');
     if (conf.ak) {

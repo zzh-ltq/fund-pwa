@@ -60,17 +60,17 @@
                      animation: slideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
     @keyframes slideUp { from { transform: translateY(50px) scale(0.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
 
-    /* 【新增】全屏加载中弹窗样式 */
+    /* 【新增】全屏极速加载中弹窗样式 */
     #modal-loading {
-      z-index: 9999; 
+      z-index: 99999; 
       background: rgba(255, 255, 255, 0.85); 
-      backdrop-filter: blur(10px); 
-      -webkit-backdrop-filter: blur(10px); 
+      backdrop-filter: blur(12px); 
+      -webkit-backdrop-filter: blur(12px); 
       justify-content: center; 
       align-items: center;
     }
     .loading-spinner {
-      width: 44px; height: 44px; border: 4px solid var(--blue-light); border-top: 4px solid var(--blue); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px;
+      width: 48px; height: 48px; border: 4px solid var(--blue-light); border-top: 4px solid var(--blue); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,102,255,0.1);
     }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
@@ -362,7 +362,6 @@
         <button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button>
       </div>
 
-      <!-- 板块搜索框 -->
       <div style="display:flex; gap:10px; margin-bottom: 12px;">
         <input type="text" id="search-sector-input" placeholder="搜索已建板块" style="margin:0; flex:1;" oninput="app.searchSector()">
         <button class="btn-primary" style="width:70px; margin:0; background: var(--text-sub); box-shadow: none;" onclick="app.searchSector()">搜索</button>
@@ -472,11 +471,13 @@
     </div>
   </div>
 
-  <!-- ================= 弹窗：全局加载中 ================= -->
+  <!-- ================= 弹窗：全局刷新极速加载中 ================= -->
   <div id="modal-loading" class="modal-view">
-    <div class="loading-spinner"></div>
-    <div style="font-weight: 800; color: var(--text-main); font-size: 15px;">数据更新中...</div>
-    <div style="font-size: 12px; color: var(--text-sub); margin-top: 5px;">更新完成后将自动刷新页面</div>
+    <div style="width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: transparent; margin-top: -10vh;">
+        <div class="loading-spinner"></div>
+        <div style="font-weight: 800; color: var(--text-main); font-size: 16px; text-shadow: 0 2px 4px rgba(255,255,255,0.8);">极速更新中...</div>
+        <div style="font-size: 13px; color: var(--text-sub); margin-top: 8px; font-weight: bold;">数据保存后将自动重载页面</div>
+    </div>
   </div>
 
   <!-- ================= 弹窗：基金详情 ================= -->
@@ -569,7 +570,7 @@ const app = {
     const div = document.createElement('div');
     div.innerText = msg;
     const bg = type === 'success' ? 'var(--green)' : (type === 'error' ? 'var(--red)' : '#1e293b');
-    div.style.cssText = `position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${bg};color:#fff;padding:8px 20px;border-radius:24px;z-index:9999;font-weight:bold;box-shadow:0 6px 16px rgba(0,0,0,0.15);font-size:13px;animation:slideDown 0.3s cubic-bezier(0.2,0.8,0.2,1);`;
+    div.style.cssText = `position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${bg};color:#fff;padding:8px 20px;border-radius:24px;z-index:999999;font-weight:bold;box-shadow:0 6px 16px rgba(0,0,0,0.15);font-size:13px;animation:slideDown 0.3s cubic-bezier(0.2,0.8,0.2,1);`;
     document.body.appendChild(div);
     setTimeout(() => {
       div.style.opacity = '0';
@@ -651,20 +652,20 @@ const app = {
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
-  // 【防卡死】增加 6 秒超时机制，即使有废弃基金也不阻碍整体刷新
+  // 【优化】带超时的极速并行请求
   loadFundData(code, isBatch = false) {
     return new Promise((resolve) => {
       const script = document.createElement('script');
       let isDone = false;
 
       const finish = (result) => {
-          if(isDone) return;
+          if (isDone) return;
           isDone = true;
           script.remove();
-          resolve(result); // 无论是成功还是失败都 resolve，不阻断 Promise.all
+          resolve(result); // 无论是成功还是超时，必须 resolve 保证不卡死 Promise.all
       };
 
-      const timeout = setTimeout(() => finish(null), 6000); // 6秒强制超时跳过
+      const timeout = setTimeout(() => finish(null), 6000);
 
       script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`;
       script.onload = () => {
@@ -685,7 +686,6 @@ const app = {
           
           window.Data_netWorthTrend = null;
           window.fS_name = null;
-          
           finish(fund);
         } else {
           finish(null);
@@ -696,26 +696,28 @@ const app = {
     });
   },
 
-  // 【强制刷新机制】所有数据拉取并保存后，直接刷新页面，彻底重置 DOM
+  // 【重构】极速并发刷新 + 弹窗遮罩 + 强制刷新网页
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
     if(codes.length === 0) return this.showToast('没有需要更新的基金', 'error');
     
-    // 弹出全局加载遮罩
     const loadingModal = document.getElementById('modal-loading');
     loadingModal.style.display = 'flex';
     
     try {
-        for (let code of codes) { 
-            await this.loadFundData(code, true);
-        }
+        // 利用 Promise.all 进行极速并发请求，瞬间完成
+        const promises = codes.map(code => this.loadFundData(code, true));
+        await Promise.all(promises);
+        
+        // 统一保存到硬盘
         this.saveData();
         
-        // 数据更新并保存完毕，强制重载页面，根治事件丢失
+        // 数据落地完毕，彻底刷新当前网页，根除事件丢失
         location.reload();
+        
     } catch(err) {
         loadingModal.style.display = 'none';
-        this.showToast('更新异常，请重试', 'error');
+        this.showToast('更新异常，请检查网络', 'error');
     }
   },
 
@@ -772,35 +774,34 @@ const app = {
     });
   },
 
-  // 局部靶向 DOM 更新星标
-  toggleStar(e, code) {
+  // 【优化】局部靶向更新星标：参数改为 (DOM对象, 基金代码, 原生Event)
+  toggleStar(btnEl, code, e) {
     if (e) e.stopPropagation();
     const f = this.data.fundsCache[code];
     if (f) {
         f.isStarred = !f.isStarred;
         this.saveData(); 
 
-        if (e && e.currentTarget) {
-            const btn = e.currentTarget;
+        // 强行直接操纵传入的 DOM 按钮，零延迟
+        if (btnEl) {
             if (f.isStarred) {
-                btn.classList.add('starred');
-                btn.innerText = '★';
-                const row = document.getElementById(`fund-row-${code}`);
-                if(row) row.classList.add('starred-row');
+                btnEl.classList.add('starred');
+                btnEl.innerText = '★';
             } else {
-                btn.classList.remove('starred');
-                btn.innerText = '☆';
-                const row = document.getElementById(`fund-row-${code}`);
-                if(row) row.classList.remove('starred-row');
+                btnEl.classList.remove('starred');
+                btnEl.innerText = '☆';
             }
-        } else {
-           if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
-           if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+            // 同步修改列表背景
+            const row = document.getElementById(`fund-row-${code}`);
+            if(row) {
+                if(f.isStarred) row.classList.add('starred-row');
+                else row.classList.remove('starred-row');
+            }
         }
     }
   },
 
-  // 安全事件传递
+  // 安全事件防冒泡
   removeFundFromGroup(e, code) {
     if(e) e.stopPropagation();
     if (!confirm('确定从该分组移除吗？')) return;
@@ -932,10 +933,12 @@ const app = {
     const col = f.change >= 0 ? 'red' : 'green';
     let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
     
+    // 内联绑定参数更新
     let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join('');
     let showDel = isHomeGroup && this.currentGroupId !== 'default';
     let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
-    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(event, '${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
+    // 星星专属绑定 this 和 event
+    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(this, '${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`;
     let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`;
 
     let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`;
@@ -1139,7 +1142,6 @@ const app = {
       let highlightCls = isMatch ? 'highlight-match' : '';
       let activeCls = this.activeSector === s ? 'active' : '';
       
-      // 修复：事件传递
       return `<div class="action-pill ${activeCls} ${highlightCls}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#94a3b8; margin-left:6px;" onclick="app.delSector(event, '${s}')">✕</span></div>`;
     }).join('');
     
@@ -1177,33 +1179,6 @@ const app = {
     const container = document.getElementById('sector-list');
     container.className = this.secViewMode === 'card' ? 'card-grid' : '';
     container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false, true);
-  },
-
-  delSector(e, s) {
-    if(e) e.stopPropagation();
-    if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
-  },
-  
-  openSectorSelect(e, code) {
-    if(e) e.stopPropagation();
-    if(this.data.customSectors.length===0) return alert('请先去板块页面创建板块');
-    this.targetSectorCode = code;
-    const f = this.data.fundsCache[code];
-    let html = this.data.customSectors.map(s => {
-      let isSel = f.sectors?.includes(s);
-      return `<div class="action-pill ${isSel?'active':''}" onclick="app.toggleFundSector('${s}')">${s}</div>`;
-    }).join('');
-    document.getElementById('sector-select-list').innerHTML = html;
-    this.openModal('sector-select');
-  },
-  toggleFundSector(sec) {
-    const f = this.data.fundsCache[this.targetSectorCode];
-    if(!f.sectors) f.sectors = [];
-    if(f.sectors.includes(sec)) { f.sectors = f.sectors.filter(s=>s!==sec); }
-    else { if(f.sectors.length>=2) return alert('最多选2个'); f.sectors.push(sec); }
-    this.saveData(); this.closeModal('sector-select'); 
-    if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
-    if(document.getElementById('view-sector').classList.contains('active')) this.renderSector();
   },
 
   // ========== 账户管理 ==========

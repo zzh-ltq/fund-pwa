@@ -690,39 +690,75 @@ const app = {
   },
 
  // 极速刷新全部
-  async refreshAll() {
-    const codes = this.data.groups[0].fundCodes;
-    if(!codes || codes.length === 0) return this.showToast('没有需要更新的基金', 'error');
+ // 极速刷新全部基金数据
+async refreshAll() {
+    // 1. 前置校验：获取基金代码列表并检查有效性
+    const firstGroup = this.data.groups?.[0];
+    const codes = firstGroup?.fundCodes || [];
     
+    if (!codes || codes.length === 0) {
+        this.showToast('没有需要更新的基金', 'error');
+        return;
+    }
+
+    // 2. 获取DOM元素并做安全校验
     const loadingModal = document.getElementById('modal-loading');
     const progressText = document.getElementById('loading-progress');
+    
+    if (!loadingModal || !progressText) {
+        console.error('加载弹窗或进度文本元素未找到');
+        this.showToast('更新失败：缺少必要的页面元素', 'error');
+        return;
+    }
+
+    // 3. 初始化加载状态
     const total = codes.length;
     let current = 0;
+    let successCount = 0; // 新增：统计成功更新的数量
+    let failCount = 0;    // 新增：统计失败更新的数量
     
     progressText.innerText = `0 / ${total}`;
     loadingModal.classList.add('active');
-    
+
     try {
-        for (let code of codes) { 
+        // 4. 批量更新基金数据
+        for (const code of codes) { 
             try { 
-                await this.loadFundData(code, true); 
+                await this.loadFundData(code, true);
+                successCount++; // 更新成功计数
             } catch(e) {
-                console.warn(`基金 ${code} 更新失败`);
+                failCount++; // 更新失败计数
+                console.warn(`基金 ${code} 更新失败:`, e); // 优化：打印具体错误信息
             }
+            
+            // 更新进度（无论成功失败都更新）
             current++;
             progressText.innerText = `${current} / ${total}`;
         }
         
-        // 数据拉取完毕后，统一保存到本地缓存
-        this.saveData();
+        // 5. 数据拉取完毕后，统一保存到本地缓存
+        await this.saveData(); // 优化：如果saveData是异步的，加上await
         
-        // 核心修改点：直接强制刷新当前页面 (等同于按 F5)
-        window.location.reload();
+        // 6. 优化页面刷新逻辑
+        this.showToast(`更新完成：成功${successCount}个，失败${failCount}个`, 'success');
         
+        // 延迟刷新，让用户看到提示信息
+        setTimeout(() => {
+            // 优化刷新方式：使用location.reload的参数控制是否从缓存刷新
+            window.location.reload(true); // true表示强制从服务器刷新，等同于F5
+        }, 1500); // 1.5秒后刷新
+        
+    } catch (mainError) {
+        // 捕获外层异常
+        console.error('刷新全部基金时发生整体错误:', mainError);
+        this.showToast('更新过程中发生错误，请重试', 'error');
     } finally {
-        loadingModal.classList.remove('active');
+        // 确保弹窗关闭（即使有延迟刷新）
+        setTimeout(() => {
+            loadingModal.classList.remove('active');
+        }, 2000);
     }
-  },
+},
 
   calcRate(nw, days) {
     if (!nw || nw.length < days) return '--';

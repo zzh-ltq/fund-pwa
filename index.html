@@ -907,6 +907,7 @@ const app = {
     
     // 修复：使用新的事件传递机制
     let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join('');
+    let showDel = isHomeGroup && this.currentGroupId !== 'default';
     let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
     let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(event, '${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
     let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`;

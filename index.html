@@ -60,6 +60,16 @@
                      animation: slideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
     @keyframes slideUp { from { transform: translateY(50px) scale(0.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
 
+    /* Loading 动画 */
+    .loading-spinner {
+      width: 36px; height: 36px;
+      border: 4px solid var(--blue-light);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     /* ========== 导航栏 ========== */
     .nav-bar {
       padding-top: var(--safe-top); height: calc(44px + var(--safe-top));
@@ -504,6 +514,15 @@
     </div>
   </div>
 
+  <!-- 【新增】全局加载 Loading 模态框 -->
+  <div id="modal-loading" class="modal-view" style="z-index: 9999; justify-content: center; align-items: center; background: rgba(246,248,252,0.8); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);">
+    <div style="background: var(--surface-color); padding: 24px 48px; border-radius: 20px; box-shadow: 0 12px 32px rgba(0,102,255,0.1); display: flex; flex-direction: column; align-items: center; gap: 16px; border: 1px solid rgba(255,255,255,0.8);">
+      <div class="loading-spinner"></div>
+      <div style="font-weight: 900; color: var(--blue); font-size: 15px; letter-spacing: 1px;">数据更新中</div>
+      <div id="loading-progress" style="font-size: 13px; color: var(--text-sub); font-weight: 800; background: #f1f5f9; padding: 4px 12px; border-radius: 12px;">0 / 0</div>
+    </div>
+  </div>
+
 </div>
 
 <!-- 核心业务逻辑 -->
@@ -562,6 +581,11 @@ const app = {
   init() {
     const local = localStorage.getItem('fund_pwa_v6');
     if (local) this.data = JSON.parse(local);
+    
+    if (this.data.groups.length === 0) {
+       this.data.groups = [{ id: 'default', name: '全部', fundCodes: [] }];
+    }
+    
     this.initS3(); 
     this.processGroupRisks();
     this.renderHomeGroups();
@@ -665,29 +689,41 @@ const app = {
     });
   },
 
-  // 极速刷新全部
+  // 【重构优化】全新的带模态框的全局刷新逻辑
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
-    if(codes.length === 0) return this.showToast('没有需要更新的基金', 'error');
+    if(!codes || codes.length === 0) return this.showToast('没有需要更新的基金', 'error');
     
-    const btn = document.querySelector('.nav-btn[onclick="app.refreshAll()"]');
-    const oldText = btn.innerText;
-    btn.innerText = '🔄更新中...';
-    btn.style.opacity = '0.5';
-    btn.style.pointerEvents = 'none';
+    const loadingModal = document.getElementById('modal-loading');
+    const progressText = document.getElementById('loading-progress');
+    const total = codes.length;
+    let current = 0;
+    
+    progressText.innerText = `0 / ${total}`;
+    loadingModal.classList.add('active');
     
     try {
         for (let code of codes) { 
-            try { await this.loadFundData(code, true); } catch(e) {} 
+            try { 
+                await this.loadFundData(code, true); 
+            } catch(e) {
+                console.warn(`基金 ${code} 更新失败`);
+            }
+            current++;
+            progressText.innerText = `${current} / ${total}`;
         }
+        
+        // 统一保存及渲染
         this.saveData();
         this.processGroupRisks();
-        this.renderHome();
+        
+        // 判断当前处于哪个页面进行对应的刷新
+        if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+        if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+        
         this.showToast('✅ 最新净值数据已更新');
     } finally {
-        btn.innerText = oldText;
-        btn.style.opacity = '1';
-        btn.style.pointerEvents = 'auto';
+        loadingModal.classList.remove('active');
     }
   },
 
@@ -744,15 +780,13 @@ const app = {
     });
   },
 
-  // 【终极修复】将事件对象安全地作为参数传入，避免内联执行时找不到全局 event 报错
   toggleStar(e, code) {
-    if (e) e.stopPropagation(); // 安全地阻止冒泡
+    if (e) e.stopPropagation(); 
     const f = this.data.fundsCache[code];
     if (f) {
         f.isStarred = !f.isStarred;
         this.saveData(); 
 
-        // 靶向局部更新 DOM，极速反馈
         if (e && e.currentTarget) {
             const btn = e.currentTarget;
             if (f.isStarred) {
@@ -773,7 +807,6 @@ const app = {
     }
   },
 
-  // 【配套修复】将所有其他的内联 DOM 操作同样修改，确保刷新后点击不会报错
   removeFundFromGroup(e, code) {
     if(e) e.stopPropagation();
     if (!confirm('确定从该分组移除吗？')) return;
@@ -905,8 +938,8 @@ const app = {
     const col = f.change >= 0 ? 'red' : 'green';
     let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
     
-    // 修复：使用新的事件传递机制
     let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join('');
+    
     let showDel = isHomeGroup && this.currentGroupId !== 'default';
     let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
     let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(event, '${f.code}')">${f.isStarred ? '★' : '☆'}</div>`;
@@ -963,7 +996,6 @@ const app = {
       if(!f.isLoad) return '';
       let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join('');
       
-      // 修复：使用新的事件传递机制
       let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
       
       let rowClass = f.isStarred ? 'l-row starred-row' : 'l-row';
@@ -998,6 +1030,11 @@ const app = {
   },
 
   renderHomeGroups() {
+    // 确保 this.data.groups 始终有效
+    if (!this.data.groups || this.data.groups.length === 0) {
+        this.data.groups = [{ id: 'default', name: '全部', fundCodes: [] }];
+    }
+    
     let html = this.data.groups.map(g => {
       let badge = '';
       if(g.has20Risk) badge += '<span class="badge warning">!</span>';
@@ -1114,7 +1151,6 @@ const app = {
       let highlightCls = isMatch ? 'highlight-match' : '';
       let activeCls = this.activeSector === s ? 'active' : '';
       
-      // 修复：事件传递
       return `<div class="action-pill ${activeCls} ${highlightCls}" onclick="app.activeSector='${s}'; app.renderSector();">${s} <span style="color:#94a3b8; margin-left:6px;" onclick="app.delSector(event, '${s}')">✕</span></div>`;
     }).join('');
     

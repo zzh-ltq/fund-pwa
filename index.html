@@ -60,7 +60,7 @@
                      animation: slideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
     @keyframes slideUp { from { transform: translateY(50px) scale(0.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
 
-    /* 【新增】全屏极速加载中弹窗样式 */
+    /* 全屏极速加载中弹窗样式 */
     #modal-loading {
       z-index: 99999; 
       background: rgba(255, 255, 255, 0.85); 
@@ -165,7 +165,7 @@
     .l-header { display: flex; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;}
     .l-row { display: flex; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; align-items: center; cursor: pointer; position: relative; transition: background 0.3s;}
     
-    /* 列表项星标高亮样式 (加深紫色背景) */
+    /* 列表项星标高亮样式 */
     .l-row.starred-row { background-color: #f3e8ff; border-bottom-color: #e9d5ff;}
     @media (hover: hover) { .l-row.starred-row:hover { background-color: #e9d5ff; transform: scale(1.005); border-radius: 8px;} }
 
@@ -426,7 +426,7 @@
 
   <!-- ================= 弹窗：分组管理 ================= -->
   <div id="modal-group-mgr" class="modal-view" onclick="app.closeOutside(event, 'group-mgr')">
-    <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-content" onclick="app.stopProp(event)">
       <div class="nav-bar">
         <div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div>
         <div class="nav-title">分组管理</div>
@@ -451,7 +451,7 @@
 
   <!-- ================= 弹窗：板块选择器 ================= -->
   <div id="modal-sector-select" class="modal-view" style="justify-content:flex-end;" onclick="app.closeOutside(event, 'sector-select')">
-    <div style="background:var(--surface-color); border-radius:20px 20px 0 0; padding:20px 15px; min-height:40vh; border: 1px solid rgba(255,255,255,0.4);" onclick="event.stopPropagation()">
+    <div style="background:var(--surface-color); border-radius:20px 20px 0 0; padding:20px 15px; min-height:40vh; border: 1px solid rgba(255,255,255,0.4);" onclick="app.stopProp(event)">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-weight:800; font-size: 14px;">
         <span>选择板块 (最多2个)</span>
         <span style="color:#94a3b8; cursor:pointer; font-size: 16px;" onclick="app.closeModal('sector-select')">✕</span>
@@ -462,7 +462,7 @@
 
   <!-- ================= 弹窗：基金搜索 ================= -->
   <div id="modal-search" class="modal-view" onclick="app.closeOutside(event, 'search')">
-    <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-content" onclick="app.stopProp(event)">
       <div class="nav-bar">
         <input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%; border-radius: 14px; padding: 6px 12px;">
         <div class="nav-btn" style="background:none; box-shadow:none; color: var(--text-sub);" onclick="app.closeModal('search')">取消</div>
@@ -483,7 +483,7 @@
 
   <!-- ================= 弹窗：基金详情 ================= -->
   <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')">
-    <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-content" onclick="app.stopProp(event)">
       <div class="nav-bar">
         <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
         <div class="nav-title">基金详情</div>
@@ -567,6 +567,7 @@ const app = {
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
   },
 
+  // 封装极简 Toast 轻提示
   showToast(msg, type = 'success') {
     const div = document.createElement('div');
     div.innerText = msg;
@@ -579,6 +580,11 @@ const app = {
       div.style.transition = 'all 0.3s';
       setTimeout(() => div.remove(), 300);
     }, 2000);
+  },
+
+  // 安全事件防冒泡助手函数
+  stopProp(e) {
+    if(e) e.stopPropagation();
   },
 
   init() {
@@ -653,6 +659,7 @@ const app = {
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
+  // 极速拉取数据，带防死锁 6 秒超时
   loadFundData(code, isBatch = false) {
     return new Promise((resolve) => {
       const script = document.createElement('script');
@@ -662,7 +669,7 @@ const app = {
           if (isDone) return;
           isDone = true;
           script.remove();
-          resolve(result); // 无论是成功还是超时，必须 resolve 保证不卡死 Promise.all
+          resolve(result); 
       };
 
       const timeout = setTimeout(() => finish(null), 6000);
@@ -696,7 +703,7 @@ const app = {
     });
   },
 
-  // 【优化】带进度条显示的全局刷新
+  // 极速刷新全部
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
     const total = codes.length;
@@ -710,7 +717,6 @@ const app = {
     let completed = 0;
 
     try {
-        // 利用 Promise.all 进行并发请求，并在每个 promise 解决时更新进度条
         const promises = codes.map(code => {
             return this.loadFundData(code, true).then(() => {
                 completed++;
@@ -721,7 +727,7 @@ const app = {
         await Promise.all(promises);
         
         this.saveData();
-        location.reload(); // 数据保存完毕，强制重载页面
+        location.reload(); 
     } catch(err) {
         loadingModal.style.display = 'none';
         this.showToast('更新异常，请检查网络', 'error');
@@ -783,7 +789,7 @@ const app = {
 
   // 局部靶向更新星标
   toggleStar(btnEl, code, e) {
-    if (e) e.stopPropagation();
+    this.stopProp(e);
     const f = this.data.fundsCache[code];
     if (f) {
         f.isStarred = !f.isStarred;
@@ -807,7 +813,7 @@ const app = {
   },
 
   removeFundFromGroup(e, code) {
-    if(e) e.stopPropagation();
+    this.stopProp(e);
     if (!confirm('确定从该分组移除吗？')) return;
     const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId);
     if (!currentGroup) return;
@@ -823,26 +829,46 @@ const app = {
   },
 
   removeSectorFromFund(e, code, sec) {
-    if(e) e.stopPropagation();
+    this.stopProp(e);
     const f = this.data.fundsCache[code];
     if(f && f.sectors) { f.sectors = f.sectors.filter(s=>s!==sec); this.saveData(); this.renderHome(); this.renderSector(); }
   },
 
   openSectorSelect(e, code) {
-    if(e) e.stopPropagation();
-    if(this.data.customSectors.length===0) return alert('请先去板块页面创建板块');
+    this.stopProp(e);
+    if(this.data.customSectors.length===0) return this.showToast('请先去板块页面创建板块', 'error');
     this.targetSectorCode = code;
     const f = this.data.fundsCache[code];
     let html = this.data.customSectors.map(s => {
       let isSel = f.sectors?.includes(s);
-      return `<div class="action-pill ${isSel?'active':''}" onclick="app.toggleFundSector('${s}')">${s}</div>`;
+      return `<div class="action-pill ${isSel?'active':''}" onclick="app.toggleFundSector(event, '${s}')">${s}</div>`;
     }).join('');
     document.getElementById('sector-select-list').innerHTML = html;
     this.openModal('sector-select');
   },
 
+  // 彻底修复板块选择失效、弹原生 alert 的 Bug
+  toggleFundSector(e, sec) {
+    this.stopProp(e);
+    const f = this.data.fundsCache[this.targetSectorCode];
+    if(!f) return this.showToast('未找到该基金', 'error');
+
+    if(!f.sectors) f.sectors = [];
+    if(f.sectors.includes(sec)) { 
+        f.sectors = f.sectors.filter(s=>s!==sec); 
+    } else { 
+        if(f.sectors.length>=2) return this.showToast('最多只能选择2个板块', 'error'); 
+        f.sectors.push(sec); 
+    }
+    
+    this.saveData(); 
+    this.closeModal('sector-select'); 
+    if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
+    if(document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+  },
+
   delSector(e, s) {
-    if(e) e.stopPropagation();
+    this.stopProp(e);
     if(confirm('删除板块?关联基金将移除此标签。')) { this.data.customSectors = this.data.customSectors.filter(x=>x!==s); Object.values(this.data.fundsCache).forEach(f => {if(f.sectors) f.sectors = f.sectors.filter(x=>x!==s)}); this.activeSector=''; this.saveData(); this.renderSector(); }
   },
 
@@ -1503,7 +1529,6 @@ const app = {
   },
   onChartEnd() { this.chartInfo.touchIdx = -1; this.drawChart(); },
 
-  // ========== 极速搜索 ==========
   loadMasterList() {
     return new Promise((resolve) => {
       if (this.masterFundList && this.masterFundList.length > 0) return resolve(true);
@@ -1558,13 +1583,12 @@ const app = {
     }, 300);
   },
 
-  // 【优化】添加基金时先拉取数据，防止出现空数据占位
   async addFromSearch(code, e) {
     if (this.currentGroupId === 'default') {
       if (this.data.groups.length <= 1) {
-        alert('您还没有自建分组，请先点击"☰"新建分组！');
+        this.showToast('您还没有自建分组，请先点击"☰"新建分组！', 'error');
       } else {
-        alert('【全部】分组为系统默认记录，不能直接添加。请先在上方的标签栏点击选中您自己的分组，再进行搜索添加！');
+        this.showToast('请先在上方的标签栏点击选中您的分组，再搜索添加！', 'error');
       }
       return;
     }
@@ -1573,7 +1597,6 @@ const app = {
     const originalText = btn ? btn.innerText : '+ 添加';
     if (btn) btn.innerText = '拉取中...';
 
-    // 先去拉取数据，确保是活着的有效基金
     const fundData = await this.loadFundData(code, false);
 
     if (!fundData || !fundData.netWorth || fundData.netWorth.length === 0) {
@@ -1607,7 +1630,6 @@ const app = {
     }
   },
 
-  // ========== 持仓分析 ==========
   async loadHoldings(code) {
     document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>';
     try {
@@ -1660,27 +1682,27 @@ const app = {
     const conf = { bucket: document.getElementById('r2-bucket').value.trim(), ak: document.getElementById('r2-ak').value.trim(), sk: document.getElementById('r2-sk').value.trim(), endpoint: document.getElementById('r2-endpoint').value.trim().replace(/\/+$/, '') };
     if(conf.endpoint.endsWith('/'+conf.bucket)) conf.endpoint = conf.endpoint.replace('/'+conf.bucket, '');
     localStorage.setItem('r2_conf', JSON.stringify(conf)); this.initS3();
-    alert('参数保存成功！接下来请点击“拉取云端数据”或“上传覆盖”');
+    this.showToast('参数保存成功！');
   },
   pullFromCloud() {
-    if (typeof AWS === 'undefined') return alert('当前网络无法访问云同步服务，请切换网络(如使用手机数据)后再试。');
-    if (!this.s3) return alert('请先填写并保存参数');
+    if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
+    if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
     this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
       if (err) {
-        if(err.code === 'NoSuchKey') alert('云端没有找到数据，如果您是第一次使用，请点击【强制覆盖上传】初始化云端。');
-        else alert('拉取失败: ' + err.code);
+        if(err.code === 'NoSuchKey') this.showToast('云端无数据，请先覆盖上传', 'error');
+        else this.showToast('拉取失败: ' + err.code, 'error');
       } else { 
-        this.data = JSON.parse(data.Body.toString()); this.saveData(); alert('数据同步成功！'); this.switchTab('home'); 
+        this.data = JSON.parse(data.Body.toString()); this.saveData(); this.showToast('数据同步成功！'); this.switchTab('home'); 
       }
     });
   },
   pushToCloud() {
-    if (typeof AWS === 'undefined') return alert('当前网络无法访问云同步服务，请切换网络(如使用手机数据)后再试。');
-    if (!this.s3) return alert('请先保存配置参数');
+    if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
+    if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
     this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {
-      if (err) alert('上传失败: ' + err.message); else alert('已成功覆盖云端！');
+      if (err) this.showToast('上传失败', 'error'); else this.showToast('已成功覆盖云端！');
     });
   }
 };

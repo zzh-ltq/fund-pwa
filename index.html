@@ -474,8 +474,9 @@
         <button class="btn-primary" style="background:#fff; color:var(--blue); border:2px solid var(--blue-light); margin-top:8px; box-shadow:none;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button>
       </div>
       <div class="card">
-        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">分组管理</h3>
-        <button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="localStorage.clear(); location.reload();">🗑️ 清空本地缓存</button>
+        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">数据管理</h3>
+        <!-- 修改了清空按钮的调用方法 -->
+        <button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="app.clearFundData()">🗑️ 清空本地所有基金(保留配置)</button>
       </div>
     </div>
   </div>
@@ -619,7 +620,6 @@ const app = {
   chartInfo: { data: [], touchIdx: -1 },
   masterFundList: [], searchTimer: null,
 
-  // 实时估值核心状态
   rtData: {},
   rtTimer: null,
   rtEnabled: true,
@@ -671,6 +671,15 @@ const app = {
             }
         }
     });
+  },
+
+  // 【新增】安全清空本地基金数据（保留配置）
+  clearFundData() {
+      if(confirm('警告：这将清空您本地所有的分组、板块和基金数据！\n（您的云端同步配置将保留）\n\n确认清空吗？')) {
+          localStorage.removeItem('fund_pwa_v6');
+          this.showToast('本地数据已清空');
+          setTimeout(() => { location.reload(); }, 500);
+      }
   },
 
   handleListSortClick(colName, isSector = false) {
@@ -748,7 +757,6 @@ const app = {
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
-  // ==================== 实时估值核心逻辑 ====================
   setRtViewType(type) {
       this.rtViewType = type;
       document.getElementById('rt-toggle-group').className = type === 'group' ? 'active' : '';
@@ -954,7 +962,6 @@ const app = {
 
       container.innerHTML = html;
   },
-  // ==========================================================
 
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
@@ -1258,6 +1265,7 @@ const app = {
     let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
     
     let showDel = isHomeGroup && this.currentGroupId !== 'default';
+    
     let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join('');
     let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
     let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(this, '${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`;
@@ -1982,7 +1990,6 @@ const app = {
     this.showToast('参数保存成功！');
   },
 
-  // 修复：防死锁、异常拦截、强制刷新页面生效
   pullFromCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
@@ -1996,7 +2003,6 @@ const app = {
     loadingModal.style.display = 'flex';
     progressText.innerText = '连接云存储...';
 
-    // 设置 10 秒绝对超时，防止网络握手卡死
     let isTimeout = false;
     const fallbackTimer = setTimeout(() => {
         isTimeout = true;
@@ -2013,9 +2019,15 @@ const app = {
         if(err.code === 'NoSuchKey') this.showToast('云端无数据，请先覆盖上传', 'error');
         else this.showToast('拉取失败: ' + err.code, 'error');
       } else { 
-        // 修复：加入 JSON 解析容错，防乱码卡死
         try {
-            const parsedData = JSON.parse(data.Body.toString());
+            let jsonString = '';
+            if (window.TextDecoder) {
+                jsonString = new TextDecoder('utf-8').decode(data.Body);
+            } else {
+                jsonString = data.Body.toString('utf-8');
+            }
+            
+            const parsedData = JSON.parse(jsonString);
             if (parsedData && parsedData.groups) {
                 this.data = parsedData; 
                 this.saveData(); 
@@ -2024,12 +2036,12 @@ const app = {
                     location.reload(); 
                 }, 600);
             } else {
-                throw new Error('云端数据格式不正确');
+                throw new Error('云端数据结构不正确(缺少groups)');
             }
         } catch (parseError) {
             loadingModal.style.display = 'none';
             this.showToast('数据解析失败，云端文件可能已损坏', 'error');
-            console.error(parseError);
+            console.error("JSON解析报错详细信息:", parseError);
         }
       }
     });

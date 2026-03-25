@@ -367,7 +367,7 @@
       <div class="rt-header-card">
           <div>
             <div class="rt-title">基金实时估值 <small>盘中估算</small></div>
-            <div style="font-size: 0.7rem; color: var(--text-sub); margin-top: 4px;">⚡ 依赖天天基金·实时更新当前自选组</div>
+            <div style="font-size: 0.7rem; color: var(--text-sub); margin-top: 4px;">⚡ 依赖天天基金·实时更新</div>
           </div>
           <div class="rt-controls">
               <span class="rt-auto-badge" id="rt-auto-status">⏱️ 60s 更新</span>
@@ -375,6 +375,20 @@
               <button class="rt-btn-icon" onclick="app.rtManualRefresh()">🔄</button>
           </div>
       </div>
+
+      <!-- 【新增】分组与板块切换开关 -->
+      <div class="action-row" style="justify-content: center; margin-bottom: 12px;">
+          <div class="view-toggle">
+              <span id="rt-toggle-group" class="active" onclick="app.setRtViewType('group')">分组</span>
+              <span id="rt-toggle-sector" onclick="app.setRtViewType('sector')">板块</span>
+          </div>
+      </div>
+
+      <!-- 【新增】动态横向标签 (复用首页样式) -->
+      <div class="tabs-wrapper">
+          <div class="tabs-scroll" id="rt-tabs-container"></div>
+      </div>
+
       <!-- 实时列表区 -->
       <div id="rt-list-container" class="card-grid"></div>
       <div style="text-align: center; margin-top: 20px; font-size: 11px; color: #94a3b8;">💡 盘中估值为预测数据，仅供参考<br>实际以当日收盘净值为准</div>
@@ -612,6 +626,8 @@ const app = {
   rtInterval: 60,
   rtCountdown: 60,
   rtIsFetching: false,
+  rtViewType: 'group', // 'group' 或 'sector'
+  rtActiveSector: '',
 
   formatEMDate(ts, length = 10, offset = 0) {
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
@@ -644,7 +660,6 @@ const app = {
     this.renderHome();
     this.enablePCMouseScroll();
 
-    // 页面可见性变化时优化定时器
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             this.rtPauseTimer();
@@ -711,8 +726,8 @@ const app = {
     document.getElementById('view-' + tabId).classList.add('active');
     document.getElementById('tab-btn-' + tabId).classList.add('active');
     
-    // 处理定时器的生命周期
     if(tabId === 'realtime') {
+        this.renderRtTabs();
         this.rtFetchAll();
         if(this.rtEnabled) this.rtStartTimer();
     } else {
@@ -728,7 +743,52 @@ const app = {
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
   // ==================== 实时估值核心逻辑 ====================
-  // 单只基金估值请求 (串行设计，防被封禁)
+  setRtViewType(type) {
+      this.rtViewType = type;
+      document.getElementById('rt-toggle-group').className = type === 'group' ? 'active' : '';
+      document.getElementById('rt-toggle-sector').className = type === 'sector' ? 'active' : '';
+      
+      // 如果切到板块，且当前没有选中板块，则默认选第一个
+      if (type === 'sector' && !this.rtActiveSector && this.data.customSectors.length > 0) {
+          this.rtActiveSector = this.data.customSectors[0];
+      }
+
+      this.renderRtTabs();
+      this.rtFetchAll(); 
+  },
+
+  renderRtTabs() {
+      const container = document.getElementById('rt-tabs-container');
+      if (this.rtViewType === 'group') {
+          container.innerHTML = this.data.groups.map(g => {
+              let badge = '';
+              if(g.has20Risk) badge += '<span class="badge warning">!</span>';
+              if(g.hasDailyRisk) badge += '<span class="badge heart">💚</span>';
+              return `<div class="action-pill ${g.id === this.currentGroupId ? 'active' : ''}" onclick="app.currentGroupId='${g.id}'; app.renderRtTabs(); app.rtFetchAll();">${g.name} ${badge}</div>`;
+          }).join('');
+      } else {
+          if (this.data.customSectors.length === 0) {
+              container.innerHTML = '<div style="color:#94a3b8; font-size:12px; padding-left:10px;">暂无板块，请先去板块页添加</div>';
+              return;
+          }
+          container.innerHTML = this.data.customSectors.map(s => {
+              return `<div class="action-pill ${this.rtActiveSector === s ? 'active' : ''}" onclick="app.rtActiveSector='${s}'; app.renderRtTabs(); app.rtFetchAll();">${s}</div>`;
+          }).join('');
+      }
+  },
+
+  getRtFundCodes() {
+      if (this.rtViewType === 'group') {
+          const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
+          return group.fundCodes;
+      } else {
+          if (!this.rtActiveSector) return [];
+          return Object.values(this.data.fundsCache)
+              .filter(f => f.sectors?.includes(this.rtActiveSector))
+              .map(f => f.code);
+      }
+  },
+
   rtFetchSingle(code) {
       return new Promise((resolve) => {
           let timeoutId = setTimeout(() => resolve(null), 5000);
@@ -751,17 +811,15 @@ const app = {
       });
   },
 
-  // 刷新所有实时数据
   async rtFetchAll() {
       if (this.rtIsFetching) return;
       this.rtIsFetching = true;
       const statusEl = document.getElementById('rt-auto-status');
       statusEl.innerText = '正在更新...';
 
-      const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
-      const codes = group.fundCodes;
+      const codes = this.getRtFundCodes();
       
-      // 必须串行，因为天天基金共用全局 jsonpgz 回调
+      // 必须串行，防封禁
       for (let code of codes) {
           const res = await this.rtFetchSingle(code);
           if (res) this.rtData[code] = res;
@@ -822,11 +880,11 @@ const app = {
 
   renderRealtime() {
       const container = document.getElementById('rt-list-container');
-      const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
-      const codes = group.fundCodes;
+      const codes = this.getRtFundCodes();
 
       if (codes.length === 0) {
-          container.innerHTML = '<div style="text-align:center; padding: 40px; color:#94a3b8;">当前自选组为空，请先在首页添加基金</div>';
+          let emptyMsg = this.rtViewType === 'group' ? '当前自选组为空，请先在首页添加基金' : '该板块下暂无基金，请先将基金归入此板块';
+          container.innerHTML = `<div style="text-align:center; padding: 40px; color:#94a3b8;">${emptyMsg}</div>`;
           return;
       }
 
@@ -884,7 +942,7 @@ const app = {
         for (let i = 0; i < total; i += batchSize) {
             const chunk = codes.slice(i, i + batchSize);
             const promises = chunk.map(code => this.loadFundData(code, true));
-            await Promise.all(promises); // 等待这一批 5 个全部完成 (或超时)
+            await Promise.all(promises); 
             
             completed += chunk.length;
             progressText.innerText = `${Math.min(completed, total)} / ${total}`;
@@ -1893,6 +1951,8 @@ const app = {
     localStorage.setItem('r2_conf', JSON.stringify(conf)); this.initS3();
     this.showToast('参数保存成功！');
   },
+
+  // 修复：云拉取后强制刷新页面
   pullFromCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
@@ -1902,7 +1962,12 @@ const app = {
         if(err.code === 'NoSuchKey') this.showToast('云端无数据，请先覆盖上传', 'error');
         else this.showToast('拉取失败: ' + err.code, 'error');
       } else { 
-        this.data = JSON.parse(data.Body.toString()); this.saveData(); this.showToast('数据同步成功！'); this.switchTab('home'); 
+        this.data = JSON.parse(data.Body.toString()); 
+        this.saveData(); 
+        this.showToast('数据同步成功！即将刷新...'); 
+        setTimeout(() => {
+            location.reload(); // 强制重载页面使云端数据生效
+        }, 800);
       }
     });
   },

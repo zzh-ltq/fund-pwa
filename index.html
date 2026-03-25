@@ -531,7 +531,7 @@
   <div id="modal-loading" class="modal-view">
     <div style="width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: transparent; margin-top: -10vh;">
         <div class="loading-spinner"></div>
-        <div style="font-weight: 800; color: var(--text-main); font-size: 16px; text-shadow: 0 2px 4px rgba(255,255,255,0.8);">数据极速更新中...</div>
+        <div id="loading-modal-title" style="font-weight: 800; color: var(--text-main); font-size: 16px; text-shadow: 0 2px 4px rgba(255,255,255,0.8);">数据极速更新中...</div>
         <div id="loading-progress-text" style="font-size: 18px; color: var(--blue); font-weight: 900; margin-top: 8px;">0 / 0</div>
         <div style="font-size: 12px; color: var(--text-sub); margin-top: 8px; font-weight: bold;">更新保存后将自动重载页面</div>
     </div>
@@ -627,8 +627,8 @@ const app = {
   rtCountdown: 60,
   rtIsFetching: false,
   rtViewType: 'group', 
-  rtActiveGroup: '',   // 新增：实时页专属分组选中状态
-  rtActiveSector: '',  // 新增：实时页专属板块选中状态
+  rtActiveGroup: '',   
+  rtActiveSector: '',  
 
   formatEMDate(ts, length = 10, offset = 0) {
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
@@ -727,7 +727,6 @@ const app = {
     document.getElementById('view-' + tabId).classList.add('active');
     document.getElementById('tab-btn-' + tabId).classList.add('active');
     
-    // 实时界面独立生命周期管理
     if(tabId === 'realtime') {
         this.renderRtTabs();
         this.renderRealtime();
@@ -755,7 +754,6 @@ const app = {
       document.getElementById('rt-toggle-group').className = type === 'group' ? 'active' : '';
       document.getElementById('rt-toggle-sector').className = type === 'sector' ? 'active' : '';
       
-      // 切换类型时，清除所有选中状态，恢复默认空状态
       this.rtActiveGroup = '';
       this.rtActiveSector = '';
 
@@ -772,7 +770,6 @@ const app = {
               let badge = '';
               if(g.has20Risk) badge += '<span class="badge warning">!</span>';
               if(g.hasDailyRisk) badge += '<span class="badge heart">💚</span>';
-              // style="margin:0;" 配合外部父容器的 gap:8px 实现完美的自动换行
               return `<div class="action-pill ${g.id === this.rtActiveGroup ? 'active' : ''}" style="margin:0;" onclick="app.rtActiveGroup='${g.id}'; app.renderRtTabs(); app.rtFetchAll();">${g.name} ${badge}</div>`;
           }).join('');
       } else {
@@ -824,7 +821,6 @@ const app = {
   async rtFetchAll() {
       const codes = this.getRtFundCodes();
       
-      // 未选中标签直接返回并停止刷新
       if (codes === null) {
           this.rtPauseTimer();
           document.getElementById('rt-auto-status').innerText = '请先选择标签';
@@ -846,7 +842,6 @@ const app = {
       this.rtCountdown = this.rtInterval;
       this.rtUpdateStatusUI();
       
-      // 数据获取完成后，如果自动刷新是开启的且定时器没跑，就跑起来
       if (this.rtEnabled && !this.rtTimer) {
           this.rtStartTimer();
       }
@@ -961,14 +956,16 @@ const app = {
   },
   // ==========================================================
 
-  // 并发拉取全部数据
   async refreshAll() {
     const codes = this.data.groups[0].fundCodes;
     const total = codes.length;
     if(total === 0) return this.showToast('没有需要更新的基金', 'error');
     
     const loadingModal = document.getElementById('modal-loading');
+    const titleText = document.getElementById('loading-modal-title');
     const progressText = document.getElementById('loading-progress-text');
+    
+    titleText.innerText = '数据极速更新中...';
     loadingModal.style.display = 'flex';
     progressText.innerText = `0 / ${total}`;
     
@@ -1260,8 +1257,8 @@ const app = {
     const col = f.change >= 0 ? 'red' : 'green';
     let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
     
-    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join('');
     let showDel = isHomeGroup && this.currentGroupId !== 'default';
+    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join('');
     let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
     let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(this, '${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`;
     let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`;
@@ -1985,39 +1982,65 @@ const app = {
     this.showToast('参数保存成功！');
   },
 
-  // 修复：云同步数据覆盖后，必须 location.reload() 才能彻底刷新整个网页应用
+  // 修复：防死锁、异常拦截、强制刷新页面生效
   pullFromCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
     
-    // 显示下载进度遮罩
     const loadingModal = document.getElementById('modal-loading');
+    const titleText = document.getElementById('loading-modal-title');
     const progressText = document.getElementById('loading-progress-text');
+    
+    titleText.innerText = '云端数据同步中...';
     loadingModal.style.display = 'flex';
-    progressText.innerText = '云端数据拉取中...';
+    progressText.innerText = '连接云存储...';
+
+    // 设置 10 秒绝对超时，防止网络握手卡死
+    let isTimeout = false;
+    const fallbackTimer = setTimeout(() => {
+        isTimeout = true;
+        loadingModal.style.display = 'none';
+        this.showToast('网络请求超时，请检查跨域配置(CORS)', 'error');
+    }, 10000); 
 
     this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
+      if (isTimeout) return;
+      clearTimeout(fallbackTimer);
+      
       if (err) {
         loadingModal.style.display = 'none';
         if(err.code === 'NoSuchKey') this.showToast('云端无数据，请先覆盖上传', 'error');
         else this.showToast('拉取失败: ' + err.code, 'error');
       } else { 
-        this.data = JSON.parse(data.Body.toString()); 
-        this.saveData(); 
-        progressText.innerText = '拉取成功，即将刷新';
-        setTimeout(() => {
-            location.reload(); 
-        }, 600);
+        // 修复：加入 JSON 解析容错，防乱码卡死
+        try {
+            const parsedData = JSON.parse(data.Body.toString());
+            if (parsedData && parsedData.groups) {
+                this.data = parsedData; 
+                this.saveData(); 
+                progressText.innerText = '拉取成功，即将刷新';
+                setTimeout(() => {
+                    location.reload(); 
+                }, 600);
+            } else {
+                throw new Error('云端数据格式不正确');
+            }
+        } catch (parseError) {
+            loadingModal.style.display = 'none';
+            this.showToast('数据解析失败，云端文件可能已损坏', 'error');
+            console.error(parseError);
+        }
       }
     });
   },
+  
   pushToCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
     this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {
-      if (err) this.showToast('上传失败', 'error'); else this.showToast('已成功覆盖云端！');
+      if (err) this.showToast('上传失败: ' + err.message, 'error'); else this.showToast('已成功覆盖云端！');
     });
   }
 };

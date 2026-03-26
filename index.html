@@ -1972,97 +1972,155 @@ const app = {
     } catch(e) { document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">暂无股票持仓数据</div>'; }
   },
 
-  // ========== 新增辅助方法：兼容读取不同响应体类型 ==========
-  _readBodyAsString(body) {
-    return new Promise((resolve, reject) => {
-      // 已经是字符串
-      if (typeof body === 'string') return resolve(body);
-      
-      // ArrayBuffer 或 Uint8Array
+  // ========== 辅助方法：带超时的 Blob/ArrayBuffer 读取 ==========
+_readBodyAsString(body, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    let isDone = false;
+    const timeoutId = setTimeout(() => {
+      if (!isDone) {
+        isDone = true;
+        reject(new Error('读取响应体超时'));
+      }
+    }, timeoutMs);
+
+    const finish = (result, err) => {
+      if (isDone) return;
+      isDone = true;
+      clearTimeout(timeoutId);
+      if (err) reject(err);
+      else resolve(result);
+    };
+
+    try {
+      // 1. 已经是字符串
+      if (typeof body === 'string') return finish(body);
+
+      // 2. ArrayBuffer
       if (body instanceof ArrayBuffer) {
-        return resolve(new TextDecoder('utf-8').decode(body));
+        return finish(new TextDecoder('utf-8').decode(body));
       }
+
+      // 3. Uint8Array
       if (body instanceof Uint8Array) {
-        return resolve(new TextDecoder('utf-8').decode(body));
+        return finish(new TextDecoder('utf-8').decode(body));
       }
-      
-      // Blob 对象（Safari 手机端常见）
+
+      // 4. Blob（Safari 手机端）
       if (body instanceof Blob) {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error);
+        reader.onload = () => finish(reader.result);
+        reader.onerror = () => finish(null, reader.error);
         reader.readAsText(body, 'utf-8');
         return;
       }
-      
-      // 最后回退：尝试调用 toString（可能不完美，但保留）
+
+      // 5. 其他情况（例如 Buffer、未知对象）
       if (body && typeof body.toString === 'function') {
-        return resolve(body.toString('utf-8'));
+        return finish(body.toString('utf-8'));
       }
-      
-      reject(new Error(`不支持的返回数据类型: ${body ? body.constructor.name : 'null'}`));
-    });
-  },
 
-  // ========== 修复后的云端拉取方法 ==========
-  pullFromCloud() {
-    if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
-    if (!this.s3) return this.showToast('请先保存配置参数', 'error');
-    const conf = JSON.parse(localStorage.getItem('r2_conf'));
+      finish(null, new Error(`不支持的响应体类型: ${body ? body.constructor.name : 'null'}`));
+    } catch (err) {
+      finish(null, err);
+    }
+  });
+},
 
-    const loadingModal = document.getElementById('modal-loading');
-    const titleText = document.getElementById('loading-modal-title');
-    const progressText = document.getElementById('loading-progress-text');
+// ========== 修复后的云端拉取方法（带完整超时与错误处理） ==========
+pullFromCloud() {
+  if (typeof AWS === 'undefined') {
+    return this.showToast('云同步服务未加载，请检查网络后重试', 'error');
+  }
+  if (!this.s3) {
+    return this.showToast('请先保存有效的 R2 配置参数', 'error');
+  }
 
-    titleText.innerText = '云端数据同步中...';
-    loadingModal.style.display = 'flex';
-    progressText.innerText = '连接云存储...';
+  const conf = JSON.parse(localStorage.getItem('r2_conf'));
+  if (!conf || !conf.bucket) {
+    return this.showToast('R2 配置不完整，请先填写并保存', 'error');
+  }
 
-    let isHandled = false;          // 避免重复处理（超时与回调同时触发）
-    const fallbackTimer = setTimeout(() => {
-      if (isHandled) return;
+  const loadingModal = document.getElementById('modal-loading');
+  const titleText = document.getElementById('loading-modal-title');
+  const progressText = document.getElementById('loading-progress-text');
+
+  titleText.innerText = '云端数据同步中...';
+  loadingModal.style.display = 'flex';
+  progressText.innerText = '连接云存储...';
+
+  let isHandled = false;
+  const FALLBACK_TIMEOUT = 15000; // 15 秒总超时
+
+  // 全局超时：无论请求是否返回，15秒后强制关闭弹窗并提示
+  const globalTimeout = setTimeout(() => {
+    if (isHandled) return;
+    isHandled = true;
+    loadingModal.style.display = 'none';
+    this.showToast('请求超时，请检查网络或 CORS 配置', 'error');
+  }, FALLBACK_TIMEOUT);
+
+  this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
+    if (isHandled) return;
+
+    // 如果发生错误，直接结束
+    if (err) {
+      clearTimeout(globalTimeout);
       isHandled = true;
       loadingModal.style.display = 'none';
-      this.showToast('网络请求超时，请检查跨域配置(CORS)', 'error');
-    }, 10000);
+      if (err.code === 'NoSuchKey') {
+        this.showToast('云端无数据，请先覆盖上传', 'error');
+      } else {
+        this.showToast(`拉取失败: ${err.code || err.message}`, 'error');
+      }
+      return;
+    }
 
-    this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
-      if (isHandled) return;
-      clearTimeout(fallbackTimer);
+    // 检查是否有响应体
+    if (!data || (!data.Body && !data.body)) {
+      clearTimeout(globalTimeout);
+      isHandled = true;
+      loadingModal.style.display = 'none';
+      this.showToast('云端返回数据为空', 'error');
+      return;
+    }
 
-      if (err) {
+    // 获取响应体（AWS SDK 可能使用 Body 或 body）
+    const body = data.Body || data.body;
+    progressText.innerText = '解析数据中...';
+
+    // 异步读取响应体（带内部超时）
+    this._readBodyAsString(body, 8000)
+      .then(jsonString => {
+        if (isHandled) return;
+        clearTimeout(globalTimeout);
+        isHandled = true;
+
+        let parsedData;
+        try {
+          parsedData = JSON.parse(jsonString);
+        } catch (parseErr) {
+          throw new Error('JSON 解析失败: ' + parseErr.message);
+        }
+
+        if (parsedData && parsedData.groups) {
+          this.data = parsedData;
+          this.saveData();
+          progressText.innerText = '拉取成功，即将刷新';
+          setTimeout(() => location.reload(), 600);
+        } else {
+          throw new Error('云端数据结构不正确（缺少 groups）');
+        }
+      })
+      .catch(readError => {
+        if (isHandled) return;
+        clearTimeout(globalTimeout);
         isHandled = true;
         loadingModal.style.display = 'none';
-        if (err.code === 'NoSuchKey') this.showToast('云端无数据，请先覆盖上传', 'error');
-        else this.showToast('拉取失败: ' + (err.code || err.message), 'error');
-        return;
-      }
-
-      // 异步读取 Body（兼容 Blob、ArrayBuffer 等）
-      this._readBodyAsString(data.Body)
-        .then(jsonString => {
-          if (isHandled) return;
-          isHandled = true;
-
-          const parsedData = JSON.parse(jsonString);
-          if (parsedData && parsedData.groups) {
-            this.data = parsedData;
-            this.saveData();
-            progressText.innerText = '拉取成功，即将刷新';
-            setTimeout(() => location.reload(), 600);
-          } else {
-            throw new Error('云端数据结构不正确(缺少 groups)');
-          }
-        })
-        .catch(readError => {
-          if (isHandled) return;
-          isHandled = true;
-          loadingModal.style.display = 'none';
-          console.error('Body 解析失败:', readError);
-          this.showToast('数据解析失败，云端文件可能损坏或格式不兼容', 'error');
-        });
-    });
-  },
+        console.error('读取或解析云端数据失败:', readError);
+        this.showToast(`数据解析失败: ${readError.message}`, 'error');
+      });
+  });
+},
 
   initS3() {
     const conf = JSON.parse(localStorage.getItem('r2_conf') || '{}');

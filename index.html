@@ -1990,7 +1990,7 @@ const app = {
     this.showToast('参数保存成功！');
   },
 
- pullFromCloud() {
+pullFromCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
@@ -2019,24 +2019,28 @@ const app = {
         if(err.code === 'NoSuchKey') this.showToast('云端无数据，请先覆盖上传', 'error');
         else this.showToast('拉取失败: ' + err.code, 'error');
       } else { 
+        let jsonString = '';
         try {
-            let jsonString = '';
-            
-            // 1. 安全判断数据类型 (Safari 修复点 1)
+            // 1. 【终极转换】无视运行环境差异，强制转化为标准的底阶字节数组
             if (typeof data.Body === 'string') {
                 jsonString = data.Body;
-            } else if (data.Body instanceof Uint8Array || data.Body instanceof ArrayBuffer || ArrayBuffer.isView(data.Body)) {
-                jsonString = new TextDecoder('utf-8').decode(data.Body);
             } else {
-                jsonString = data.Body.toString('utf-8');
+                // 利用 new Uint8Array 安全包装 AWS 的异构 Buffer/ArrayBuffer
+                const bytes = new Uint8Array(data.Body);
+                jsonString = new TextDecoder('utf-8').decode(bytes);
             }
             
-            // 2. 强制剥离不可见 BOM 头 (Safari 修复点 2)
+            // 2. 【强力清洗】专治 Safari 洁癖，去除所有可能导致崩溃的隐形字符
+            // 剥离头部不可见的 BOM 字符
             if (jsonString.charCodeAt(0) === 0xFEFF) {
                 jsonString = jsonString.slice(1);
             }
+            // 剥离数据末尾可能存在的 \0 占位符和多余空格
+            jsonString = jsonString.replace(/\0/g, '').trim();
             
+            // 3. 安全解析
             const parsedData = JSON.parse(jsonString);
+            
             if (parsedData && parsedData.groups) {
                 this.data = parsedData; 
                 this.saveData(); 
@@ -2045,12 +2049,13 @@ const app = {
                     location.reload(); 
                 }, 600);
             } else {
-                throw new Error('云端数据结构不正确(缺少groups)');
+                throw new Error('云端数据格式异常(缺少groups节点)');
             }
         } catch (parseError) {
             loadingModal.style.display = 'none';
-            this.showToast('数据解析失败，云端文件可能已损坏', 'error');
-            console.error("JSON解析报错详细信息:", parseError);
+            // 【硬核排错】如果 Safari 依然报错，把原始报错信息直接弹出来！
+            alert("Safari 解析失败详情:\n" + parseError.message + "\n\n前30个字符: " + (jsonString ? jsonString.substring(0, 30) : "空"));
+            this.showToast('数据解析失败，请查看弹窗报错', 'error');
         }
       }
     });

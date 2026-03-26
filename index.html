@@ -475,7 +475,6 @@
       </div>
       <div class="card">
         <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">数据管理</h3>
-        <!-- 修改了清空按钮的调用方法 -->
         <button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="app.clearFundData()">🗑️ 清空本地所有基金(保留配置)</button>
       </div>
     </div>
@@ -673,12 +672,13 @@ const app = {
     });
   },
 
-  // 【新增】安全清空本地基金数据（保留配置）
+  // 清空本地基金数据（保留配置）
   clearFundData() {
       if(confirm('警告：这将清空您本地所有的分组、板块和基金数据！\n（您的云端同步配置将保留）\n\n确认清空吗？')) {
+          // 只保留 r2_conf，干掉 fund_pwa_v6
           localStorage.removeItem('fund_pwa_v6');
-          this.showToast('本地数据已清空');
-          setTimeout(() => { location.reload(); }, 500);
+          this.showToast('本地数据已清空，即将刷新');
+          setTimeout(() => { location.reload(); }, 600);
       }
   },
 
@@ -757,6 +757,7 @@ const app = {
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
+  // ==================== 实时估值核心逻辑 ====================
   setRtViewType(type) {
       this.rtViewType = type;
       document.getElementById('rt-toggle-group').className = type === 'group' ? 'active' : '';
@@ -1990,6 +1991,7 @@ const app = {
     this.showToast('参数保存成功！');
   },
 
+  // 【修复】解决 iOS Safari Buffer 无法解析导致的卡转圈问题
   pullFromCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
@@ -2021,10 +2023,36 @@ const app = {
       } else { 
         try {
             let jsonString = '';
-            if (window.TextDecoder) {
-                jsonString = new TextDecoder('utf-8').decode(data.Body);
+            const body = data.Body;
+            
+            // 【终极解析容错】适配 iOS Safari / PC 各种底层 Buffer 格式
+            if (typeof body === 'string') {
+                jsonString = body;
             } else {
-                jsonString = data.Body.toString('utf-8');
+                let uintArray;
+                if (body instanceof Uint8Array) {
+                    uintArray = body;
+                } else if (body instanceof ArrayBuffer) {
+                    uintArray = new Uint8Array(body);
+                } else if (body && body.length !== undefined) {
+                    uintArray = new Uint8Array(body);
+                }
+                
+                if (uintArray) {
+                    if (window.TextDecoder) {
+                        jsonString = new TextDecoder('utf-8').decode(uintArray);
+                    } else {
+                        // 针对极老版本 iOS Safari 的 UTF-8 降级解码
+                        let out = "";
+                        for (let i = 0; i < uintArray.length; i++) {
+                            out += String.fromCharCode(uintArray[i]);
+                        }
+                        try { jsonString = decodeURIComponent(escape(out)); } 
+                        catch(e) { jsonString = out; }
+                    }
+                } else {
+                    jsonString = body.toString(); // 最后的倔强
+                }
             }
             
             const parsedData = JSON.parse(jsonString);

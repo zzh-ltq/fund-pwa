@@ -1972,6 +1972,98 @@ const app = {
     } catch(e) { document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">暂无股票持仓数据</div>'; }
   },
 
+  // ========== 新增辅助方法：兼容读取不同响应体类型 ==========
+  _readBodyAsString(body) {
+    return new Promise((resolve, reject) => {
+      // 已经是字符串
+      if (typeof body === 'string') return resolve(body);
+      
+      // ArrayBuffer 或 Uint8Array
+      if (body instanceof ArrayBuffer) {
+        return resolve(new TextDecoder('utf-8').decode(body));
+      }
+      if (body instanceof Uint8Array) {
+        return resolve(new TextDecoder('utf-8').decode(body));
+      }
+      
+      // Blob 对象（Safari 手机端常见）
+      if (body instanceof Blob) {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(body, 'utf-8');
+        return;
+      }
+      
+      // 最后回退：尝试调用 toString（可能不完美，但保留）
+      if (body && typeof body.toString === 'function') {
+        return resolve(body.toString('utf-8'));
+      }
+      
+      reject(new Error(`不支持的返回数据类型: ${body ? body.constructor.name : 'null'}`));
+    });
+  },
+
+  // ========== 修复后的云端拉取方法 ==========
+  pullFromCloud() {
+    if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
+    if (!this.s3) return this.showToast('请先保存配置参数', 'error');
+    const conf = JSON.parse(localStorage.getItem('r2_conf'));
+
+    const loadingModal = document.getElementById('modal-loading');
+    const titleText = document.getElementById('loading-modal-title');
+    const progressText = document.getElementById('loading-progress-text');
+
+    titleText.innerText = '云端数据同步中...';
+    loadingModal.style.display = 'flex';
+    progressText.innerText = '连接云存储...';
+
+    let isHandled = false;          // 避免重复处理（超时与回调同时触发）
+    const fallbackTimer = setTimeout(() => {
+      if (isHandled) return;
+      isHandled = true;
+      loadingModal.style.display = 'none';
+      this.showToast('网络请求超时，请检查跨域配置(CORS)', 'error');
+    }, 10000);
+
+    this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
+      if (isHandled) return;
+      clearTimeout(fallbackTimer);
+
+      if (err) {
+        isHandled = true;
+        loadingModal.style.display = 'none';
+        if (err.code === 'NoSuchKey') this.showToast('云端无数据，请先覆盖上传', 'error');
+        else this.showToast('拉取失败: ' + (err.code || err.message), 'error');
+        return;
+      }
+
+      // 异步读取 Body（兼容 Blob、ArrayBuffer 等）
+      this._readBodyAsString(data.Body)
+        .then(jsonString => {
+          if (isHandled) return;
+          isHandled = true;
+
+          const parsedData = JSON.parse(jsonString);
+          if (parsedData && parsedData.groups) {
+            this.data = parsedData;
+            this.saveData();
+            progressText.innerText = '拉取成功，即将刷新';
+            setTimeout(() => location.reload(), 600);
+          } else {
+            throw new Error('云端数据结构不正确(缺少 groups)');
+          }
+        })
+        .catch(readError => {
+          if (isHandled) return;
+          isHandled = true;
+          loadingModal.style.display = 'none';
+          console.error('Body 解析失败:', readError);
+          this.showToast('数据解析失败，云端文件可能损坏或格式不兼容', 'error');
+        });
+    });
+  },
+
   initS3() {
     const conf = JSON.parse(localStorage.getItem('r2_conf') || '{}');
     if (conf.ak) {
@@ -1983,36 +2075,6 @@ const app = {
       }
     }
   },
-  _readBodyAsString(body) {
-  return new Promise((resolve, reject) => {
-    // 已经是字符串
-    if (typeof body === 'string') return resolve(body);
-    
-    // ArrayBuffer 或 Uint8Array
-    if (body instanceof ArrayBuffer) {
-      return resolve(new TextDecoder('utf-8').decode(body));
-    }
-    if (body instanceof Uint8Array) {
-      return resolve(new TextDecoder('utf-8').decode(body));
-    }
-    
-    // Blob 对象（Safari 手机端常见）
-    if (body instanceof Blob) {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsText(body, 'utf-8');
-      return;
-    }
-    
-    // 最后回退：尝试调用 toString（可能不完美，但保留）
-    if (body && typeof body.toString === 'function') {
-      return resolve(body.toString('utf-8'));
-    }
-    
-    reject(new Error(`不支持的返回数据类型: ${body ? body.constructor.name : 'null'}`));
-  });
-}
   saveR2ParamsOnly() {
     const conf = { bucket: document.getElementById('r2-bucket').value.trim(), ak: document.getElementById('r2-ak').value.trim(), sk: document.getElementById('r2-sk').value.trim(), endpoint: document.getElementById('r2-endpoint').value.trim().replace(/\/+$/, '') };
     if(conf.endpoint.endsWith('/'+conf.bucket)) conf.endpoint = conf.endpoint.replace('/'+conf.bucket, '');
@@ -2020,65 +2082,6 @@ const app = {
     this.showToast('参数保存成功！');
   },
 
-  pullFromCloud() {
-  if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
-  if (!this.s3) return this.showToast('请先保存配置参数', 'error');
-  const conf = JSON.parse(localStorage.getItem('r2_conf'));
-
-  const loadingModal = document.getElementById('modal-loading');
-  const titleText = document.getElementById('loading-modal-title');
-  const progressText = document.getElementById('loading-progress-text');
-
-  titleText.innerText = '云端数据同步中...';
-  loadingModal.style.display = 'flex';
-  progressText.innerText = '连接云存储...';
-
-  let isHandled = false;          // 避免重复处理（超时与回调同时触发）
-  const fallbackTimer = setTimeout(() => {
-    if (isHandled) return;
-    isHandled = true;
-    loadingModal.style.display = 'none';
-    this.showToast('网络请求超时，请检查跨域配置(CORS)', 'error');
-  }, 10000);
-
-  this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
-    if (isHandled) return;
-    clearTimeout(fallbackTimer);
-
-    if (err) {
-      isHandled = true;
-      loadingModal.style.display = 'none';
-      if (err.code === 'NoSuchKey') this.showToast('云端无数据，请先覆盖上传', 'error');
-      else this.showToast('拉取失败: ' + (err.code || err.message), 'error');
-      return;
-    }
-
-    // 异步读取 Body（兼容 Blob、ArrayBuffer 等）
-    this._readBodyAsString(data.Body)
-      .then(jsonString => {
-        if (isHandled) return;
-        isHandled = true;
-
-        const parsedData = JSON.parse(jsonString);
-        if (parsedData && parsedData.groups) {
-          this.data = parsedData;
-          this.saveData();
-          progressText.innerText = '拉取成功，即将刷新';
-          setTimeout(() => location.reload(), 600);
-        } else {
-          throw new Error('云端数据结构不正确(缺少 groups)');
-        }
-      })
-      .catch(readError => {
-        if (isHandled) return;
-        isHandled = true;
-        loadingModal.style.display = 'none';
-        console.error('Body 解析失败:', readError);
-        this.showToast('数据解析失败，云端文件可能损坏或格式不兼容', 'error');
-      });
-  });
-}
-  
   pushToCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');

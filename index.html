@@ -654,7 +654,9 @@ const app = {
 
   init() {
     const local = localStorage.getItem('fund_pwa_v6');
-    if (local) this.data = JSON.parse(local);
+    if (local) {
+        try { this.data = JSON.parse(local); } catch(e) {}
+    }
     this.initS3(); 
     this.processGroupRisks();
     this.renderHomeGroups();
@@ -671,9 +673,55 @@ const app = {
             }
         }
     });
+
+    // 启动时如果发现基金缺数据（被瘦身了），自动静默拉取一次
+    setTimeout(() => {
+        const defaultGroup = this.data.groups.find(g => g.id === 'default');
+        if (defaultGroup && defaultGroup.fundCodes.length > 0) {
+            let needsRefresh = false;
+            for(let code of defaultGroup.fundCodes) {
+                if(!this.data.fundsCache[code] || !this.data.fundsCache[code].netWorth || this.data.fundsCache[code].netWorth.length === 0) {
+                    needsRefresh = true; break;
+                }
+            }
+            if(needsRefresh) this.refreshAll(true); // 传入 true 代表静默刷新
+        }
+    }, 500);
   },
 
-  // 【新增】安全清空本地基金数据（保留配置）
+  // 【核心新增】获取“瘦身版”数据，剥离几MB的曲线数据，专治 Safari 配额超限
+  getLightweightData() {
+      const lightData = {
+          groups: this.data.groups,
+          customSectors: this.data.customSectors,
+          fundsCache: {}
+      };
+      for (let code in this.data.fundsCache) {
+          const f = this.data.fundsCache[code];
+          lightData.fundsCache[code] = {
+              code: f.code,
+              name: f.name,
+              sectors: f.sectors || [],
+              isStarred: f.isStarred || false
+              // 核心瘦身：故意不保存庞大的 netWorth 数组
+          };
+      }
+      return JSON.stringify(lightData);
+  },
+
+  // 【核心修改】所有保存操作都使用瘦身版数据
+  saveData() {
+    try {
+        const strData = this.getLightweightData();
+        localStorage.setItem('fund_pwa_v6', strData);
+        this.processGroupRisks();
+    } catch(e) {
+        if(e.name === 'QuotaExceededError') {
+            this.showToast('手机存储空间严重不足', 'error');
+        }
+    }
+  },
+
   clearFundData() {
       if(confirm('警告：这将清空您本地所有的分组、板块和基金数据！\n（您的云端同步配置将保留）\n\n确认清空吗？')) {
           localStorage.removeItem('fund_pwa_v6');
@@ -724,11 +772,6 @@ const app = {
         slider.scrollLeft = scrollLeft - walk;
       });
     });
-  },
-
-  saveData() {
-    localStorage.setItem('fund_pwa_v6', JSON.stringify(this.data));
-    this.processGroupRisks();
   },
 
   switchTab(tabId) {
@@ -828,14 +871,12 @@ const app = {
 
   async rtFetchAll() {
       const codes = this.getRtFundCodes();
-      
       if (codes === null) {
           this.rtPauseTimer();
           document.getElementById('rt-auto-status').innerText = '请先选择标签';
           this.renderRealtime();
           return;
       }
-
       if (this.rtIsFetching) return;
       this.rtIsFetching = true;
       const statusEl = document.getElementById('rt-auto-status');
@@ -850,10 +891,7 @@ const app = {
       this.rtCountdown = this.rtInterval;
       this.rtUpdateStatusUI();
       
-      if (this.rtEnabled && !this.rtTimer) {
-          this.rtStartTimer();
-      }
-
+      if (this.rtEnabled && !this.rtTimer) this.rtStartTimer();
       this.renderRealtime();
   },
 
@@ -963,18 +1001,21 @@ const app = {
       container.innerHTML = html;
   },
 
-  async refreshAll() {
-    const codes = this.data.groups[0].fundCodes;
+  // 改造更新接口，支持静默后台更新
+  async refreshAll(isSilent = false) {
+    const codes = this.data.groups[0]?.fundCodes || [];
     const total = codes.length;
-    if(total === 0) return this.showToast('没有需要更新的基金', 'error');
+    if(total === 0 && !isSilent) return this.showToast('没有需要更新的基金', 'error');
     
     const loadingModal = document.getElementById('modal-loading');
     const titleText = document.getElementById('loading-modal-title');
     const progressText = document.getElementById('loading-progress-text');
     
-    titleText.innerText = '数据极速更新中...';
-    loadingModal.style.display = 'flex';
-    progressText.innerText = `0 / ${total}`;
+    if (!isSilent) {
+        titleText.innerText = '数据极速更新中...';
+        loadingModal.style.display = 'flex';
+        progressText.innerText = `0 / ${total}`;
+    }
     
     let completed = 0;
 
@@ -986,14 +1027,28 @@ const app = {
             await Promise.all(promises); 
             
             completed += chunk.length;
-            progressText.innerText = `${Math.min(completed, total)} / ${total}`;
+            if(!isSilent) progressText.innerText = `${Math.min(completed, total)} / ${total}`;
         }
         
+        // 由于 loadFundData 里没有强行存本地，这里手工存一次瘦身版
         this.saveData();
-        location.reload(); 
+        
+        // 如果是手工点击触发的刷新，拉完重新渲染
+        if (!isSilent) {
+            loadingModal.style.display = 'none';
+            this.processGroupRisks();
+            this.renderHome();
+            this.showToast('✅ 最新净值数据已更新');
+        } else {
+            // 静默更新完成，悄悄渲染一下就行
+            this.processGroupRisks();
+            if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
+        }
     } catch(err) {
-        loadingModal.style.display = 'none';
-        this.showToast('更新异常，请检查网络', 'error');
+        if(!isSilent) {
+            loadingModal.style.display = 'none';
+            this.showToast('更新异常，请检查网络', 'error');
+        }
     }
   },
 
@@ -1017,12 +1072,16 @@ const app = {
         if (window.Data_netWorthTrend) {
           let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
           if (nw.length > 260) nw = nw.slice(-260);
+          
+          // 获取或初始化旧的缓存状态（非常重要，防止星标等配置被刷掉）
+          const oldCache = this.data.fundsCache[code] || {};
+          
           const fund = { 
               code, 
               name: window.fS_name || code, 
               netWorth: nw, 
-              sectors: this.data.fundsCache[code]?.sectors || [],
-              isStarred: this.data.fundsCache[code]?.isStarred || false 
+              sectors: oldCache.sectors || [],
+              isStarred: oldCache.isStarred || false 
           };
           this.data.fundsCache[code] = fund;
           
@@ -1060,7 +1119,7 @@ const app = {
 
   formatFund(code) {
     const f = this.data.fundsCache[code];
-    if (!f || !f.netWorth) return { code, name: '加载中...', isLoad: false };
+    if (!f || !f.netWorth) return { code, name: f ? f.name : '加载中...', isLoad: false, isStarred: f ? !!f.isStarred : false, sectors: f ? (f.sectors||[]) : [] };
     const nw = f.netWorth;
     
     const listRatesCfg = [
@@ -1260,7 +1319,7 @@ const app = {
   },
 
   buildCardHtml(f, isHomeGroup = false) {
-    if(!f.isLoad) return `<div class="card"><div class="c-title">${f.code} 加载中</div></div>`;
+    if(!f.isLoad) return `<div class="card"><div class="c-title">${f.name || f.code}</div><div style="color:#94a3b8;font-size:12px;margin-top:10px;">需点击右上角刷新获取数据...</div></div>`;
     const col = f.change >= 0 ? 'red' : 'green';
     let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
     
@@ -1319,7 +1378,12 @@ const app = {
     </div>`;
     
     let rows = funds.map(f => {
-      if(!f.isLoad) return '';
+      if(!f.isLoad) {
+          return `
+            <div class="l-row">
+              <div class="l-col-name"><div style="font-weight:800; font-size:13px;">${f.name||f.code}</div><div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">点击右上角刷新数据</div></div>
+            </div>`;
+      }
       let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join('');
       
       let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : '';
@@ -1366,15 +1430,17 @@ const app = {
 
   renderHome() {
     const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
-    let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad);
+    let funds = group.fundCodes.map(c => this.formatFund(c));
+    let loadedFunds = funds.filter(f => f.isLoad);
     
-    this.calculateMedals(funds);
-    this.calculateSuperScoreMedals(funds);
+    this.calculateMedals(loadedFunds);
+    this.calculateSuperScoreMedals(loadedFunds);
     
     const sortVal = document.getElementById('sort-rule').value;
-    this.assignMedals(funds, sortVal);
+    this.assignMedals(loadedFunds, sortVal);
 
     funds.sort((a, b) => {
+      if(!a.isLoad) return 1; if(!b.isLoad) return -1;
       let va = -99999, vb = -99999;
       if(sortVal === 'daily') { 
           va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; 
@@ -1480,14 +1546,16 @@ const app = {
     
     wrap.style.display = 'block';
     let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
-    
-    this.calculateMedals(funds);
-    this.calculateSuperScoreMedals(funds);
+    let loadedFunds = funds.filter(f => f.isLoad);
+
+    this.calculateMedals(loadedFunds);
+    this.calculateSuperScoreMedals(loadedFunds);
 
     const sortVal = document.getElementById('sec-sort-rule').value;
-    this.assignMedals(funds, sortVal);
+    this.assignMedals(loadedFunds, sortVal);
 
     funds.sort((a, b) => {
+      if(!a.isLoad) return 1; if(!b.isLoad) return -1;
       let va = -99999, vb = -99999;
       if(sortVal === 'daily') { 
           va = parseFloat(a.change)||0; vb = parseFloat(b.change)||0; 
@@ -1736,6 +1804,7 @@ const app = {
     document.getElementById('det-hold-area').style.display = 'none';
 
     const f = this.data.fundsCache[this.currentDetailCode];
+    if(!f || !f.netWorth) return;
     const nw = f.netWorth.slice(-days);
     if(nw.length < 2) return;
 
@@ -1990,7 +2059,7 @@ const app = {
     this.showToast('参数保存成功！');
   },
 
-pullFromCloud() {
+  pullFromCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
@@ -2021,24 +2090,18 @@ pullFromCloud() {
       } else { 
         let jsonString = '';
         try {
-            // 1. 【终极转换】无视运行环境差异，强制转化为标准的底阶字节数组
             if (typeof data.Body === 'string') {
                 jsonString = data.Body;
             } else {
-                // 利用 new Uint8Array 安全包装 AWS 的异构 Buffer/ArrayBuffer
                 const bytes = new Uint8Array(data.Body);
                 jsonString = new TextDecoder('utf-8').decode(bytes);
             }
             
-            // 2. 【强力清洗】专治 Safari 洁癖，去除所有可能导致崩溃的隐形字符
-            // 剥离头部不可见的 BOM 字符
             if (jsonString.charCodeAt(0) === 0xFEFF) {
                 jsonString = jsonString.slice(1);
             }
-            // 剥离数据末尾可能存在的 \0 占位符和多余空格
             jsonString = jsonString.replace(/\0/g, '').trim();
             
-            // 3. 安全解析
             const parsedData = JSON.parse(jsonString);
             
             if (parsedData && parsedData.groups) {
@@ -2053,7 +2116,6 @@ pullFromCloud() {
             }
         } catch (parseError) {
             loadingModal.style.display = 'none';
-            // 【硬核排错】如果 Safari 依然报错，把原始报错信息直接弹出来！
             alert("Safari 解析失败详情:\n" + parseError.message + "\n\n前30个字符: " + (jsonString ? jsonString.substring(0, 30) : "空"));
             this.showToast('数据解析失败，请查看弹窗报错', 'error');
         }
@@ -2065,7 +2127,11 @@ pullFromCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
-    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: JSON.stringify(this.data), ContentType: 'application/json' }, (err) => {
+    
+    // 强制先进行瘦身，再转JSON上传，防止超配额
+    const lightDataStr = this.getLightweightData();
+    
+    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: lightDataStr, ContentType: 'application/json' }, (err) => {
       if (err) this.showToast('上传失败: ' + err.message, 'error'); else this.showToast('已成功覆盖云端！');
     });
   }
@@ -2075,3 +2141,4 @@ window.onload = () => app.init();
 </script>
 </body>
 </html>
+

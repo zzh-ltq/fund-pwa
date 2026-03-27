@@ -307,6 +307,8 @@
     <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
     <!-- 实时估值菜单 -->
     <div class="tab-item" onclick="app.switchTab('realtime')" id="tab-btn-realtime"><span class="tab-icon">⚡</span><span>实时</span></div>
+    <!-- 【新增】预测菜单 -->
+    <div class="tab-item" onclick="app.switchTab('forecast')" id="tab-btn-forecast"><span class="tab-icon">🔮</span><span>预测</span></div>
     <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
     <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
     <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
@@ -397,7 +399,22 @@
       <div style="text-align: center; margin-top: 20px; font-size: 11px; color: #94a3b8;">💡 盘中估值为预测数据，仅供参考<br>实际以当日收盘净值为准</div>
     </div>
   </div>
-
+<!-- ================= 【新增】视图6：明日预测页 ================= -->
+  <div id="view-forecast" class="page-view">
+    <div class="nav-bar">
+      <div class="nav-title">🔮 明日上涨概率 Top20</div>
+    </div>
+    <div class="scroll-area">
+      <div class="card" style="margin-bottom:12px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: white; border:none;">
+          <div style="font-size:12px; line-height:1.6; opacity:0.9;">
+              💡 <b>AI 模型说明：</b>基于隐马尔可夫模型，提取全局基金近3日K线涨跌形态，在过往260个交易日中进行特征匹配检索，测算出下一交易日上涨的统计学概率。
+          </div>
+      </div>
+      <div id="forecast-list-container">
+          <!-- 预测列表将渲染在这里 -->
+      </div>
+    </div>
+  </div>
   <!-- ================= 视图2：排名页 ================= -->
   <div id="view-rank" class="page-view">
     <div class="nav-bar">
@@ -805,6 +822,9 @@ const app = {
     if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); }
     if(tabId === 'rank') this.renderRank();
     if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
+    
+    // 【新增】切换到预测页面时，触发渲染
+    if(tabId === 'forecast') { this.renderForecast(); }
   },
 
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
@@ -1486,6 +1506,105 @@ const app = {
     }).join('');
     
     document.getElementById('rank-list').innerHTML = html || '<div style="text-align:center; color:#94a3b8; font-weight:bold; margin-top:50px;">暂无自建分组数据</div>';
+  },
+
+  // 【新增】提取单个基金的 AI 预测概率
+  getFundWinRate(f) {
+      if (!f || !f.netWorth || f.netWorth.length < 20) return { winRate: 0, patternDesc: '数据不足', matchCount: 0 };
+      
+      let dataList = f.netWorth.map(item => item.y);
+      const getPattern = (slice) => {
+          let pat = '';
+          for(let i=1; i<slice.length; i++) pat += (slice[i] > slice[i-1] ? '1' : '0');
+          return pat;
+      };
+      
+      const recent3Days = dataList.slice(-4);
+      const currentPattern = getPattern(recent3Days);
+      
+      let matchCount = 0;
+      let winCount = 0;
+      const len = dataList.length;
+      for(let i = 0; i < len - 4; i++) {
+          const hisSlice = dataList.slice(i, i + 4);
+          if (getPattern(hisSlice) === currentPattern) {
+              matchCount++;
+              if (dataList[i + 4] > dataList[i + 3]) winCount++;
+          }
+      }
+      
+      const winRate = matchCount >= 3 ? (winCount / matchCount * 100) : 50;
+      let patternDesc = currentPattern.split('').map(p => p==='1'?'阳':'阴').join('连');
+      if (currentPattern === '111') patternDesc = "三连阳";
+      if (currentPattern === '000') patternDesc = "三连阴";
+
+      return { winRate, patternDesc, matchCount };
+  },
+
+  // 【新增】渲染全局预测排行榜
+  renderForecast() {
+      const container = document.getElementById('forecast-list-container');
+      container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8; font-weight:bold;">正在进行全库 AI 演算...</div>';
+
+      // 使用 setTimeout 避免计算阻塞导致 UI 假死
+      setTimeout(() => {
+          let allFunds = [];
+          const uniqueCodes = new Set();
+          
+          // 收集所有组、所有板块里的不重复基金
+          this.data.groups.forEach(g => g.fundCodes.forEach(c => uniqueCodes.add(c)));
+          
+          uniqueCodes.forEach(code => {
+              const f = this.formatFund(code);
+              if (f.isLoad) {
+                  const analysis = this.getFundWinRate(this.data.fundsCache[code]);
+                  // 过滤掉匹配次数太少（<3次）的数据，防止概率失真
+                  if (analysis.matchCount >= 3) {
+                      allFunds.push({ ...f, ...analysis });
+                  }
+              }
+          });
+
+          // 按上涨概率降序排列
+          allFunds.sort((a, b) => b.winRate - a.winRate);
+          const top20 = allFunds.slice(0, 20);
+
+          if (top20.length === 0) {
+               container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8;">暂无足够数据，请先在首页添加并刷新基金</div>';
+               return;
+          }
+
+          let html = top20.map((f, index) => {
+              let rankCol = index === 0 ? '#f43f5e' : (index === 1 ? '#f59e0b' : (index === 2 ? '#10b981' : '#64748b'));
+              let barCol = f.winRate >= 60 ? 'var(--red)' : (f.winRate <= 45 ? 'var(--green)' : '#94a3b8');
+              
+              return `
+                <div class="list-item" onclick="app.openDetail('${f.code}')" style="display:flex; flex-direction:column; align-items:stretch; padding: 14px; gap:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                           <div style="font-size:18px; font-weight:900; color:${rankCol}; font-style:italic; width:22px; text-align:center;">${index+1}</div>
+                           <div>
+                               <div style="font-size:14px; font-weight:800;">${f.name} <span class="c-code">${f.code}</span></div>
+                               <div style="font-size:11px; color:#64748b; margin-top:4px;">
+                                  当前形态: <span style="color:var(--text-main); font-weight:bold; background:#f1f5f9; padding:2px 4px; border-radius:4px;">${f.patternDesc}</span> 
+                                  (历史匹配 ${f.matchCount} 次)
+                               </div>
+                           </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:18px; font-weight:900; color:${barCol}">${f.winRate.toFixed(1)}%</div>
+                        </div>
+                    </div>
+                    <!-- 进度条可视化 -->
+                    <div style="width:100%; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden;">
+                        <div style="height:100%; width:${f.winRate}%; background:${barCol}; transition:width 1s ease;"></div>
+                    </div>
+                </div>
+              `;
+          }).join('');
+
+          container.innerHTML = html;
+      }, 100);
   },
 
   addSector() {

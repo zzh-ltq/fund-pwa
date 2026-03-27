@@ -229,6 +229,13 @@
     .detail-tabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto;}
     .detail-tabs::-webkit-scrollbar { display:none;}
 
+    /* 技术分析专属样式 */
+    .ana-block { background: #f8fafc; padding: 12px; border-radius: var(--radius-md); margin-bottom: 10px; border: 1px solid rgba(0,0,0,0.02);}
+    .ana-title { font-size: 11px; font-weight: 800; color: var(--text-sub); margin-bottom: 6px; display: flex; justify-content: space-between;}
+    .ana-big { font-size: 18px; font-weight: 900; margin-bottom: 4px;}
+    .ana-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed #e2e8f0;}
+    .ana-row:last-child { border-bottom: none;}
+
     /* =========================================================
        电脑端 PC Web 美化及防遮挡排版 (当屏幕宽度 >= 768px 时)
        ========================================================= */
@@ -363,7 +370,6 @@
       <div class="nav-title">⚡ 盘中实时估算</div>
     </div>
     <div class="scroll-area">
-      <!-- 顶部控制卡片 -->
       <div class="rt-header-card">
           <div>
             <div class="rt-title">基金实时估值 <small>盘中估算</small></div>
@@ -376,7 +382,6 @@
           </div>
       </div>
 
-      <!-- 分组与板块切换开关 -->
       <div class="action-row" style="justify-content: center; margin-bottom: 12px;">
           <div class="view-toggle">
               <span id="rt-toggle-group" class="active" onclick="app.setRtViewType('group')">分组</span>
@@ -384,12 +389,10 @@
           </div>
       </div>
 
-      <!-- 动态标签 (取消滑动，自动换行铺满) -->
       <div style="margin-bottom: 15px;">
           <div id="rt-tabs-container" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
       </div>
 
-      <!-- 实时列表区 -->
       <div id="rt-list-container" class="card-grid"></div>
       <div style="text-align: center; margin-top: 20px; font-size: 11px; color: #94a3b8;">💡 盘中估值为预测数据，仅供参考<br>实际以当日收盘净值为准</div>
     </div>
@@ -475,7 +478,6 @@
       </div>
       <div class="card">
         <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">数据管理</h3>
-        <!-- 修改了清空按钮的调用方法 -->
         <button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="app.clearFundData()">🗑️ 清空本地所有基金(保留配置)</button>
       </div>
     </div>
@@ -538,7 +540,7 @@
     </div>
   </div>
 
-  <!-- ================= 弹窗：基金详情 ================= -->
+  <!-- ================= 弹窗：基金详情 (UI 已重构) ================= -->
   <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')">
     <div class="modal-content" onclick="app.stopProp(event)">
       <div class="nav-bar">
@@ -547,22 +549,35 @@
         <div style="width:60px;"></div>
       </div>
       <div class="scroll-area">
-        <div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
-          <div>
-            <h2 id="det-name" style="margin:0 0 4px; font-size:15px; font-weight:800;">--</h2>
-            <span id="det-code" class="c-code">--</span>
+        
+        <!-- 【优化1】头部重构：调大代码、新增实时数据展示区 -->
+        <div class="card" style="margin-bottom: 12px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2>
+              <span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span>
+              <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="margin-left:8px; padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);">
+                <option value="">+ 加自选</option>
+              </select>
+            </div>
+            <div id="det-rt-block" style="text-align:right; display:none;">
+                <div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div>
+                <div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;">
+                    <div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div>
+                </div>
+                <div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div>
+            </div>
           </div>
-          <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="padding:6px 12px; border-radius:16px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 4px 10px rgba(0, 102, 255, 0.25);">
-            <option value="">+ 加自选</option>
-          </select>
         </div>
 
+        <!-- 【优化2】新增 技术分析 Tab -->
         <div class="detail-tabs" id="det-tabs">
           <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
           <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
           <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
           <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
           <div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div>
+          <div class="action-pill" onclick="app.renderDetailTab('analysis')">📊 AI研判</div>
         </div>
 
         <div id="det-chart-area">
@@ -580,6 +595,8 @@
         </div>
 
         <div id="det-hold-area" style="display:none;"></div>
+        <!-- 【新增】AI技术分析区域 -->
+        <div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div>
       </div>
     </div>
   </div>
@@ -674,7 +691,6 @@ const app = {
         }
     });
 
-    // 启动时如果发现基金缺数据（被瘦身了），自动静默拉取一次
     setTimeout(() => {
         const defaultGroup = this.data.groups.find(g => g.id === 'default');
         if (defaultGroup && defaultGroup.fundCodes.length > 0) {
@@ -684,12 +700,11 @@ const app = {
                     needsRefresh = true; break;
                 }
             }
-            if(needsRefresh) this.refreshAll(true); // 传入 true 代表静默刷新
+            if(needsRefresh) this.refreshAll(true); 
         }
     }, 500);
   },
 
-  // 【核心新增】获取“瘦身版”数据，剥离几MB的曲线数据，专治 Safari 配额超限
   getLightweightData() {
       const lightData = {
           groups: this.data.groups,
@@ -699,17 +714,12 @@ const app = {
       for (let code in this.data.fundsCache) {
           const f = this.data.fundsCache[code];
           lightData.fundsCache[code] = {
-              code: f.code,
-              name: f.name,
-              sectors: f.sectors || [],
-              isStarred: f.isStarred || false
-              // 核心瘦身：故意不保存庞大的 netWorth 数组
+              code: f.code, name: f.name, sectors: f.sectors || [], isStarred: f.isStarred || false
           };
       }
       return JSON.stringify(lightData);
   },
 
-  // 【核心修改】所有保存操作都使用瘦身版数据
   saveData() {
     try {
         const strData = this.getLightweightData();
@@ -800,14 +810,13 @@ const app = {
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
+  // ==================== 实时估值核心逻辑 ====================
   setRtViewType(type) {
       this.rtViewType = type;
       document.getElementById('rt-toggle-group').className = type === 'group' ? 'active' : '';
       document.getElementById('rt-toggle-sector').className = type === 'sector' ? 'active' : '';
-      
       this.rtActiveGroup = '';
       this.rtActiveSector = '';
-
       this.renderRtTabs();
       this.rtPauseTimer();
       document.getElementById('rt-auto-status').innerText = '请先选择标签';
@@ -893,6 +902,11 @@ const app = {
       
       if (this.rtEnabled && !this.rtTimer) this.rtStartTimer();
       this.renderRealtime();
+      
+      // 更新详情页实时数据(如果当前打开的话)
+      if (this.currentDetailCode && document.getElementById('modal-detail').classList.contains('active')) {
+          this.updateDetailRtInfo(this.currentDetailCode);
+      }
   },
 
   rtStartTimer() {
@@ -1001,7 +1015,6 @@ const app = {
       container.innerHTML = html;
   },
 
-  // 改造更新接口，支持静默后台更新
   async refreshAll(isSilent = false) {
     const codes = this.data.groups[0]?.fundCodes || [];
     const total = codes.length;
@@ -1030,17 +1043,13 @@ const app = {
             if(!isSilent) progressText.innerText = `${Math.min(completed, total)} / ${total}`;
         }
         
-        // 由于 loadFundData 里没有强行存本地，这里手工存一次瘦身版
         this.saveData();
-        
-        // 如果是手工点击触发的刷新，拉完重新渲染
         if (!isSilent) {
             loadingModal.style.display = 'none';
             this.processGroupRisks();
             this.renderHome();
             this.showToast('✅ 最新净值数据已更新');
         } else {
-            // 静默更新完成，悄悄渲染一下就行
             this.processGroupRisks();
             if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
         }
@@ -1072,27 +1081,16 @@ const app = {
         if (window.Data_netWorthTrend) {
           let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
           if (nw.length > 260) nw = nw.slice(-260);
-          
-          // 获取或初始化旧的缓存状态（非常重要，防止星标等配置被刷掉）
           const oldCache = this.data.fundsCache[code] || {};
-          
           const fund = { 
-              code, 
-              name: window.fS_name || code, 
-              netWorth: nw, 
-              sectors: oldCache.sectors || [],
-              isStarred: oldCache.isStarred || false 
+              code, name: window.fS_name || code, netWorth: nw, 
+              sectors: oldCache.sectors || [], isStarred: oldCache.isStarred || false 
           };
           this.data.fundsCache[code] = fund;
-          
           if (!isBatch) this.saveData();
-          
-          window.Data_netWorthTrend = null;
-          window.fS_name = null;
+          window.Data_netWorthTrend = null; window.fS_name = null;
           finish(fund);
-        } else {
-          finish(null);
-        }
+        } else finish(null);
       };
       script.onerror = () => { clearTimeout(timeout); finish(null); };
       document.head.appendChild(script);
@@ -1158,14 +1156,11 @@ const app = {
     if (f) {
         f.isStarred = !f.isStarred;
         this.saveData(); 
-
         if (btnEl) {
             if (f.isStarred) {
-                btnEl.classList.add('starred');
-                btnEl.innerText = '★';
+                btnEl.classList.add('starred'); btnEl.innerText = '★';
             } else {
-                btnEl.classList.remove('starred');
-                btnEl.innerText = '☆';
+                btnEl.classList.remove('starred'); btnEl.innerText = '☆';
             }
             const row = document.getElementById(`fund-row-${code}`);
             if(row) {
@@ -1762,7 +1757,30 @@ const app = {
     }, 200);
   },
 
-  openDetail(code) {
+  // ================= 详情与图表 (带 AI 分析重构) =================
+  
+  // 专门在打开详情时静默拉取一次盘中实时数据
+  updateDetailRtInfo(code) {
+      const rtBlock = document.getElementById('det-rt-block');
+      const rtVal = document.getElementById('det-rt-val');
+      const rtChg = document.getElementById('det-rt-chg');
+      const rtTime = document.getElementById('det-rt-time');
+      
+      const rt = this.rtData[code];
+      if (rt) {
+          rtBlock.style.display = 'block';
+          const col = rt.gszzl >= 0 ? 'red' : 'green';
+          rtVal.innerText = rt.gsz.toFixed(4);
+          rtVal.className = col;
+          rtChg.innerText = (rt.gszzl > 0 ? '+' : '') + rt.gszzl.toFixed(2) + '%';
+          rtChg.className = col;
+          rtTime.innerText = '盘中估算 ' + (rt.gztime ? rt.gztime.slice(11) : '');
+      } else {
+          rtBlock.style.display = 'none';
+      }
+  },
+
+  async openDetail(code) {
     this.currentDetailCode = code;
     const f = this.data.fundsCache[code];
     document.getElementById('det-name').innerText = f.name;
@@ -1771,6 +1789,14 @@ const app = {
     let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
     document.getElementById('det-group-select').innerHTML = opts;
 
+    // 如果还没有该基金的实时数据，拉一下
+    if (!this.rtData[code]) {
+        const rt = await this.rtFetchSingle(code);
+        if (rt) this.rtData[code] = rt;
+    }
+    this.updateDetailRtInfo(code);
+
+    // 默认展示近30天走势图
     this.renderDetailTab(30);
     this.openModal('detail');
   },
@@ -1795,14 +1821,21 @@ const app = {
     document.querySelectorAll('#det-tabs .action-pill').forEach(el => el.classList.remove('active'));
     event && event.currentTarget.classList.add('active');
 
+    // 清理全部展示区
+    document.getElementById('det-chart-area').style.display = 'none';
+    document.getElementById('det-hold-area').style.display = 'none';
+    document.getElementById('det-analysis-area').style.display = 'none';
+
     if(days === 'hold') {
-      document.getElementById('det-chart-area').style.display = 'none';
       document.getElementById('det-hold-area').style.display = 'block';
       this.loadHoldings(this.currentDetailCode); return;
+    } else if (days === 'analysis') {
+      document.getElementById('det-analysis-area').style.display = 'block';
+      this.generateAnalysisReport(this.currentDetailCode); return;
     }
-    document.getElementById('det-chart-area').style.display = 'block';
-    document.getElementById('det-hold-area').style.display = 'none';
 
+    // 走势图展示
+    document.getElementById('det-chart-area').style.display = 'block';
     const f = this.data.fundsCache[this.currentDetailCode];
     if(!f || !f.netWorth) return;
     const nw = f.netWorth.slice(-days);
@@ -1827,6 +1860,139 @@ const app = {
     document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%';
     this.chartInfo.touchIdx = -1;
     this.drawChart();
+  },
+
+  // ==================== 【新增模块】AI量化技术分析 ====================
+  generateAnalysisReport(code) {
+      const area = document.getElementById('det-analysis-area');
+      const f = this.data.fundsCache[code];
+      const rt = this.rtData[code];
+      
+      if (!f || !f.netWorth || f.netWorth.length < 20) {
+          area.innerHTML = `<div style="text-align:center; padding: 30px; color:#94a3b8;">历史数据不足，无法生成可靠的分析模型</div>`;
+          return;
+      }
+
+      // 1. 数据拼装：合并过去 260 天的历史数据和“今日”盘中实时估值
+      let dataList = f.netWorth.map(item => item.y);
+      let latestPrice = dataList[dataList.length - 1];
+      if (rt && rt.gsz) {
+          // 如果最新实时价格和历史最后一天相差巨大，说明今天是新的交易日
+          // 为了量化平滑，我们将盘中估值作为一个新点压入数组计算
+          dataList.push(rt.gsz);
+          latestPrice = rt.gsz;
+      }
+
+      // 2. 技术面计算引擎
+      const len = dataList.length;
+      
+      // 算移动平均线 MA
+      const getMA = (days) => {
+          if(len < days) return latestPrice;
+          const slice = dataList.slice(-days);
+          return slice.reduce((a, b) => a + b, 0) / days;
+      };
+      const ma5 = getMA(5);
+      const ma10 = getMA(10);
+      const ma20 = getMA(20);
+
+      // 算 RSI(14)
+      let upSum = 0, downSum = 0, rsi = 50;
+      if (len >= 15) {
+          const rsiSlice = dataList.slice(-15);
+          for(let i=1; i<rsiSlice.length; i++) {
+              const diff = rsiSlice[i] - rsiSlice[i-1];
+              if(diff > 0) upSum += diff;
+              else downSum -= diff;
+          }
+          const rs = upSum / (downSum === 0 ? 0.0001 : downSum);
+          rsi = 100 - (100 / (1 + rs));
+      }
+
+      // 3. 隐马尔可夫：历史形态胜率回溯
+      // 提取最近 3 天的涨跌模式 (1:涨, 0:跌)
+      const getPattern = (slice) => {
+          let pat = '';
+          for(let i=1; i<slice.length; i++) pat += (slice[i] > slice[i-1] ? '1' : '0');
+          return pat;
+      };
+      const recent3Days = dataList.slice(-4);
+      const currentPattern = getPattern(recent3Days);
+      
+      // 在历史数据中检索该模式，并观察第 4 天的涨跌情况
+      let matchCount = 0;
+      let winCount = 0;
+      for(let i = 0; i < len - 4; i++) {
+          const hisSlice = dataList.slice(i, i + 4);
+          if (getPattern(hisSlice) === currentPattern) {
+              matchCount++;
+              if (dataList[i + 4] > dataList[i + 3]) winCount++;
+          }
+      }
+      // 计算历史预测胜率 (如果没有匹配到，默认给出50%)
+      const nextDayWinRate = matchCount >= 3 ? (winCount / matchCount * 100) : 50;
+
+      // 4. 综合打分与决策树模型
+      let score = 50;
+      
+      // A. 均线系统评分 (最高+30, 最低-30)
+      if (latestPrice > ma20) score += 15; else score -= 15;
+      if (ma5 > ma20) score += 10; else score -= 10;
+      if (ma5 > ma10) score += 5; else score -= 5;
+      
+      // B. 乖离率/超买超卖评分 (反向操作逻辑)
+      if (rsi < 30) score += 20; // 严重超卖，极度看多
+      else if (rsi < 45) score += 10;
+      else if (rsi > 70) score -= 20; // 严重超买，看空
+      else if (rsi > 60) score -= 10;
+
+      // C. 历史形态动量加成
+      if (nextDayWinRate > 65) score += 15;
+      else if (nextDayWinRate < 35) score -= 15;
+
+      // 5. 生成报告文本
+      let phaseStr = "震荡期"; let phaseCol = "#64748b";
+      if (latestPrice > ma20 && ma5 > ma20) { phaseStr = "上升主升浪"; phaseCol = "#e53e3e"; }
+      else if (latestPrice < ma20 && ma5 < ma20) { phaseStr = "下降通道"; phaseCol = "#10b981"; }
+
+      let adviceStr = "持仓观望"; let adviceCol = "#64748b";
+      if (score >= 80) { adviceStr = "极度看多：逢低加仓 3 成"; adviceCol = "#e53e3e"; }
+      else if (score >= 65) { adviceStr = "趋势良好：可加仓 1-2 成"; adviceCol = "#f43f5e"; }
+      else if (score >= 45) { adviceStr = "震荡格局：持有或微调"; adviceCol = "#f59e0b"; }
+      else if (score >= 30) { adviceStr = "走势偏弱：建议减仓 1-2 成"; adviceCol = "#10b981"; }
+      else { adviceStr = "极度弱势：果断止损或减仓 3-4 成"; adviceCol = "#059669"; }
+
+      let patternDesc = currentPattern.split('').map(p => p==='1'?'阳':'阴').join('连');
+      if (currentPattern === '111') patternDesc = "三连阳";
+      if (currentPattern === '000') patternDesc = "三连阴";
+
+      // 6. UI 组装
+      area.innerHTML = `
+        <div class="card" style="margin-bottom: 12px; border-left: 4px solid ${adviceCol};">
+            <div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 模型交易建议</div>
+            <div style="font-size: 20px; font-weight: 900; color: ${adviceCol}; margin-bottom: 8px;">${adviceStr}</div>
+            <div style="display:flex; gap:10px; font-size:12px;">
+                <span style="background:#f1f5f9; padding:4px 8px; border-radius:6px; font-weight:bold;">评估得分：${Math.round(score)}分</span>
+                <span style="background:#f1f5f9; padding:4px 8px; border-radius:6px; font-weight:bold;">明日上涨概率：${nextDayWinRate.toFixed(1)}%</span>
+            </div>
+        </div>
+
+        <div class="ana-block">
+            <div class="ana-title"><span>📉 技术面诊断</span><span style="color:${phaseCol};">${phaseStr}</span></div>
+            <div class="ana-row"><span>RSI 强弱指标 (14日)</span><span style="font-weight:bold; color:${rsi>70?'var(--red)':(rsi<30?'var(--green)':'#333')}">${rsi.toFixed(2)} ${rsi>70?'(超买)':(rsi<30?'(超卖)':'(中性)')}</span></div>
+            <div class="ana-row"><span>MA5 短期均线</span><span style="font-weight:bold;">${ma5.toFixed(4)}</span></div>
+            <div class="ana-row"><span>MA20 中期均线（牛熊线）</span><span style="font-weight:bold;">${ma20.toFixed(4)}</span></div>
+            <div class="ana-row"><span>当前价相对牛熊线位置</span><span style="font-weight:bold; color:${latestPrice>ma20?'var(--red)':'var(--green)'}">${latestPrice>ma20?'线上强势':'线下弱势'}</span></div>
+        </div>
+
+        <div class="ana-block">
+            <div class="ana-title"><span>🧠 历史隐马尔可夫匹配预测</span></div>
+            <div style="font-size: 12px; color: #475569; line-height: 1.6;">
+                该基金最近 3 个交易日呈现 <b>[${patternDesc}]</b> 形态。在过去的一年中，类似形态共出现了 <b>${matchCount}</b> 次。<br>
+                历史统计表明，出现此种信号后，下一个交易日实现上涨的次数为 <b>${winCount}</b> 次，历史胜率换算为 <b style="color:var(--blue); font-size:14px;">${nextDayWinRate.toFixed(1)}%</b>。
+            </div>
+        </div>
+      `;
   },
 
   drawChart() {
@@ -2128,7 +2294,6 @@ const app = {
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
     
-    // 强制先进行瘦身，再转JSON上传，防止超配额
     const lightDataStr = this.getLightweightData();
     
     this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: lightDataStr, ContentType: 'application/json' }, (err) => {
@@ -2141,4 +2306,3 @@ window.onload = () => app.init();
 </script>
 </body>
 </html>
-

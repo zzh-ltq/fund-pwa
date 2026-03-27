@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-far-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
@@ -824,7 +824,7 @@ const app = {
     if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
     
     // 【修改点1】确保切换到预测页时，执行新的渲染函数
-    if(tabId === 'forecast') { this.renderForecast(); }
+    if(tabId === 'forecast') { this.; }
   },
 
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
@@ -1541,7 +1541,7 @@ const app = {
       return { winRate, patternDesc, matchCount };
   },
 
- // ==================== 【全新模块】全局低位波段预测排行榜 ====================
+// ==================== 【全新模块】全局低位波段预测排行榜 ====================
   renderForecast() {
       const container = document.getElementById('forecast-list-container');
       container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8; font-weight:bold;">正在进行全库量化演算...</div>';
@@ -1556,8 +1556,20 @@ const app = {
           
           uniqueCodes.forEach(code => {
               const res = this.getFundQuantAnalysis(code);
-              // 只保留有效数据，且波段盈利概率大于 60%（适合做波段的低位基金）
-              if (res.isValid && res.winProb >= 60) {
+              
+              // ====================================================
+              // 【核心优化】严苛的“黄金坑”筛选逻辑
+              // 1. 数据必须有效
+              // 2. 波段盈利概率必须 >= 60%
+              // 3. 布林带位置必须在 40% 以下（确保处于中下轨，即低位）
+              // 4. 价格必须大于 MA5 且 MA5 小于 MA20（确认下跌趋势中刚刚出现止跌反弹拐点）
+              // ====================================================
+              if (res.isValid && 
+                  res.winProb >= 60 && 
+                  res.bandPosition <= 40 && 
+                  res.latestPrice > res.ma5 && 
+                  res.ma5 < res.ma20) {
+                  
                   allAnalysis.push(res);
               }
           });
@@ -1567,7 +1579,7 @@ const app = {
           const top20 = allAnalysis.slice(0, 20);
 
           if (top20.length === 0) {
-               container.innerHTML = '<div style="text-align:center; padding:50px 20px; color:#94a3b8; line-height:1.6;">当前全市场未发现明显处于低位且具备高反弹概率的基金。<br><br>建议：空仓等待大盘杀跌，或在首页添加更多基金以扩大监测池。</div>';
+               container.innerHTML = '<div style="text-align:center; padding:60px 20px; color:#94a3b8; line-height:1.6;">当前全市场未发现<span style="color:var(--red);font-weight:bold;">“低位超跌 + 止跌反弹初期”</span>的高胜率基金。<br><br>💡 建议：多看少动，耐心等待大盘杀出“黄金坑”，或在首页添加更多基金以扩大 AI 监测池。</div>';
                return;
           }
 
@@ -1580,10 +1592,10 @@ const app = {
                         <div style="display:flex; align-items:center; gap:12px;">
                            <div style="font-size:18px; font-weight:900; color:${rankCol}; font-style:italic; width:22px; text-align:center;">${index+1}</div>
                            <div>
-                               <div style="font-size:14px; font-weight:800; margin-bottom: 2px;">${f.fName} <span class="c-code">${f.code}</span></div>
+                               <div style="font-size:14px; font-weight:800; margin-bottom: 4px;">${f.fName} <span class="c-code">${f.code}</span></div>
                                <div style="font-size:11px; color:#64748b;">
-                                  <span style="color:${f.posCol}; font-weight:bold; background:#f1f5f9; padding:2px 4px; border-radius:4px;">${f.posLevel}</span> 
-                                  <span style="margin-left: 4px;">${f.trendState}</span>
+                                  <span style="color:${f.posCol}; font-weight:bold; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${f.posLevel}</span> 
+                                  <span style="margin-left: 6px; color:var(--red); font-weight:bold;">反弹初期确认 📈</span>
                                </div>
                            </div>
                         </div>
@@ -1593,8 +1605,8 @@ const app = {
                         </div>
                     </div>
                     
-                    <div style="font-size:12px; background:#fff1f2; color:var(--red); padding: 6px 10px; border-radius: 6px; border: 1px solid #ffe4e6; margin-top: 4px; font-weight: bold;">
-                        💡 ${f.adviceStr}
+                    <div style="font-size:12px; background:#fff1f2; color:var(--red); padding: 8px 10px; border-radius: 6px; border: 1px solid #ffe4e6; margin-top: 4px; font-weight: bold; line-height:1.4;">
+                        💡 核心逻辑：当前净值 (${f.latestPrice.toFixed(4)}) 已站上5日线 (${f.ma5.toFixed(4)})，且处于布林下轨超跌区，适合入场抢反弹波段。
                     </div>
                 </div>
               `;

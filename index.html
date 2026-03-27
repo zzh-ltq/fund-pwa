@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-far-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
@@ -97,8 +97,9 @@
       border-top: 1px solid rgba(255,255,255,0.6); box-shadow: 0 -4px 20px rgba(0,0,0,0.02);
       display: flex; justify-content: space-around; align-items: center; z-index: 150;
     }
-    .tab-item { text-align: center; color: #94a3b8; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; display:flex; flex-direction:column; align-items:center; transition: all 0.3s cubic-bezier(0.25,0.8,0.25,1); }
-    .tab-icon { font-size: 20px; display: block; margin-bottom: 4px; filter: grayscale(100%) opacity(0.5); transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);}
+    /* 优化 Tab 字体大小以容纳 6 个菜单 */
+    .tab-item { text-align: center; color: #94a3b8; font-size: 10px; font-weight: bold; cursor: pointer; flex: 1; display:flex; flex-direction:column; align-items:center; transition: all 0.3s cubic-bezier(0.25,0.8,0.25,1); }
+    .tab-icon { font-size: 18px; display: block; margin-bottom: 4px; filter: grayscale(100%) opacity(0.5); transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);}
     .tab-item.active { color: var(--blue); }
     .tab-item.active .tab-icon { filter: none; transform: translateY(-4px) scale(1.15); filter: drop-shadow(0 4px 6px rgba(0,102,255,0.2));}
 
@@ -165,7 +166,7 @@
     .l-header { display: flex; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;}
     .l-row { display: flex; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; align-items: center; cursor: pointer; position: relative; transition: background 0.3s;}
     
-    /* 列表项星标高亮样式 (加深紫色背景) */
+    /* 列表项星标高亮样式 */
     .l-row.starred-row { background-color: #f3e8ff; border-bottom-color: #e9d5ff;}
     @media (hover: hover) { .l-row.starred-row:hover { background-color: #e9d5ff; transform: scale(1.005); border-radius: 8px;} }
 
@@ -305,9 +306,7 @@
   <!-- ================= 底部菜单栏(移动)/侧边栏(PC) ================= -->
   <div class="tab-bar">
     <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
-    <!-- 实时估值菜单 -->
     <div class="tab-item" onclick="app.switchTab('realtime')" id="tab-btn-realtime"><span class="tab-icon">⚡</span><span>实时</span></div>
-    <!-- 【新增】预测菜单 -->
     <div class="tab-item" onclick="app.switchTab('forecast')" id="tab-btn-forecast"><span class="tab-icon">🔮</span><span>预测</span></div>
     <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
     <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
@@ -399,22 +398,22 @@
       <div style="text-align: center; margin-top: 20px; font-size: 11px; color: #94a3b8;">💡 盘中估值为预测数据，仅供参考<br>实际以当日收盘净值为准</div>
     </div>
   </div>
-<!-- ================= 【新增】视图6：明日预测页 ================= -->
+  
+  <!-- ================= 视图6：明日预测页 ================= -->
   <div id="view-forecast" class="page-view">
     <div class="nav-bar">
-      <div class="nav-title">🔮 明日上涨概率 Top20</div>
+      <div class="nav-title">🔮 明日波段胜率 Top20</div>
     </div>
     <div class="scroll-area">
       <div class="card" style="margin-bottom:12px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: white; border:none;">
           <div style="font-size:12px; line-height:1.6; opacity:0.9;">
-              💡 <b>AI 模型说明：</b>基于隐马尔可夫模型，提取全局基金近3日K线涨跌形态，在过往260个交易日中进行特征匹配检索，测算出下一交易日上涨的统计学概率。
+              💡 <b>严苛抄底狙击模型：</b>基于布林带空间位置与均线趋势，专门在您的全量自选库中，为您拦截并筛选出当前处于<b>低位超跌区</b>且<b>刚出现止跌拐点</b>的黄金坑基金。
           </div>
       </div>
-      <div id="forecast-list-container">
-          <!-- 预测列表将渲染在这里 -->
-      </div>
+      <div id="forecast-list-container"></div>
     </div>
   </div>
+
   <!-- ================= 视图2：排名页 ================= -->
   <div id="view-rank" class="page-view">
     <div class="nav-bar">
@@ -557,7 +556,7 @@
     </div>
   </div>
 
-  <!-- ================= 弹窗：基金详情 (UI 已重构) ================= -->
+  <!-- ================= 弹窗：基金详情 ================= -->
   <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')">
     <div class="modal-content" onclick="app.stopProp(event)">
       <div class="nav-bar">
@@ -567,7 +566,6 @@
       </div>
       <div class="scroll-area">
         
-        <!-- 【优化1】头部重构：调大代码、新增实时数据展示区 -->
         <div class="card" style="margin-bottom: 12px;">
           <div style="display:flex; justify-content:space-between; align-items:flex-start;">
             <div>
@@ -587,7 +585,6 @@
           </div>
         </div>
 
-        <!-- 【优化2】新增 技术分析 Tab -->
         <div class="detail-tabs" id="det-tabs">
           <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
           <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
@@ -612,7 +609,6 @@
         </div>
 
         <div id="det-hold-area" style="display:none;"></div>
-        <!-- 【新增】AI技术分析区域 -->
         <div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div>
       </div>
     </div>
@@ -620,7 +616,6 @@
 
 </div>
 
-<!-- 核心业务逻辑 -->
 <script>
 function fetchJSONP(url, callbackName = 'callback') {
   return new Promise((resolve, reject) => {
@@ -823,20 +818,21 @@ const app = {
     if(tabId === 'rank') this.renderRank();
     if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
     
-    // 【修改点1】确保切换到预测页时，执行新的渲染函数
-    if(tabId === 'forecast') { this.; }
+    if(tabId === 'forecast') { this.renderForecast(); }
   },
 
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
-  // ==================== 实时估值核心逻辑 ====================
+  // ==================== 实时估值逻辑 ====================
   setRtViewType(type) {
       this.rtViewType = type;
       document.getElementById('rt-toggle-group').className = type === 'group' ? 'active' : '';
       document.getElementById('rt-toggle-sector').className = type === 'sector' ? 'active' : '';
+      
       this.rtActiveGroup = '';
       this.rtActiveSector = '';
+
       this.renderRtTabs();
       this.rtPauseTimer();
       document.getElementById('rt-auto-status').innerText = '请先选择标签';
@@ -900,12 +896,14 @@ const app = {
 
   async rtFetchAll() {
       const codes = this.getRtFundCodes();
+      
       if (codes === null) {
           this.rtPauseTimer();
           document.getElementById('rt-auto-status').innerText = '请先选择标签';
           this.renderRealtime();
           return;
       }
+
       if (this.rtIsFetching) return;
       this.rtIsFetching = true;
       const statusEl = document.getElementById('rt-auto-status');
@@ -923,7 +921,6 @@ const app = {
       if (this.rtEnabled && !this.rtTimer) this.rtStartTimer();
       this.renderRealtime();
       
-      // 更新详情页实时数据(如果当前打开的话)
       if (this.currentDetailCode && document.getElementById('modal-detail').classList.contains('active')) {
           this.updateDetailRtInfo(this.currentDetailCode);
       }
@@ -1034,6 +1031,7 @@ const app = {
 
       container.innerHTML = html;
   },
+  // ==========================================================
 
   async refreshAll(isSilent = false) {
     const codes = this.data.groups[0]?.fundCodes || [];
@@ -1110,7 +1108,9 @@ const app = {
           if (!isBatch) this.saveData();
           window.Data_netWorthTrend = null; window.fS_name = null;
           finish(fund);
-        } else finish(null);
+        } else {
+          finish(null);
+        }
       };
       script.onerror = () => { clearTimeout(timeout); finish(null); };
       document.head.appendChild(script);
@@ -1508,114 +1508,6 @@ const app = {
     document.getElementById('rank-list').innerHTML = html || '<div style="text-align:center; color:#94a3b8; font-weight:bold; margin-top:50px;">暂无自建分组数据</div>';
   },
 
-  // 【新增】提取单个基金的 AI 预测概率
-  getFundWinRate(f) {
-      if (!f || !f.netWorth || f.netWorth.length < 20) return { winRate: 0, patternDesc: '数据不足', matchCount: 0 };
-      
-      let dataList = f.netWorth.map(item => item.y);
-      const getPattern = (slice) => {
-          let pat = '';
-          for(let i=1; i<slice.length; i++) pat += (slice[i] > slice[i-1] ? '1' : '0');
-          return pat;
-      };
-      
-      const recent3Days = dataList.slice(-4);
-      const currentPattern = getPattern(recent3Days);
-      
-      let matchCount = 0;
-      let winCount = 0;
-      const len = dataList.length;
-      for(let i = 0; i < len - 4; i++) {
-          const hisSlice = dataList.slice(i, i + 4);
-          if (getPattern(hisSlice) === currentPattern) {
-              matchCount++;
-              if (dataList[i + 4] > dataList[i + 3]) winCount++;
-          }
-      }
-      
-      const winRate = matchCount >= 3 ? (winCount / matchCount * 100) : 50;
-      let patternDesc = currentPattern.split('').map(p => p==='1'?'阳':'阴').join('连');
-      if (currentPattern === '111') patternDesc = "三连阳";
-      if (currentPattern === '000') patternDesc = "三连阴";
-
-      return { winRate, patternDesc, matchCount };
-  },
-
-// ==================== 【全新模块】全局低位波段预测排行榜 ====================
-  renderForecast() {
-      const container = document.getElementById('forecast-list-container');
-      container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8; font-weight:bold;">正在进行全库量化演算...</div>';
-
-      // 使用 setTimeout 避免计算阻塞导致 UI 假死
-      setTimeout(() => {
-          let allAnalysis = [];
-          const uniqueCodes = new Set();
-          
-          // 收集所有自选组里的不重复基金代码
-          this.data.groups.forEach(g => g.fundCodes.forEach(c => uniqueCodes.add(c)));
-          
-          uniqueCodes.forEach(code => {
-              const res = this.getFundQuantAnalysis(code);
-              
-              // ====================================================
-              // 【核心优化】严苛的“黄金坑”筛选逻辑
-              // 1. 数据必须有效
-              // 2. 波段盈利概率必须 >= 60%
-              // 3. 布林带位置必须在 40% 以下（确保处于中下轨，即低位）
-              // 4. 价格必须大于 MA5 且 MA5 小于 MA20（确认下跌趋势中刚刚出现止跌反弹拐点）
-              // ====================================================
-              if (res.isValid && 
-                  res.winProb >= 60 && 
-                  res.bandPosition <= 40 && 
-                  res.latestPrice > res.ma5 && 
-                  res.ma5 < res.ma20) {
-                  
-                  allAnalysis.push(res);
-              }
-          });
-
-          // 按波段盈利概率降序排列，展示前 20 名
-          allAnalysis.sort((a, b) => b.winProb - a.winProb);
-          const top20 = allAnalysis.slice(0, 20);
-
-          if (top20.length === 0) {
-               container.innerHTML = '<div style="text-align:center; padding:60px 20px; color:#94a3b8; line-height:1.6;">当前全市场未发现<span style="color:var(--red);font-weight:bold;">“低位超跌 + 止跌反弹初期”</span>的高胜率基金。<br><br>💡 建议：多看少动，耐心等待大盘杀出“黄金坑”，或在首页添加更多基金以扩大 AI 监测池。</div>';
-               return;
-          }
-
-          let html = top20.map((f, index) => {
-              let rankCol = index === 0 ? '#f43f5e' : (index === 1 ? '#f59e0b' : (index === 2 ? '#10b981' : '#64748b'));
-              
-              return `
-                <div class="list-item" onclick="app.openDetail('${f.code}')" style="display:flex; flex-direction:column; align-items:stretch; padding: 14px; gap:10px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-                        <div style="display:flex; align-items:center; gap:12px;">
-                           <div style="font-size:18px; font-weight:900; color:${rankCol}; font-style:italic; width:22px; text-align:center;">${index+1}</div>
-                           <div>
-                               <div style="font-size:14px; font-weight:800; margin-bottom: 4px;">${f.fName} <span class="c-code">${f.code}</span></div>
-                               <div style="font-size:11px; color:#64748b;">
-                                  <span style="color:${f.posCol}; font-weight:bold; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${f.posLevel}</span> 
-                                  <span style="margin-left: 6px; color:var(--red); font-weight:bold;">反弹初期确认 📈</span>
-                               </div>
-                           </div>
-                        </div>
-                        <div style="text-align:right;">
-                            <div style="font-size:18px; font-weight:900; color:var(--red)">${f.winProb.toFixed(1)}%</div>
-                            <div style="font-size:10px; color:#94a3b8;">波段胜率</div>
-                        </div>
-                    </div>
-                    
-                    <div style="font-size:12px; background:#fff1f2; color:var(--red); padding: 8px 10px; border-radius: 6px; border: 1px solid #ffe4e6; margin-top: 4px; font-weight: bold; line-height:1.4;">
-                        💡 核心逻辑：当前净值 (${f.latestPrice.toFixed(4)}) 已站上5日线 (${f.ma5.toFixed(4)})，且处于布林下轨超跌区，适合入场抢反弹波段。
-                    </div>
-                </div>
-              `;
-          }).join('');
-
-          container.innerHTML = html;
-      }, 100);
-  },
-
   addSector() {
     let val = document.getElementById('new-sector-input').value.trim();
     if(val && val.length <= 8 && !this.data.customSectors.includes(val)) { 
@@ -1885,113 +1777,7 @@ const app = {
     }, 200);
   },
 
-  // ================= 详情与图表 (带 AI 分析重构) =================
-  
-  // 专门在打开详情时静默拉取一次盘中实时数据
-  updateDetailRtInfo(code) {
-      const rtBlock = document.getElementById('det-rt-block');
-      const rtVal = document.getElementById('det-rt-val');
-      const rtChg = document.getElementById('det-rt-chg');
-      const rtTime = document.getElementById('det-rt-time');
-      
-      const rt = this.rtData[code];
-      if (rt) {
-          rtBlock.style.display = 'block';
-          const col = rt.gszzl >= 0 ? 'red' : 'green';
-          rtVal.innerText = rt.gsz.toFixed(4);
-          rtVal.className = col;
-          rtChg.innerText = (rt.gszzl > 0 ? '+' : '') + rt.gszzl.toFixed(2) + '%';
-          rtChg.className = col;
-          rtTime.innerText = '盘中估算 ' + (rt.gztime ? rt.gztime.slice(11) : '');
-      } else {
-          rtBlock.style.display = 'none';
-      }
-  },
-
-  async openDetail(code) {
-    this.currentDetailCode = code;
-    const f = this.data.fundsCache[code];
-    document.getElementById('det-name').innerText = f.name;
-    document.getElementById('det-code').innerText = f.code;
-    
-    let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
-    document.getElementById('det-group-select').innerHTML = opts;
-
-    // 如果还没有该基金的实时数据，拉一下
-    if (!this.rtData[code]) {
-        const rt = await this.rtFetchSingle(code);
-        if (rt) this.rtData[code] = rt;
-    }
-    this.updateDetailRtInfo(code);
-
-    // 默认展示近30天走势图
-    this.renderDetailTab(30);
-    this.openModal('detail');
-  },
-
-  addToGroupFromDetail() {
-    const sel = document.getElementById('det-group-select');
-    const gid = sel.value; if(!gid) return;
-    const g = this.data.groups.find(g => g.id === gid);
-    if(g && !g.fundCodes.includes(this.currentDetailCode)) {
-      g.fundCodes.push(this.currentDetailCode);
-      const defaultGroup = this.data.groups.find(g => g.id === 'default');
-      if (defaultGroup && !defaultGroup.fundCodes.includes(this.currentDetailCode)) {
-        defaultGroup.fundCodes.push(this.currentDetailCode);
-      }
-      this.saveData(); this.showToast('添加成功');
-      if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
-    } else this.showToast('已存在', 'error');
-    sel.value = '';
-  },
-
-  renderDetailTab(days) {
-    document.querySelectorAll('#det-tabs .action-pill').forEach(el => el.classList.remove('active'));
-    event && event.currentTarget.classList.add('active');
-
-    // 清理全部展示区
-    document.getElementById('det-chart-area').style.display = 'none';
-    document.getElementById('det-hold-area').style.display = 'none';
-    document.getElementById('det-analysis-area').style.display = 'none';
-
-    if(days === 'hold') {
-      document.getElementById('det-hold-area').style.display = 'block';
-      this.loadHoldings(this.currentDetailCode); return;
-    } else if (days === 'analysis') {
-      document.getElementById('det-analysis-area').style.display = 'block';
-      this.generateAnalysisReport(this.currentDetailCode); return;
-    }
-
-    // 走势图展示
-    document.getElementById('det-chart-area').style.display = 'block';
-    const f = this.data.fundsCache[this.currentDetailCode];
-    if(!f || !f.netWorth) return;
-    const nw = f.netWorth.slice(-days);
-    if(nw.length < 2) return;
-
-    let tbl = nw.slice().reverse().map((item, i, arr) => {
-      let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--';
-      return `<div class="list-item" style="padding:10px 14px;"><span style="color:var(--text-sub); font-size:13px; flex:1; font-weight:600;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:800; font-size:14px; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right; font-weight:800;">${chg>0?'+':''}${chg}%</span></div>`;
-    }).join('');
-    document.getElementById('det-table-area').innerHTML = tbl;
-
-    const base = nw[0].y;
-    let maxDrawdown = 0, maxPeak = nw[0].y;
-    this.chartInfo.data = nw.map(item => {
-      const rate = ((item.y-base)/base*100);
-      if(item.y > maxPeak) maxPeak = item.y;
-      const drop = ((maxPeak - item.y) / maxPeak * 100);
-      if(drop > maxDrawdown) maxDrawdown = drop;
-      return { date: this.formatEMDate(item.x, 5, 5), fullDate: this.formatEMDate(item.x, 10), y: item.y, rate };
-    });
-    
-    document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%';
-    this.chartInfo.touchIdx = -1;
-    this.drawChart();
-  },
-
- // ==================== 【全新模块】AI 波段量化分析 ====================
-  // 通用分析引擎：返回趋势、位置、概率和建议，供详情页和预测排行榜共用
+  // ==================== 【全新模块】AI 波段量化分析引擎 ====================
   getFundQuantAnalysis(code) {
       const f = this.data.fundsCache[code];
       const rt = this.rtData[code];
@@ -2000,7 +1786,6 @@ const app = {
           return { isValid: false, msg: '历史数据不足20天，无法生成布林带模型' };
       }
 
-      // 1. 数据拼装：合并历史与盘中实时数据
       let dataList = f.netWorth.map(item => item.y);
       let latestPrice = dataList[dataList.length - 1];
       if (rt && rt.gsz) {
@@ -2010,7 +1795,6 @@ const app = {
 
       const len = dataList.length;
       
-      // 算移动平均线 MA
       const getMA = (days) => {
           if(len < days) return latestPrice;
           const slice = dataList.slice(-days);
@@ -2021,59 +1805,45 @@ const app = {
       const ma10 = getMA(10);
       const ma20 = getMA(20);
 
-      // 2. 布林带 (Bollinger Bands) 计算
       const slice20 = dataList.slice(-20);
-      // 算标准差
       const sumSquares = slice20.reduce((sum, val) => sum + Math.pow(val - ma20, 2), 0);
       const standardDeviation = Math.sqrt(sumSquares / 20);
       
       const upperBand = ma20 + (2 * standardDeviation);
       const lowerBand = ma20 - (2 * standardDeviation);
       
-      // 计算当前价格在布林带中的百分比位置 (0为下轨，100为上轨)
       let bandPosition = ((latestPrice - lowerBand) / (upperBand - lowerBand)) * 100;
-      // 限制在 0-100 范围，极端破轨允许超出但视觉上限制
       let visualPos = Math.max(-10, Math.min(110, bandPosition));
 
-      // 3. 判断高低位置
-      let posLevel = "一般水平"; let posCol = "#f59e0b"; // 橙色
-      if (bandPosition <= 15) { posLevel = "极度超跌 (极低位)"; posCol = "#10b981"; } // 绿色
-      else if (bandPosition <= 35) { posLevel = "低位区域"; posCol = "#059669"; } // 深绿
-      else if (bandPosition >= 85) { posLevel = "极度超买 (极高位)"; posCol = "#e53e3e"; } // 红色
-      else if (bandPosition >= 65) { posLevel = "高位区域"; posCol = "#f43f5e"; } // 粉红
+      let posLevel = "一般水平"; let posCol = "#f59e0b"; 
+      if (bandPosition <= 15) { posLevel = "极度超跌 (极低位)"; posCol = "#10b981"; } 
+      else if (bandPosition <= 35) { posLevel = "低位区域"; posCol = "#059669"; } 
+      else if (bandPosition >= 85) { posLevel = "极度超买 (极高位)"; posCol = "#e53e3e"; } 
+      else if (bandPosition >= 65) { posLevel = "高位区域"; posCol = "#f43f5e"; } 
 
-      // 4. 判断趋势阶段
       let trendState = "震荡整理"; let trendCol = "#64748b";
       if (ma5 > ma10 && ma10 > ma20) { trendState = "稳健上升通道"; trendCol = "#e53e3e"; }
       else if (ma5 < ma10 && ma10 < ma20) { trendState = "明显下降通道"; trendCol = "#10b981"; }
       else if (latestPrice > ma20 && ma5 > ma20) { trendState = "上升初期 (突破牛熊线)"; trendCol = "#f43f5e"; }
       else if (latestPrice < ma20 && ma5 < ma20) { trendState = "下降初期 (跌破牛熊线)"; trendCol = "#059669"; }
 
-      // 5. 核心：计算波段盈利概率 (综合打分 0-100)
-      // 核心逻辑：跌得越深（靠近下轨）且短期有拐头迹象（价格回到MA5之上），波段胜率越高
       let winProb = 50; 
-      
-      // 位置分：越低分越高 (倒转布林位置)
       let posScore = 100 - Math.min(Math.max(bandPosition, 0), 100); 
       
-      // 趋势分：如果是明显下降通道，即便位置低也要扣分（接飞刀风险）；如果是上升初期或稳健上升，加分
       let trendScore = 50;
       if (trendState === "稳健上升通道") trendScore = 80;
       else if (trendState === "上升初期 (突破牛熊线)") trendScore = 70;
       else if (trendState === "明显下降通道") trendScore = 20;
       else if (trendState === "下降初期 (跌破牛熊线)") trendScore = 30;
 
-      // 短期反转确认分：如果处于低位，且今天价格收在了 MA5 之上，说明止跌，大幅加分
       let reversalBonus = 0;
       if (bandPosition < 40 && latestPrice > ma5) {
           reversalBonus = 15;
       }
 
       winProb = (posScore * 0.6) + (trendScore * 0.4) + reversalBonus;
-      // 限制最高 98%，最低 5%
       winProb = Math.min(98.5, Math.max(5.1, winProb));
 
-      // 6. 生成具体操作建议
       let adviceStr = "多看少动，暂不操作"; let adviceCol = "#64748b";
       if (winProb >= 80) { adviceStr = "绝佳击球点：加仓 2-3 成做波段"; adviceCol = "#e53e3e"; }
       else if (winProb >= 65) { adviceStr = "逢低吸纳：分批加仓 1-2 成"; adviceCol = "#f43f5e"; }
@@ -2095,6 +1865,66 @@ const app = {
           winProb,
           adviceStr, adviceCol
       };
+  },
+
+  // 渲染预测排行榜
+  renderForecast() {
+      const container = document.getElementById('forecast-list-container');
+      container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8; font-weight:bold;">正在进行全库量化演算...</div>';
+
+      setTimeout(() => {
+          let allAnalysis = [];
+          const uniqueCodes = new Set();
+          
+          this.data.groups.forEach(g => g.fundCodes.forEach(c => uniqueCodes.add(c)));
+          
+          uniqueCodes.forEach(code => {
+              const res = this.getFundQuantAnalysis(code);
+              // 严格筛选逻辑
+              if (res.isValid && res.winProb >= 60 && res.bandPosition <= 40 && res.latestPrice > res.ma5 && res.ma5 < res.ma20) {
+                  allAnalysis.push(res);
+              }
+          });
+
+          allAnalysis.sort((a, b) => b.winProb - a.winProb);
+          const top20 = allAnalysis.slice(0, 20);
+
+          if (top20.length === 0) {
+               container.innerHTML = '<div style="text-align:center; padding:60px 20px; color:#94a3b8; line-height:1.6;">当前全市场未发现<span style="color:var(--red);font-weight:bold;">“低位超跌 + 止跌反弹初期”</span>的高胜率基金。<br><br>💡 建议：多看少动，耐心等待大盘杀出“黄金坑”，或在首页添加更多基金以扩大 AI 监测池。</div>';
+               return;
+          }
+
+          let html = top20.map((f, index) => {
+              let rankCol = index === 0 ? '#f43f5e' : (index === 1 ? '#f59e0b' : (index === 2 ? '#10b981' : '#64748b'));
+              
+              return `
+                <div class="list-item" onclick="app.openDetail('${f.code}')" style="display:flex; flex-direction:column; align-items:stretch; padding: 14px; gap:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                           <div style="font-size:18px; font-weight:900; color:${rankCol}; font-style:italic; width:22px; text-align:center;">${index+1}</div>
+                           <div>
+                               <div style="font-size:14px; font-weight:800; margin-bottom: 4px;">${f.fName} <span class="c-code">${f.code}</span></div>
+                               <div style="font-size:11px; color:#64748b;">
+                                  <span style="color:${f.posCol}; font-weight:bold; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${f.posLevel}</span> 
+                                  <span style="margin-left: 6px; color:var(--red); font-weight:bold;">反弹初期确认 📈</span>
+                               </div>
+                           </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:18px; font-weight:900; color:var(--red)">${f.winProb.toFixed(1)}%</div>
+                            <div style="font-size:10px; color:#94a3b8;">波段胜率</div>
+                        </div>
+                    </div>
+                    
+                    <div style="font-size:12px; background:#fff1f2; color:var(--red); padding: 8px 10px; border-radius: 6px; border: 1px solid #ffe4e6; margin-top: 4px; font-weight: bold; line-height:1.4;">
+                        💡 核心逻辑：当前估值 (${f.latestPrice.toFixed(4)}) 已站上5日均线 (${f.ma5.toFixed(4)})，且处于布林下轨超跌区，适合入场抢反弹波段。
+                    </div>
+                </div>
+              `;
+          }).join('');
+
+          container.innerHTML = html;
+      }, 100);
   },
 
   // 渲染基金详情页的 AI 报告
@@ -2140,6 +1970,105 @@ const app = {
             <div class="ana-row"><span>MA20 中期牛熊线</span><span style="font-weight:bold;">${res.ma20.toFixed(4)}</span></div>
         </div>
       `;
+  },
+  // =========================================================================
+
+  updateDetailRtInfo(code) {
+      const rtBlock = document.getElementById('det-rt-block');
+      const rtVal = document.getElementById('det-rt-val');
+      const rtChg = document.getElementById('det-rt-chg');
+      const rtTime = document.getElementById('det-rt-time');
+      
+      const rt = this.rtData[code];
+      if (rt) {
+          rtBlock.style.display = 'block';
+          const col = rt.gszzl >= 0 ? 'red' : 'green';
+          rtVal.innerText = rt.gsz.toFixed(4);
+          rtVal.className = col;
+          rtChg.innerText = (rt.gszzl > 0 ? '+' : '') + rt.gszzl.toFixed(2) + '%';
+          rtChg.className = col;
+          rtTime.innerText = '盘中估算 ' + (rt.gztime ? rt.gztime.slice(11) : '');
+      } else {
+          rtBlock.style.display = 'none';
+      }
+  },
+
+  async openDetail(code) {
+    this.currentDetailCode = code;
+    const f = this.data.fundsCache[code];
+    document.getElementById('det-name').innerText = f.name;
+    document.getElementById('det-code').innerText = f.code;
+    
+    let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+    document.getElementById('det-group-select').innerHTML = opts;
+
+    if (!this.rtData[code]) {
+        const rt = await this.rtFetchSingle(code);
+        if (rt) this.rtData[code] = rt;
+    }
+    this.updateDetailRtInfo(code);
+
+    this.renderDetailTab(30);
+    this.openModal('detail');
+  },
+
+  addToGroupFromDetail() {
+    const sel = document.getElementById('det-group-select');
+    const gid = sel.value; if(!gid) return;
+    const g = this.data.groups.find(g => g.id === gid);
+    if(g && !g.fundCodes.includes(this.currentDetailCode)) {
+      g.fundCodes.push(this.currentDetailCode);
+      const defaultGroup = this.data.groups.find(g => g.id === 'default');
+      if (defaultGroup && !defaultGroup.fundCodes.includes(this.currentDetailCode)) {
+        defaultGroup.fundCodes.push(this.currentDetailCode);
+      }
+      this.saveData(); this.showToast('添加成功');
+      if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
+    } else this.showToast('已存在', 'error');
+    sel.value = '';
+  },
+
+  renderDetailTab(days) {
+    document.querySelectorAll('#det-tabs .action-pill').forEach(el => el.classList.remove('active'));
+    event && event.currentTarget.classList.add('active');
+
+    document.getElementById('det-chart-area').style.display = 'none';
+    document.getElementById('det-hold-area').style.display = 'none';
+    document.getElementById('det-analysis-area').style.display = 'none';
+
+    if(days === 'hold') {
+      document.getElementById('det-hold-area').style.display = 'block';
+      this.loadHoldings(this.currentDetailCode); return;
+    } else if (days === 'analysis') {
+      document.getElementById('det-analysis-area').style.display = 'block';
+      this.generateAnalysisReport(this.currentDetailCode); return;
+    }
+
+    document.getElementById('det-chart-area').style.display = 'block';
+    const f = this.data.fundsCache[this.currentDetailCode];
+    if(!f || !f.netWorth) return;
+    const nw = f.netWorth.slice(-days);
+    if(nw.length < 2) return;
+
+    let tbl = nw.slice().reverse().map((item, i, arr) => {
+      let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--';
+      return `<div class="list-item" style="padding:10px 14px;"><span style="color:var(--text-sub); font-size:13px; flex:1; font-weight:600;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:800; font-size:14px; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right; font-weight:800;">${chg>0?'+':''}${chg}%</span></div>`;
+    }).join('');
+    document.getElementById('det-table-area').innerHTML = tbl;
+
+    const base = nw[0].y;
+    let maxDrawdown = 0, maxPeak = nw[0].y;
+    this.chartInfo.data = nw.map(item => {
+      const rate = ((item.y-base)/base*100);
+      if(item.y > maxPeak) maxPeak = item.y;
+      const drop = ((maxPeak - item.y) / maxPeak * 100);
+      if(drop > maxDrawdown) maxDrawdown = drop;
+      return { date: this.formatEMDate(item.x, 5, 5), fullDate: this.formatEMDate(item.x, 10), y: item.y, rate };
+    });
+    
+    document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%';
+    this.chartInfo.touchIdx = -1;
+    this.drawChart();
   },
 
   drawChart() {

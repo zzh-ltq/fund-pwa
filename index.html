@@ -823,7 +823,7 @@ const app = {
     if(tabId === 'rank') this.renderRank();
     if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
     
-    // 【新增】切换到预测页面时，触发渲染
+    // 【修改点1】确保切换到预测页时，执行新的渲染函数
     if(tabId === 'forecast') { this.renderForecast(); }
   },
 
@@ -1541,42 +1541,38 @@ const app = {
       return { winRate, patternDesc, matchCount };
   },
 
-  // 【新增】渲染全局预测排行榜
+ // ==================== 【全新模块】全局低位波段预测排行榜 ====================
   renderForecast() {
       const container = document.getElementById('forecast-list-container');
-      container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8; font-weight:bold;">正在进行全库 AI 演算...</div>';
+      container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8; font-weight:bold;">正在进行全库量化演算...</div>';
 
       // 使用 setTimeout 避免计算阻塞导致 UI 假死
       setTimeout(() => {
-          let allFunds = [];
+          let allAnalysis = [];
           const uniqueCodes = new Set();
           
-          // 收集所有组、所有板块里的不重复基金
+          // 收集所有自选组里的不重复基金代码
           this.data.groups.forEach(g => g.fundCodes.forEach(c => uniqueCodes.add(c)));
           
           uniqueCodes.forEach(code => {
-              const f = this.formatFund(code);
-              if (f.isLoad) {
-                  const analysis = this.getFundWinRate(this.data.fundsCache[code]);
-                  // 过滤掉匹配次数太少（<3次）的数据，防止概率失真
-                  if (analysis.matchCount >= 3) {
-                      allFunds.push({ ...f, ...analysis });
-                  }
+              const res = this.getFundQuantAnalysis(code);
+              // 只保留有效数据，且波段盈利概率大于 60%（适合做波段的低位基金）
+              if (res.isValid && res.winProb >= 60) {
+                  allAnalysis.push(res);
               }
           });
 
-          // 按上涨概率降序排列
-          allFunds.sort((a, b) => b.winRate - a.winRate);
-          const top20 = allFunds.slice(0, 20);
+          // 按波段盈利概率降序排列，展示前 20 名
+          allAnalysis.sort((a, b) => b.winProb - a.winProb);
+          const top20 = allAnalysis.slice(0, 20);
 
           if (top20.length === 0) {
-               container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8;">暂无足够数据，请先在首页添加并刷新基金</div>';
+               container.innerHTML = '<div style="text-align:center; padding:50px 20px; color:#94a3b8; line-height:1.6;">当前全市场未发现明显处于低位且具备高反弹概率的基金。<br><br>建议：空仓等待大盘杀跌，或在首页添加更多基金以扩大监测池。</div>';
                return;
           }
 
           let html = top20.map((f, index) => {
               let rankCol = index === 0 ? '#f43f5e' : (index === 1 ? '#f59e0b' : (index === 2 ? '#10b981' : '#64748b'));
-              let barCol = f.winRate >= 60 ? 'var(--red)' : (f.winRate <= 45 ? 'var(--green)' : '#94a3b8');
               
               return `
                 <div class="list-item" onclick="app.openDetail('${f.code}')" style="display:flex; flex-direction:column; align-items:stretch; padding: 14px; gap:10px;">
@@ -1584,20 +1580,21 @@ const app = {
                         <div style="display:flex; align-items:center; gap:12px;">
                            <div style="font-size:18px; font-weight:900; color:${rankCol}; font-style:italic; width:22px; text-align:center;">${index+1}</div>
                            <div>
-                               <div style="font-size:14px; font-weight:800;">${f.name} <span class="c-code">${f.code}</span></div>
-                               <div style="font-size:11px; color:#64748b; margin-top:4px;">
-                                  当前形态: <span style="color:var(--text-main); font-weight:bold; background:#f1f5f9; padding:2px 4px; border-radius:4px;">${f.patternDesc}</span> 
-                                  (历史匹配 ${f.matchCount} 次)
+                               <div style="font-size:14px; font-weight:800; margin-bottom: 2px;">${f.fName} <span class="c-code">${f.code}</span></div>
+                               <div style="font-size:11px; color:#64748b;">
+                                  <span style="color:${f.posCol}; font-weight:bold; background:#f1f5f9; padding:2px 4px; border-radius:4px;">${f.posLevel}</span> 
+                                  <span style="margin-left: 4px;">${f.trendState}</span>
                                </div>
                            </div>
                         </div>
                         <div style="text-align:right;">
-                            <div style="font-size:18px; font-weight:900; color:${barCol}">${f.winRate.toFixed(1)}%</div>
+                            <div style="font-size:18px; font-weight:900; color:var(--red)">${f.winProb.toFixed(1)}%</div>
+                            <div style="font-size:10px; color:#94a3b8;">波段胜率</div>
                         </div>
                     </div>
-                    <!-- 进度条可视化 -->
-                    <div style="width:100%; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden;">
-                        <div style="height:100%; width:${f.winRate}%; background:${barCol}; transition:width 1s ease;"></div>
+                    
+                    <div style="font-size:12px; background:#fff1f2; color:var(--red); padding: 6px 10px; border-radius: 6px; border: 1px solid #ffe4e6; margin-top: 4px; font-weight: bold;">
+                        💡 ${f.adviceStr}
                     </div>
                 </div>
               `;
@@ -1981,28 +1978,24 @@ const app = {
     this.drawChart();
   },
 
-  // ==================== 【新增模块】AI量化技术分析 ====================
-  generateAnalysisReport(code) {
-      const area = document.getElementById('det-analysis-area');
+ // ==================== 【全新模块】AI 波段量化分析 ====================
+  // 通用分析引擎：返回趋势、位置、概率和建议，供详情页和预测排行榜共用
+  getFundQuantAnalysis(code) {
       const f = this.data.fundsCache[code];
       const rt = this.rtData[code];
       
       if (!f || !f.netWorth || f.netWorth.length < 20) {
-          area.innerHTML = `<div style="text-align:center; padding: 30px; color:#94a3b8;">历史数据不足，无法生成可靠的分析模型</div>`;
-          return;
+          return { isValid: false, msg: '历史数据不足20天，无法生成布林带模型' };
       }
 
-      // 1. 数据拼装：合并过去 260 天的历史数据和“今日”盘中实时估值
+      // 1. 数据拼装：合并历史与盘中实时数据
       let dataList = f.netWorth.map(item => item.y);
       let latestPrice = dataList[dataList.length - 1];
       if (rt && rt.gsz) {
-          // 如果最新实时价格和历史最后一天相差巨大，说明今天是新的交易日
-          // 为了量化平滑，我们将盘中估值作为一个新点压入数组计算
           dataList.push(rt.gsz);
           latestPrice = rt.gsz;
       }
 
-      // 2. 技术面计算引擎
       const len = dataList.length;
       
       // 算移动平均线 MA
@@ -2011,105 +2004,128 @@ const app = {
           const slice = dataList.slice(-days);
           return slice.reduce((a, b) => a + b, 0) / days;
       };
+      
       const ma5 = getMA(5);
       const ma10 = getMA(10);
       const ma20 = getMA(20);
 
-      // 算 RSI(14)
-      let upSum = 0, downSum = 0, rsi = 50;
-      if (len >= 15) {
-          const rsiSlice = dataList.slice(-15);
-          for(let i=1; i<rsiSlice.length; i++) {
-              const diff = rsiSlice[i] - rsiSlice[i-1];
-              if(diff > 0) upSum += diff;
-              else downSum -= diff;
-          }
-          const rs = upSum / (downSum === 0 ? 0.0001 : downSum);
-          rsi = 100 - (100 / (1 + rs));
+      // 2. 布林带 (Bollinger Bands) 计算
+      const slice20 = dataList.slice(-20);
+      // 算标准差
+      const sumSquares = slice20.reduce((sum, val) => sum + Math.pow(val - ma20, 2), 0);
+      const standardDeviation = Math.sqrt(sumSquares / 20);
+      
+      const upperBand = ma20 + (2 * standardDeviation);
+      const lowerBand = ma20 - (2 * standardDeviation);
+      
+      // 计算当前价格在布林带中的百分比位置 (0为下轨，100为上轨)
+      let bandPosition = ((latestPrice - lowerBand) / (upperBand - lowerBand)) * 100;
+      // 限制在 0-100 范围，极端破轨允许超出但视觉上限制
+      let visualPos = Math.max(-10, Math.min(110, bandPosition));
+
+      // 3. 判断高低位置
+      let posLevel = "一般水平"; let posCol = "#f59e0b"; // 橙色
+      if (bandPosition <= 15) { posLevel = "极度超跌 (极低位)"; posCol = "#10b981"; } // 绿色
+      else if (bandPosition <= 35) { posLevel = "低位区域"; posCol = "#059669"; } // 深绿
+      else if (bandPosition >= 85) { posLevel = "极度超买 (极高位)"; posCol = "#e53e3e"; } // 红色
+      else if (bandPosition >= 65) { posLevel = "高位区域"; posCol = "#f43f5e"; } // 粉红
+
+      // 4. 判断趋势阶段
+      let trendState = "震荡整理"; let trendCol = "#64748b";
+      if (ma5 > ma10 && ma10 > ma20) { trendState = "稳健上升通道"; trendCol = "#e53e3e"; }
+      else if (ma5 < ma10 && ma10 < ma20) { trendState = "明显下降通道"; trendCol = "#10b981"; }
+      else if (latestPrice > ma20 && ma5 > ma20) { trendState = "上升初期 (突破牛熊线)"; trendCol = "#f43f5e"; }
+      else if (latestPrice < ma20 && ma5 < ma20) { trendState = "下降初期 (跌破牛熊线)"; trendCol = "#059669"; }
+
+      // 5. 核心：计算波段盈利概率 (综合打分 0-100)
+      // 核心逻辑：跌得越深（靠近下轨）且短期有拐头迹象（价格回到MA5之上），波段胜率越高
+      let winProb = 50; 
+      
+      // 位置分：越低分越高 (倒转布林位置)
+      let posScore = 100 - Math.min(Math.max(bandPosition, 0), 100); 
+      
+      // 趋势分：如果是明显下降通道，即便位置低也要扣分（接飞刀风险）；如果是上升初期或稳健上升，加分
+      let trendScore = 50;
+      if (trendState === "稳健上升通道") trendScore = 80;
+      else if (trendState === "上升初期 (突破牛熊线)") trendScore = 70;
+      else if (trendState === "明显下降通道") trendScore = 20;
+      else if (trendState === "下降初期 (跌破牛熊线)") trendScore = 30;
+
+      // 短期反转确认分：如果处于低位，且今天价格收在了 MA5 之上，说明止跌，大幅加分
+      let reversalBonus = 0;
+      if (bandPosition < 40 && latestPrice > ma5) {
+          reversalBonus = 15;
       }
 
-      // 3. 隐马尔可夫：历史形态胜率回溯
-      // 提取最近 3 天的涨跌模式 (1:涨, 0:跌)
-      const getPattern = (slice) => {
-          let pat = '';
-          for(let i=1; i<slice.length; i++) pat += (slice[i] > slice[i-1] ? '1' : '0');
-          return pat;
+      winProb = (posScore * 0.6) + (trendScore * 0.4) + reversalBonus;
+      // 限制最高 98%，最低 5%
+      winProb = Math.min(98.5, Math.max(5.1, winProb));
+
+      // 6. 生成具体操作建议
+      let adviceStr = "多看少动，暂不操作"; let adviceCol = "#64748b";
+      if (winProb >= 80) { adviceStr = "绝佳击球点：加仓 2-3 成做波段"; adviceCol = "#e53e3e"; }
+      else if (winProb >= 65) { adviceStr = "逢低吸纳：分批加仓 1-2 成"; adviceCol = "#f43f5e"; }
+      else if (winProb <= 20) { adviceStr = "高位风险：坚决减仓 3-4 成止盈"; adviceCol = "#10b981"; }
+      else if (winProb <= 35) { adviceStr = "滞涨回落：建议减仓 1-2 成"; adviceCol = "#059669"; }
+      else { 
+          if (trendState.includes("上升")) adviceStr = "持有观望，底仓不动";
+          else adviceStr = "趋势不明，空仓观望"; 
+      }
+
+      return {
+          isValid: true,
+          fName: f.name || f.code,
+          code: f.code,
+          latestPrice, ma5, ma10, ma20,
+          upperBand, lowerBand, bandPosition, visualPos,
+          posLevel, posCol,
+          trendState, trendCol,
+          winProb,
+          adviceStr, adviceCol
       };
-      const recent3Days = dataList.slice(-4);
-      const currentPattern = getPattern(recent3Days);
+  },
+
+  // 渲染基金详情页的 AI 报告
+  generateAnalysisReport(code) {
+      const area = document.getElementById('det-analysis-area');
+      const res = this.getFundQuantAnalysis(code);
       
-      // 在历史数据中检索该模式，并观察第 4 天的涨跌情况
-      let matchCount = 0;
-      let winCount = 0;
-      for(let i = 0; i < len - 4; i++) {
-          const hisSlice = dataList.slice(i, i + 4);
-          if (getPattern(hisSlice) === currentPattern) {
-              matchCount++;
-              if (dataList[i + 4] > dataList[i + 3]) winCount++;
-          }
+      if (!res.isValid) {
+          area.innerHTML = `<div style="text-align:center; padding: 30px; color:#94a3b8;">${res.msg}</div>`;
+          return;
       }
-      // 计算历史预测胜率 (如果没有匹配到，默认给出50%)
-      const nextDayWinRate = matchCount >= 3 ? (winCount / matchCount * 100) : 50;
 
-      // 4. 综合打分与决策树模型
-      let score = 50;
-      
-      // A. 均线系统评分 (最高+30, 最低-30)
-      if (latestPrice > ma20) score += 15; else score -= 15;
-      if (ma5 > ma20) score += 10; else score -= 10;
-      if (ma5 > ma10) score += 5; else score -= 5;
-      
-      // B. 乖离率/超买超卖评分 (反向操作逻辑)
-      if (rsi < 30) score += 20; // 严重超卖，极度看多
-      else if (rsi < 45) score += 10;
-      else if (rsi > 70) score -= 20; // 严重超买，看空
-      else if (rsi > 60) score -= 10;
-
-      // C. 历史形态动量加成
-      if (nextDayWinRate > 65) score += 15;
-      else if (nextDayWinRate < 35) score -= 15;
-
-      // 5. 生成报告文本
-      let phaseStr = "震荡期"; let phaseCol = "#64748b";
-      if (latestPrice > ma20 && ma5 > ma20) { phaseStr = "上升主升浪"; phaseCol = "#e53e3e"; }
-      else if (latestPrice < ma20 && ma5 < ma20) { phaseStr = "下降通道"; phaseCol = "#10b981"; }
-
-      let adviceStr = "持仓观望"; let adviceCol = "#64748b";
-      if (score >= 80) { adviceStr = "极度看多：逢低加仓 3 成"; adviceCol = "#e53e3e"; }
-      else if (score >= 65) { adviceStr = "趋势良好：可加仓 1-2 成"; adviceCol = "#f43f5e"; }
-      else if (score >= 45) { adviceStr = "震荡格局：持有或微调"; adviceCol = "#f59e0b"; }
-      else if (score >= 30) { adviceStr = "走势偏弱：建议减仓 1-2 成"; adviceCol = "#10b981"; }
-      else { adviceStr = "极度弱势：果断止损或减仓 3-4 成"; adviceCol = "#059669"; }
-
-      let patternDesc = currentPattern.split('').map(p => p==='1'?'阳':'阴').join('连');
-      if (currentPattern === '111') patternDesc = "三连阳";
-      if (currentPattern === '000') patternDesc = "三连阴";
-
-      // 6. UI 组装
       area.innerHTML = `
-        <div class="card" style="margin-bottom: 12px; border-left: 4px solid ${adviceCol};">
-            <div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 模型交易建议</div>
-            <div style="font-size: 20px; font-weight: 900; color: ${adviceCol}; margin-bottom: 8px;">${adviceStr}</div>
+        <div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.adviceCol};">
+            <div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 量化波段操作建议</div>
+            <div style="font-size: 18px; font-weight: 900; color: ${res.adviceCol}; margin-bottom: 8px;">${res.adviceStr}</div>
             <div style="display:flex; gap:10px; font-size:12px;">
-                <span style="background:#f1f5f9; padding:4px 8px; border-radius:6px; font-weight:bold;">评估得分：${Math.round(score)}分</span>
-                <span style="background:#f1f5f9; padding:4px 8px; border-radius:6px; font-weight:bold;">明日上涨概率：${nextDayWinRate.toFixed(1)}%</span>
+                <span style="background:#f1f5f9; padding:4px 8px; border-radius:6px; font-weight:bold; color:var(--blue);">波段胜率：${res.winProb.toFixed(1)}%</span>
             </div>
         </div>
 
         <div class="ana-block">
-            <div class="ana-title"><span>📉 技术面诊断</span><span style="color:${phaseCol};">${phaseStr}</span></div>
-            <div class="ana-row"><span>RSI 强弱指标 (14日)</span><span style="font-weight:bold; color:${rsi>70?'var(--red)':(rsi<30?'var(--green)':'#333')}">${rsi.toFixed(2)} ${rsi>70?'(超买)':(rsi<30?'(超卖)':'(中性)')}</span></div>
-            <div class="ana-row"><span>MA5 短期均线</span><span style="font-weight:bold;">${ma5.toFixed(4)}</span></div>
-            <div class="ana-row"><span>MA20 中期均线（牛熊线）</span><span style="font-weight:bold;">${ma20.toFixed(4)}</span></div>
-            <div class="ana-row"><span>当前价相对牛熊线位置</span><span style="font-weight:bold; color:${latestPrice>ma20?'var(--red)':'var(--green)'}">${latestPrice>ma20?'线上强势':'线下弱势'}</span></div>
+            <div class="ana-title"><span>📉 趋势与位置诊断</span><span style="color:${res.trendCol};">${res.trendState}</span></div>
+            <div class="ana-row"><span>当前空间位置</span><span style="font-weight:bold; color:${res.posCol}">${res.posLevel}</span></div>
+            <div class="ana-row">
+                <span style="flex:1;">布林带位置 (0下轨~100上轨)</span>
+                <span style="font-weight:bold;">${res.bandPosition.toFixed(1)}</span>
+            </div>
+            <!-- 布林带可视化条 -->
+            <div style="width:100%; height:6px; background:linear-gradient(90deg, #10b981 0%, #f59e0b 50%, #e53e3e 100%); border-radius:3px; margin-top:8px; position:relative;">
+                <div style="position:absolute; top:-4px; bottom:-4px; width:4px; background:#1e293b; border-radius:2px; left: ${res.visualPos}%; transform: translateX(-50%); box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8; margin-top:4px;">
+                <span>低位区</span><span>中轨区</span><span>高位区</span>
+            </div>
         </div>
 
         <div class="ana-block">
-            <div class="ana-title"><span>🧠 历史隐马尔可夫匹配预测</span></div>
-            <div style="font-size: 12px; color: #475569; line-height: 1.6;">
-                该基金最近 3 个交易日呈现 <b>[${patternDesc}]</b> 形态。在过去的一年中，类似形态共出现了 <b>${matchCount}</b> 次。<br>
-                历史统计表明，出现此种信号后，下一个交易日实现上涨的次数为 <b>${winCount}</b> 次，历史胜率换算为 <b style="color:var(--blue); font-size:14px;">${nextDayWinRate.toFixed(1)}%</b>。
-            </div>
+            <div class="ana-title"><span>⚙️ 核心均线数据</span></div>
+            <div class="ana-row"><span>当前盘中估值 / 净值</span><span style="font-weight:bold;">${res.latestPrice.toFixed(4)}</span></div>
+            <div class="ana-row"><span>MA5 短期攻击线</span><span style="font-weight:bold;">${res.ma5.toFixed(4)}</span></div>
+            <div class="ana-row"><span>MA10 操盘主力线</span><span style="font-weight:bold;">${res.ma10.toFixed(4)}</span></div>
+            <div class="ana-row"><span>MA20 中期牛熊线</span><span style="font-weight:bold;">${res.ma20.toFixed(4)}</span></div>
         </div>
       `;
   },

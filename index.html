@@ -543,6 +543,54 @@ const app = {
     fundsCache: {},
     customSectors: []
   },
+  
+  // ====== 新增：大容量本地数据库引擎 (IndexedDB) ======
+  dbHelper: {
+    db: null,
+    init() {
+      return new Promise((resolve) => {
+        const req = indexedDB.open('FundPwaDB', 1);
+        req.onupgradeneeded = (e) => {
+          if (!e.target.result.objectStoreNames.contains('store')) {
+              e.target.result.createObjectStore('store');
+          }
+        };
+        req.onsuccess = (e) => { this.db = e.target.result; resolve(); };
+        req.onerror = (e) => { console.error('数据库初始化失败', e); resolve(); };
+      });
+    },
+    get(key) {
+      return new Promise((resolve) => {
+        if (!this.db) return resolve(null);
+        try {
+            const req = this.db.transaction('store').objectStore('store').get(key);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+        } catch(e) { resolve(null); }
+      });
+    },
+    set(key, val) {
+      return new Promise((resolve) => {
+        if (!this.db) return resolve();
+        try {
+            const req = this.db.transaction('store', 'readwrite').objectStore('store').put(val, key);
+            req.onsuccess = () => resolve();
+            req.onerror = () => resolve();
+        } catch(e) { resolve(); }
+      });
+    },
+    remove(key) {
+      return new Promise((resolve) => {
+        if (!this.db) return resolve();
+        try {
+            const req = this.db.transaction('store', 'readwrite').objectStore('store').delete(key);
+            req.onsuccess = () => resolve();
+        } catch(e) { resolve(); }
+      });
+    }
+  },
+  // ====================================================
+
   s3: null,
   currentGroupId: 'default',
   activeSector: '',
@@ -587,9 +635,26 @@ const app = {
 
   stopProp(e) { if(e) e.stopPropagation(); },
 
-  init() {
-    const local = localStorage.getItem('fund_pwa_v6');
-    if (local) { try { this.data = JSON.parse(local); } catch(e) {} }
+  async init() {
+    // 1. 初始化大容量数据库
+    await this.dbHelper.init();
+    
+    // 2. 从数据库读取完整数据 (包含所有历史净值)
+    const savedData = await this.dbHelper.get('fund_pwa_full_data');
+    
+    if (savedData && savedData.groups) {
+        this.data = savedData;
+    } else {
+        // 兼容过渡：如果新数据库没有，尝试从旧版 localStorage 读取配置并迁移
+        const local = localStorage.getItem('fund_pwa_v6');
+        if (local) {
+            try { 
+                this.data = JSON.parse(local); 
+                await this.dbHelper.set('fund_pwa_full_data', this.data);
+            } catch(e) {}
+        }
+    }
+
     this.initS3(); 
     this.processGroupRisks();
     this.renderHomeGroups();
@@ -601,12 +666,12 @@ const app = {
             this.rtPauseTimer();
         } else {
             if (document.getElementById('view-realtime').classList.contains('active') && this.rtEnabled && this.getRtFundCodes() !== null) {
-                this.rtStartTimer();
-                this.rtFetchAll();
+                this.rtStartTimer(); this.rtFetchAll();
             }
         }
     });
 
+    // 智能检测：如果发现有基金没有任何历史净值，才静默拉取补充（平时秒开）
     setTimeout(() => {
         const defaultGroup = this.data.groups.find(g => g.id === 'default');
         if (defaultGroup && defaultGroup.fundCodes.length > 0) {
@@ -621,24 +686,26 @@ const app = {
     }, 500);
   },
 
-  getLightweightData() {
-      const lightData = { groups: this.data.groups, customSectors: this.data.customSectors, fundsCache: {} };
-      for (let code in this.data.fundsCache) {
-          const f = this.data.fundsCache[code];
-          lightData.fundsCache[code] = { code: f.code, name: f.name, sectors: f.sectors || [], isStarred: f.isStarred || false };
-      }
-      return JSON.stringify(lightData);
-  },
-
-  saveData() {
+  async saveData() {
     try {
-        const strData = this.getLightweightData();
-        localStorage.setItem('fund_pwa_v6', strData);
+        // 保存完整数据(含几百天净值)到大容量数据库，彻底告别超限报错
+        await this.dbHelper.set('fund_pwa_full_data', this.data);
         this.processGroupRisks();
     } catch(e) {
-        if(e.name === 'QuotaExceededError') { this.showToast('手机存储空间严重不足', 'error'); }
+        this.showToast('本地存储失败', 'error');
     }
   },
+
+  async clearFundData() {
+      if(confirm('警告：这将清空您本地所有的分组、板块和基金数据！\n（您的云端同步配置将保留）\n\n确认清空吗？')) {
+          localStorage.removeItem('fund_pwa_v6');
+          await this.dbHelper.remove('fund_pwa_full_data'); // 清空大数据库
+          this.showToast('本地数据已清空');
+          setTimeout(() => { location.reload(); }, 500);
+      }
+  },
+
+ 
 
   clearFundData() {
       if(confirm('警告：这将清空您本地所有的分组、板块和基金数据！\n（您的云端同步配置将保留）\n\n确认清空吗？')) {
@@ -1922,7 +1989,7 @@ const app = {
     this.showToast('参数保存成功！');
   },
 
-  pullFromCloud() {
+ pullFromCloud() {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
@@ -1931,14 +1998,15 @@ const app = {
     const titleText = document.getElementById('loading-modal-title');
     const progressText = document.getElementById('loading-progress-text');
     
-    titleText.innerText = '云端数据同步中...'; loadingModal.style.display = 'flex'; progressText.innerText = '连接云存储...';
+    titleText.innerText = '云端数据同步中...'; loadingModal.style.display = 'flex'; progressText.innerText = '正在下载完整数据...';
 
     let isTimeout = false;
     const fallbackTimer = setTimeout(() => {
         isTimeout = true; loadingModal.style.display = 'none'; this.showToast('网络请求超时，请检查跨域配置(CORS)', 'error');
-    }, 10000); 
+    }, 15000); 
 
-    this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json' }, (err, data) => {
+    // 获取完整云端文件
+    this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v6_full.json' }, async (err, data) => {
       if (isTimeout) return; clearTimeout(fallbackTimer);
       if (err) {
         loadingModal.style.display = 'none';
@@ -1954,7 +2022,10 @@ const app = {
             const parsedData = JSON.parse(jsonString);
             
             if (parsedData && parsedData.groups) {
-                this.data = parsedData; this.saveData(); progressText.innerText = '拉取成功，即将刷新';
+                this.data = parsedData; 
+                // 直接存入本地大容量数据库
+                await this.dbHelper.set('fund_pwa_full_data', this.data); 
+                progressText.innerText = '拉取并固化成功，即将刷新';
                 setTimeout(() => { location.reload(); }, 600);
             } else { throw new Error('云端数据格式异常(缺少groups节点)'); }
         } catch (parseError) {
@@ -1969,13 +2040,16 @@ const app = {
     if (typeof AWS === 'undefined') return this.showToast('云同步服务不可用', 'error');
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
-    const lightDataStr = this.getLightweightData();
     
-    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v5.json', Body: lightDataStr, ContentType: 'application/json' }, (err) => {
-      if (err) this.showToast('上传失败: ' + err.message, 'error'); else this.showToast('已成功覆盖云端！');
+    // 直接将内存中的完整数据(包含数百条历史走势)转为字符串上传
+    const fullDataStr = JSON.stringify(this.data);
+    this.showToast('正在备份完整数据，请稍候...');
+    
+    // 改名保存为 fund_pwa_v6_full.json
+    this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v6_full.json', Body: fullDataStr, ContentType: 'application/json' }, (err) => {
+      if (err) this.showToast('上传失败: ' + err.message, 'error'); else this.showToast('✅ 完整数据已成功备份到云端！');
     });
-  }
-};
+  };
 
 window.onload = () => app.init();
 </script>

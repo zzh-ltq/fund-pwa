@@ -723,7 +723,12 @@ const app = {
 
   rtFetchSingle(code) {
       return new Promise((resolve) => {
-          let timeoutId = setTimeout(() => resolve(null), 5000);
+          // 缩短单次请求超时时间为 2.5 秒，避免某个废弃基金卡住整个队列
+          let timeoutId = setTimeout(() => {
+              if (window.jsonpgz === tempCallback) window.jsonpgz = null;
+              resolve(null);
+          }, 2500); 
+
           const tempCallback = (data) => {
               clearTimeout(timeoutId);
               if (window.jsonpgz === tempCallback) window.jsonpgz = null;
@@ -731,29 +736,34 @@ const app = {
                   resolve({ code: data.fundcode, name: data.name, gsz: parseFloat(data.gsz), gszzl: parseFloat(data.gszzl), dwjz: data.dwjz, gztime: data.gztime });
               } else resolve(null);
           };
+          
+          // 天天基金回调名固定为 jsonpgz
           window.jsonpgz = tempCallback;
           const script = document.createElement('script');
           script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
           script.onerror = () => { clearTimeout(timeoutId); resolve(null); };
           document.head.appendChild(script);
-          setTimeout(() => { if(script.parentNode) script.remove(); }, 6000);
+          
+          // 执行完后清理 script 节点
+          setTimeout(() => { if(script.parentNode) script.remove(); }, 3000);
       });
   },
 
   async rtFetchAll() {
-      const codes = this.getRtFundCodes();
+      const codes = this.getRtFundCodes(); // 获取当前分组或板块内的基金代码
       if (!codes || codes.length === 0) return;
       if (this.rtIsFetching) return;
       
       this.rtIsFetching = true;
-      if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 拉取中...';
-      if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 拉取中...';
+      if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 逐个拉取中...';
+      if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 逐个拉取中...';
 
-      // 并发拉取提高速度
-      const fetchPromises = codes.map(code => this.rtFetchSingle(code).then(res => {
+      // 必须使用串行拉取 (for...of)，因为JSONP回调函数名固定为全局的 jsonpgz
+      // 并发会导致全局函数互相覆盖，发生只有一个卡片更新的 BUG
+      for (let code of codes) {
+          const res = await this.rtFetchSingle(code);
           if (res) this.rtData[code] = res;
-      }));
-      await Promise.all(fetchPromises);
+      }
 
       this.rtIsFetching = false; 
       this.rtCountdown = this.rtInterval; 
@@ -761,7 +771,7 @@ const app = {
       
       if (this.rtEnabled && !this.rtTimer) this.rtStartTimer();
       
-      // 拉取完后触发重新渲染，以展示最新估值
+      // 拉取完整个分组后，触发重新渲染以展示所有最新估值
       if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
       if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
 

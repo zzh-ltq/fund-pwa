@@ -6,7 +6,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
-  <title>养鸡小能手 V7 旗舰版</title>
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>养鸡小能手 PWA</title>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/aws-sdk/2.1692.0/aws-sdk.min.js"></script>
 
@@ -17,7 +18,7 @@
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --bg-color: #f6f8fc; 
       --surface-color: rgba(255, 255, 255, 0.95); 
-      --blue: #4f8aff; 
+      --blue: #0066ff; 
       --blue-light: #e6f0ff;
       --red: #f43f5e; 
       --green: #10b981; 
@@ -26,91 +27,179 @@
       --radius-lg: 14px; 
       --radius-md: 8px; 
       --shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.03);
+      --shadow-hover: 0 8px 24px rgba(0, 102, 255, 0.08); 
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
-      margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
-      background-color: var(--bg-color); color: var(--text-main); overflow: hidden; 
+      margin: 0; padding: 0;
+      font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      background-color: var(--bg-color); color: var(--text-main);
+      overflow: hidden; 
     }
-    body::before { content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 60vh; background: linear-gradient(180deg, #e4ecfa 0%, #f6f8fc 100%); z-index: -1; }
+    body::before {
+      content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 60vh;
+      background: linear-gradient(180deg, #e4ecfa 0%, #f6f8fc 100%); z-index: -1;
+    }
 
     .app-container { max-width: 100%; margin: 0 auto; height: 100vh; position: relative; display: flex; flex-direction: column; }
-    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; padding-bottom: calc(85px + var(--safe-bottom)); transition: all 0.3s;}
+
+    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; 
+                 padding-bottom: calc(85px + var(--safe-bottom)); transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);}
     .page-view.active { display: flex; animation: fadeIn 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); }
+    
     @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
 
     /* ========== 弹窗容器 ========== */
     .modal-view { display: none; flex-direction: column; height: 100%; width: 100%; position: fixed; top:0; left:0; z-index: 200; transition: opacity 0.3s; }
     .modal-view.active { display: flex; animation: fadeBlur 0.3s ease forwards;}
-    @keyframes fadeBlur { from { opacity: 0; backdrop-filter: blur(0px); background: transparent;} to { opacity: 1; backdrop-filter: blur(5px); background: rgba(0,0,0,0.4);} }
-    .modal-content { width: 100%; height: 100%; background: var(--bg-color); display: flex; flex-direction: column; position: relative; animation: slideUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
-    .modal-bottom { background: #fff; border-radius: 20px 20px 0 0; padding: 20px; width: 100%; margin-top: auto; animation: slideUp 0.3s; }
-    @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes fadeBlur { from { opacity: 0; backdrop-filter: blur(0px); } to { opacity: 1; backdrop-filter: blur(8px); } }
+    .modal-content { width: 100%; height: 100%; background: var(--bg-color); display: flex; flex-direction: column; position: relative; animation: slideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+    @keyframes slideUp { from { transform: translateY(50px) scale(0.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+    .modal-center-content { background: white; width: 85%; max-width: 400px; border-radius: var(--radius-lg); padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); margin: auto; animation: slideUp 0.3s ease; }
 
-    /* ========== 导航栏与底栏 ========== */
-    .nav-bar { padding-top: var(--safe-top); height: calc(44px + var(--safe-top)); display: flex; justify-content: space-between; align-items: center; padding-left: 15px; padding-right: 15px; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); z-index: 100; flex-shrink: 0; }
-    .nav-title { font-size: 16px; font-weight: 800; flex: 1; text-align: center; }
-    .nav-btn { font-size: 13px; color: var(--blue); font-weight: bold; cursor: pointer; background: #fff; padding: 6px 10px; border-radius: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 4px;}
-    
+    /* 全屏加载 */
+    #modal-loading { z-index: 99999; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); justify-content: center; align-items: center; }
+    .loading-spinner { width: 48px; height: 48px; border: 4px solid var(--blue-light); border-top: 4px solid var(--blue); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,102,255,0.1); }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    /* ========== 导航栏 ========== */
+    .nav-bar { padding-top: var(--safe-top); height: calc(44px + var(--safe-top)); display: flex; justify-content: space-between; align-items: center; padding-left: 15px; padding-right: 15px; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); z-index: 100; flex-shrink: 0; box-shadow: 0 1px 0 rgba(0,0,0,0.02); }
+    .nav-title { font-size: 16px; font-weight: 800; color: var(--text-main); flex: 1; text-align: center; letter-spacing: 0.5px;}
+    .nav-btn { font-size: 13px; color: var(--blue); font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background: #fff; padding: 6px 12px; border-radius: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); transition: all 0.3s;}
+    .nav-btn.left { justify-content: flex-start; background:transparent; box-shadow: none; color: var(--blue);}
+
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px; }
 
-    .tab-bar { position: absolute; bottom: 0; left: 0; width: 100%; padding-bottom: max(calc(var(--safe-bottom) + 10px), 15px); padding-top: 8px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(24px); display: flex; justify-content: space-around; z-index: 150; box-shadow: 0 -4px 20px rgba(0,0,0,0.03);}
-    .tab-item { text-align: center; color: #94a3b8; font-size: 10px; font-weight: bold; flex: 1; display:flex; flex-direction:column; align-items:center; transition: 0.3s; }
-    .tab-icon { font-size: 20px; margin-bottom: 2px; filter: grayscale(100%) opacity(0.5); transition: 0.3s;}
+    /* ========== 底部TabBar ========== */
+    .tab-bar { position: absolute; bottom: 0; left: 0; width: 100%; padding-bottom: max(calc(var(--safe-bottom) + 10px), 15px); padding-top: 8px; height: auto; min-height: 56px; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(24px); border-top: 1px solid rgba(255,255,255,0.6); box-shadow: 0 -4px 20px rgba(0,0,0,0.02); display: flex; justify-content: space-around; align-items: center; z-index: 150; }
+    .tab-item { text-align: center; color: #94a3b8; font-size: 11px; font-weight: bold; cursor: pointer; flex: 1; display:flex; flex-direction:column; align-items:center; transition: all 0.3s cubic-bezier(0.25,0.8,0.25,1); }
+    .tab-icon { font-size: 20px; display: block; margin-bottom: 4px; filter: grayscale(100%) opacity(0.5); transition: all 0.3s;}
     .tab-item.active { color: var(--blue); }
-    .tab-item.active .tab-icon { filter: none; transform: translateY(-2px) scale(1.1); }
+    .tab-item.active .tab-icon { filter: none; transform: translateY(-4px) scale(1.15); filter: drop-shadow(0 4px 6px rgba(0,102,255,0.2));}
 
-    /* ========== 通用UI组件 ========== */
-    .card { background: var(--surface-color); border-radius: var(--radius-lg); padding: 14px; box-shadow: var(--shadow-sm); margin-bottom: 12px; position: relative;}
-    .action-pill { display: inline-flex; align-items: center; background: #f1f5f9; color: var(--text-sub); padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 8px; margin-bottom: 8px; cursor: pointer; transition: 0.2s;}
-    .action-pill.active { background: var(--blue); color: #fff; }
-    .tabs-wrap { display: flex; flex-wrap: wrap; padding-bottom: 10px;}
-    .badge { margin-left: 4px; border-radius: 50%; font-size: 10px; width: 14px; height: 14px; display: inline-flex; justify-content: center; align-items: center; background: var(--red); color: white;}
+    /* ========== 首页 Tabs (修改为自动换行全部显示) ========== */
+    .tabs-wrapper { margin-bottom: 10px; }
+    .tabs-scroll { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 4px; }
+    .action-pill { display: inline-flex; align-items: center; background: #f1f5f9; color: var(--text-sub); padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.3s;}
+    .action-pill.active { background: var(--blue); color: #fff; box-shadow: 0 4px 10px rgba(0, 102, 255, 0.25); transform: translateY(-1px);}
     
+    .mgr-btn { font-size: 15px; color: var(--text-sub); font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background:#fff; width:30px; height:30px; border-radius:50%; box-shadow: var(--shadow-sm); transition: all 0.3s;}
+
+    .badge { margin-left: 6px; border-radius: 50%; font-size: 10px; width: 14px; height: 14px; display: inline-flex; justify-content: center; align-items: center; }
+    .badge.warning { background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%); color: white;}
+    .badge.heart { color: var(--green); font-size: 12px;}
+
+    /* 实时控制栏嵌入 */
+    .rt-inline-ctrl { display: flex; align-items: center; justify-content: space-between; background: white; border-radius: var(--radius-lg); padding: 8px 12px; margin-bottom: 10px; box-shadow: var(--shadow-sm); font-size: 12px;}
+    .rt-inline-ctrl .rt-info { font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 6px;}
+    .rt-controls { display: flex; gap: 6px; align-items: center; background: #f1f5f9; padding: 4px 10px; border-radius: 20px; }
+    .rt-btn-icon { background: none; border: none; font-size: 1rem; cursor: pointer; padding: 2px; color: #3b4e6b; display:flex; align-items:center;}
+
+    /* ========== 卡片与列表双视图 ========== */
+    .action-bar-wrap { margin-bottom: 10px; }
+    .action-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .view-toggle { display: flex; background: #e2e8f0; border-radius: 8px; padding: 3px; }
+    .view-toggle span { padding: 4px 12px; font-size: 12px; border-radius: 6px; color: #64748b; cursor: pointer; font-weight: 600;}
+    .view-toggle span.active { background: #fff; color: var(--blue); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .sort-dir-btn { background: #f1f5f9; padding: 6px 12px; border-radius: 16px; font-size: 12px; font-weight: bold; cursor: pointer;}
+    .sort-dir-btn.active { background: #fff; color: var(--blue); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    select.sort-rule { padding: 6px 10px; border-radius: 16px; border: 2px solid transparent; font-size: 12px; outline: none; background: #fff; cursor: pointer; font-weight: bold; color: var(--text-main); }
+
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; } 
+    .card { background: var(--surface-color); border-radius: var(--radius-lg); padding: 14px; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8); position: relative; cursor: pointer; backdrop-filter: blur(10px);}
+    .c-del-btn { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #94a3b8; font-size: 14px; border-radius: 50%; background: #f8fafc; z-index: 10; }
+    .c-star-btn { position: absolute; top: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #cbd5e1; font-size: 16px; border-radius: 50%; background: transparent; z-index: 10; cursor: pointer; }
+    .c-star-btn.starred { color: #a855f7; }
+
+    .c-title-area { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; padding-right: 50px;}
+    .c-title { font-size: 14px; font-weight: 800; line-height: 1.3;}
+    .c-code { font-size: 10px; background: #f1f5f9; padding: 2px 6px; border-radius: 8px; color: var(--text-sub); font-weight: 600;}
+    
+    .c-main { background: #f8fafc; padding: 8px 12px; border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border: 1px solid rgba(0,0,0,0.02);}
+    .c-val { font-size: 18px; font-weight: 900;} 
+    .c-chg { font-size: 14px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: rgba(255,255,255,0.8);}
+    .c-chg.red { color: var(--red); background: #fff1f2;}
+    .c-chg.green { color: var(--green); background: #ecfdf5;}
+    .c-rt-tag { font-size: 10px; color: #fff; background: var(--blue); padding: 2px 4px; border-radius: 4px; margin-left: 6px; font-weight: bold;}
+    
+    .rates-row { display: flex; flex-wrap: wrap; padding: 6px 2px; background: #f8fafc; border-radius: var(--radius-md); margin-bottom: 8px; }
+    .r-item { width: 33.33%; text-align: center; margin-bottom: 4px;}
+    .r-lbl { font-size: 10px; color: var(--text-sub); display: block; margin-bottom: 2px; font-weight: 600;}
+    .r-val { font-size: 12px; font-weight: 800;}
+    
+    .list-table-container { width: 100%; overflow-x: auto; background: var(--surface-color); border-radius: var(--radius-lg); white-space: nowrap; padding-bottom: 8px; box-shadow: var(--shadow-sm); }
+    .l-header { display: flex; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;}
+    .l-row { display: flex; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; align-items: center; cursor: pointer; position: relative; }
+    .l-col-name { width: 140px; flex-shrink: 0; white-space: normal;}
+    .l-col-rate { width: 70px; flex-shrink: 0; text-align: right; font-size: 13px; font-weight: 800;}
+    .l-col-rate.th { font-size: 12px; color: var(--text-sub); cursor: pointer; user-select: none; }
     .red { color: var(--red); } .green { color: var(--green); }
-    .btn-primary { width: 100%; background: var(--blue); color: #fff; padding: 12px; border-radius: 10px; font-size: 15px; font-weight: bold; border: none; margin-bottom: 10px; box-shadow: 0 4px 10px rgba(79, 138, 255, 0.25);}
+
+    /* ========== 持仓页特有样式 ========== */
+    .hold-summary { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: white; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); margin-bottom: 15px;}
+    .hs-block { display: flex; flex-direction: column; gap: 4px; }
+    .hs-lbl { font-size: 12px; color: #94a3b8; font-weight: bold;}
+    .hs-val { font-size: 24px; font-weight: 900;}
     
-    input.std-input { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; outline: none; margin-bottom: 12px; font-size: 14px; background: #f8fafc; }
-
-    /* ========== 实时控制条 ========== */
-    .rt-control-bar { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 8px 12px; border-radius: 20px; margin-bottom: 12px; box-shadow: var(--shadow-sm); font-size: 12px; font-weight: bold;}
-    .rt-btn { background: #f1f5f9; padding: 4px 10px; border-radius: 12px; display:flex; align-items:center; gap:4px; color: var(--blue); cursor:pointer;}
-
-    /* ========== 卡片与列表 (集成实时) ========== */
-    .c-main-flex { display: flex; justify-content: space-between; align-items: center; margin-top: 8px;}
-    .c-rt-badge { font-size: 10px; background: #fff1f2; color: var(--red); padding: 2px 6px; border-radius: 6px; font-weight: bold;}
-    .c-rt-badge.down { background: #ecfdf5; color: var(--green); }
-
-    /* ========== 持仓页(新) ========== */
-    .hold-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px dashed #e2e8f0; }
-    .h-col { flex: 1; text-align: right; font-size: 12px; color: #94a3b8;}
-    .h-col:first-child { text-align: left; flex: 1.5;}
-    .hold-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f1f5f9; position: relative; }
-    .h-val-big { font-size: 15px; font-weight: 800; display: block;}
-    .h-val-sub { font-size: 11px; color: #94a3b8; display: block; margin-top: 4px;}
+    .hold-list-header { display: flex; padding: 10px 0; font-size: 11px; color: #94a3b8; font-weight: bold; border-bottom: 1px solid #e2e8f0; margin-bottom: 10px;}
+    .hold-col { flex: 1; text-align: right; }
+    .hold-col:first-child { flex: 1.5; text-align: left; padding-left: 5px;}
     
-    .hold-edit-btn { background: #f8fafc; border: 1px solid #e2e8f0; padding: 4px 12px; border-radius: 12px; font-size: 12px; color: var(--text-main); font-weight: bold; margin-top: 6px; display: inline-block;}
+    .hold-item-container { position: relative; overflow: hidden; border-radius: var(--radius-lg); margin-bottom: 10px; background: #f1f5f9; }
+    .hold-item { position: relative; z-index: 2; background: white; padding: 12px; display: flex; flex-direction: column; gap: 8px; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); transition: transform 0.2s ease-out; touch-action: pan-y; }
+    .hold-item-row { display: flex; align-items: center; justify-content: space-between; }
+    .hold-actions { position: absolute; right: 0; top: 0; height: 100%; display: flex; z-index: 1; }
+    .h-btn-edit { background: var(--blue); color: white; width: 60px; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 14px;}
+    .h-btn-del { background: var(--red); color: white; width: 60px; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 14px;}
 
-    /* ========== AI 量化研判 ========== */
-    .ai-card { background: #fff; border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid #e2e8f0; }
-    .ai-model-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed #f1f5f9;}
-    .ai-model-row:last-child { border-bottom: none; }
-    .ai-name { font-size: 13px; font-weight: 800; display: flex; flex-direction: column;}
-    .ai-desc { font-size: 10px; color: #94a3b8; font-weight: normal; margin-top: 2px;}
-    .ai-tag { padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold;}
-    .ai-tag.buy { background: #fff1f2; color: var(--red); }
-    .ai-tag.sell { background: #ecfdf5; color: var(--green); }
-    .ai-tag.hold { background: #f1f5f9; color: var(--text-sub); }
+    .adj-btn { font-size: 11px; padding: 2px 8px; background: #f1f5f9; border-radius: 4px; color: var(--text-sub); font-weight: bold; cursor: pointer;}
+    .adj-btn:active { background: #e2e8f0; }
+
+    /* 同步上传持仓按钮 */
+    .sync-btn-large { display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--blue); color: white; padding: 12px; border-radius: 10px; font-size: 15px; font-weight: bold; cursor: pointer; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2); }
+    .sync-btn-outline { background: #f8fafc; color: var(--blue); border: 2px solid var(--blue-light); box-shadow: none; }
+
+    /* ========== 分组管理页面 ========== */
+    .mgr-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--surface-color); border-bottom: 1px solid #f8fafc;}
+    .m-left { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 800;}
+    .m-actions { display: flex; gap: 10px; align-items: center;}
+    .m-btn { width: 26px; height: 26px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 12px; cursor: pointer;}
+
+    input { width: 100%; padding: 10px 12px; border: 2px solid #e2e8f0; border-radius: 10px; outline: none; margin-bottom: 10px; font-size: 13px; background: #fff;}
+    input:focus { border-color: var(--blue); }
+    .btn-primary { width: 100%; background: var(--blue); color: #fff; padding: 10px; border-radius: 10px; font-size: 14px; font-weight: bold; border: none; cursor: pointer; margin-bottom: 10px; }
+
+    canvas { display: block; width: 100%; height: 240px; margin-bottom: 12px;}
+    .detail-tabs { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto;}
+
+    /* AI 技术分析专属样式 */
+    .ana-block { background: #f8fafc; padding: 12px; border-radius: var(--radius-md); margin-bottom: 10px; border: 1px solid rgba(0,0,0,0.02);}
+    .ana-title { font-size: 13px; font-weight: 800; color: var(--text-main); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;}
+    .ana-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 6px 0; border-bottom: 1px dashed #e2e8f0;}
+    .ana-row:last-child { border-bottom: none;}
+    .ai-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #fff; }
+
+    @media (min-width: 768px) {
+      .app-container { max-width: 1400px; flex-direction: row; align-items: stretch; padding: 20px; gap: 20px; }
+      .tab-bar { position: relative; width: 80px; height: calc(100vh - 40px); flex-direction: column; justify-content: flex-start; border-radius: 16px; border-top: none; }
+      .tab-item { flex: none; height: 75px; margin-bottom: 10px; justify-content: center;}
+      .page-view { position: relative; width: 100%; flex: 1; padding-bottom: 0; border-radius: 16px; overflow: hidden; }
+      .modal-view { background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 40px; }
+      .modal-content { width: 800px; max-width: 100%; height: 85vh; border-radius: 20px; overflow: hidden; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.4); border-radius: 10px; }
+    }
   </style>
 </head>
 <body>
 
 <div class="app-container">
 
-  <!-- ================= 底栏 ================= -->
+  <!-- ================= 底部菜单栏 ================= -->
   <div class="tab-bar">
     <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
-    <div class="tab-item" onclick="app.switchTab('holdings')" id="tab-btn-holdings"><span class="tab-icon">💰</span><span>持有</span></div>
+    <div class="tab-item" onclick="app.switchTab('holdings')" id="tab-btn-holdings"><span class="tab-icon">💼</span><span>持有</span></div>
+    <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
     <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
     <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
   </div>
@@ -118,27 +207,48 @@
   <!-- ================= 视图1：自选首页 ================= -->
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
-      <div style="display:flex; gap:6px;">
-        <div class="nav-btn" onclick="app.openModal('forecast')">🔮 预测</div>
-        <div class="nav-btn" onclick="app.refreshAll()">🔄</div>
+      <div style="display:flex; gap:8px;">
+        <div class="nav-btn" onclick="app.switchTab('sync')">☁️同步</div>
+        <div class="nav-btn" onclick="app.refreshAll()">🔄更新净值</div>
       </div>
-      <div class="nav-title">养鸡小能手</div>
-      <div style="display:flex; gap:6px;">
-        <div class="nav-btn" onclick="app.openGroupMgr('home')">☰</div>
-        <div class="nav-btn" onclick="app.openSearch()">🔍</div>
-      </div>
+      <div class="nav-title">📈 养鸡小能手</div>
+      <div class="nav-btn" style="background:#fff;" onclick="app.openSearch()">🔍搜索</div>
     </div>
     
     <div class="scroll-area">
-      <!-- 标签不再横向滚动，改为自动折行 -->
-      <div class="tabs-wrap" id="home-groups"></div>
+      <!-- 盘中实时估值控制条 -->
+      <div class="rt-inline-ctrl">
+         <div class="rt-info">⚡ 盘中实时估值 <span id="home-rt-status" style="font-size:10px; color:#94a3b8; font-weight:normal;">--</span></div>
+         <div class="rt-controls">
+             <button class="rt-btn-icon" onclick="app.rtToggleAuto()" id="home-rt-btn-toggle">⏸️</button>
+             <button class="rt-btn-icon" onclick="app.rtManualRefresh()">🔄</button>
+         </div>
+      </div>
+
+      <div class="tabs-wrapper" style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div class="tabs-scroll" id="home-groups"></div>
+        <div style="display:flex; gap:8px; flex-shrink:0;">
+          <div class="mgr-btn" onclick="app.createGroup('watch')">＋</div>
+          <div class="mgr-btn" onclick="app.openGroupMgr('watch')">☰</div>
+        </div>
+      </div>
       
-      <!-- 实时估值控制条 -->
-      <div class="rt-control-bar">
-        <div>⚡ 盘中估值: <span id="rt-status-home" style="color:var(--text-sub);">暂停</span></div>
-        <div style="display:flex; gap:8px;">
-          <div class="rt-btn" onclick="app.rtToggleAuto()" id="rt-toggle-btn-home">▶️ 开启</div>
-          <div class="rt-btn" onclick="app.rtManualRefresh()">🔄 刷新</div>
+      <div class="action-bar-wrap">
+        <div class="action-row">
+          <span style="font-size:12px; color:#64748b; font-weight:800;">当前分组明细</span>
+          <div class="view-toggle">
+            <span id="vt-card" class="active" onclick="app.setViewMode('card')">卡片</span>
+            <span id="vt-list" onclick="app.setViewMode('list')">列表</span>
+          </div>
+        </div>
+        <div class="action-row" style="justify-content: flex-start; gap: 10px;">
+          <div id="sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSortDir()">降序 ↓</div>
+          <select id="sort-rule" class="sort-rule" onchange="app.renderHome()">
+            <option value="daily">单日涨跌</option>
+            <option value="3日">3日累计</option>
+            <option value="1月">近1月</option>
+            <option value="1年">近1年</option>
+          </select>
         </div>
       </div>
 
@@ -146,153 +256,219 @@
     </div>
   </div>
 
-  <!-- ================= 视图2：持有(资产)页 ================= -->
+  <!-- ================= 视图2：持有 (原预测页替换) ================= -->
   <div id="view-holdings" class="page-view">
     <div class="nav-bar">
-      <div class="nav-btn" onclick="app.refreshAll()">🔄 刷新净值</div>
-      <div class="nav-title">账户持有资产</div>
-      <div style="display:flex; gap:6px;">
-        <div class="nav-btn" onclick="app.openGroupMgr('hold')">☰ 管理</div>
-        <div class="nav-btn" onclick="app.openSyncChoice()">＋ 录入</div>
-      </div>
+      <div class="nav-title">💼 账户持仓</div>
+      <div class="nav-btn" onclick="app.refreshAll()">🔄更新净值</div>
     </div>
     <div class="scroll-area">
-      <div class="tabs-wrap" id="hold-groups"></div>
       
-      <div class="rt-control-bar" style="background:var(--blue-light); border: 1px solid #bfdbfe;">
-         <div style="color:var(--blue);">⚡ 持有页自动拉取盘中估值</div>
-         <div class="rt-btn" style="background:#fff;" onclick="app.rtManualRefresh()">刷新估算</div>
+      <!-- 持有汇总信息 -->
+      <div class="hold-summary">
+         <div class="hs-block">
+             <span class="hs-lbl">账户资产 👁️</span>
+             <span class="hs-val" id="hs-total-asset">--</span>
+         </div>
+         <div class="hs-block" style="text-align:right;">
+             <span class="hs-lbl">当日总收益</span>
+             <span class="hs-val" id="hs-daily-profit" style="color:var(--red);">--</span>
+         </div>
       </div>
 
-      <div class="card" style="padding: 16px;">
-        <div class="hold-header">
-           <div class="h-col">基金名称</div>
-           <div class="h-col">估算涨幅<br><span style="font-size:9px;">(实时)</span></div>
-           <div class="h-col">当日收益<br><span style="font-size:9px;">(估/实)</span></div>
-           <div class="h-col">持有收益</div>
-        </div>
-        <div id="hold-list"></div>
+      <div class="rt-inline-ctrl">
+         <div class="rt-info">⚡ 盘中估算 <span id="hold-rt-status" style="font-size:10px; color:#94a3b8; font-weight:normal;">--</span></div>
+         <div class="rt-controls">
+             <button class="rt-btn-icon" onclick="app.rtToggleAuto()" id="hold-rt-btn-toggle">⏸️</button>
+             <button class="rt-btn-icon" onclick="app.rtManualRefresh()">🔄</button>
+         </div>
       </div>
+
+      <!-- 分组标签栏 -->
+      <div class="tabs-wrapper" style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div class="tabs-scroll" id="hold-groups"></div>
+        <div style="display:flex; gap:8px; flex-shrink:0;">
+          <div class="mgr-btn" onclick="app.createGroup('hold')">＋</div>
+          <div class="mgr-btn" onclick="app.openGroupMgr('hold')">☰</div>
+        </div>
+      </div>
+
+      <!-- 操作区 -->
+      <div class="sync-btn-large" onclick="app.openModal('sync-holdings')">
+          <span>⏏️ 同步持仓</span>
+      </div>
+
+      <!-- 表头 -->
+      <div class="hold-list-header">
+          <div class="hold-col">基金名称</div>
+          <div class="hold-col">估算涨幅<br><span style="font-size:9px;">(实时)</span></div>
+          <div class="hold-col">当日收益</div>
+          <div class="hold-col">持有收益</div>
+      </div>
+
+      <!-- 列表区 -->
+      <div id="holdings-list">
+          <!-- JS Render -->
+      </div>
+      <div style="text-align:center; font-size:10px; color:#94a3b8; margin-top:20px;">💡 提示：左滑持仓卡片可修改或删除记录</div>
+
     </div>
   </div>
 
-  <!-- ================= 视图3：板块页 ================= -->
+  <!-- ================= 视图3：排名页 ================= -->
+  <div id="view-rank" class="page-view">
+    <div class="nav-bar">
+      <div class="nav-title">🏆 分组平均涨跌</div>
+      <div class="view-toggle" style="margin-right:0;">
+        <span id="rank-desc" class="active" onclick="app.setRankDir('desc')">降序</span>
+        <span id="rank-asc" onclick="app.setRankDir('asc')">升序</span>
+      </div>
+    </div>
+    <div class="scroll-area" id="rank-list"></div>
+  </div>
+
+  <!-- ================= 视图4：板块页 ================= -->
   <div id="view-sector" class="page-view">
     <div class="nav-bar">
       <div class="nav-title">🏷️ 板块分析</div>
     </div>
     <div class="scroll-area">
-      <div style="display:flex; gap:10px; margin-bottom: 12px;">
-        <input type="text" class="std-input" id="new-sector-input" placeholder="新建板块名称(限8字)" style="margin:0; flex:1;">
-        <button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button>
-      </div>
-      
-      <div class="tabs-wrap" id="sector-tags"></div>
-      
-      <div class="rt-control-bar" id="sec-rt-bar" style="display:none;">
-        <div>⚡ 盘中估值: <span id="rt-status-sec" style="color:var(--text-sub);">暂停</span></div>
-        <div style="display:flex; gap:8px;">
-          <div class="rt-btn" onclick="app.rtToggleAuto()" id="rt-toggle-btn-sec">▶️ 开启</div>
-          <div class="rt-btn" onclick="app.rtManualRefresh()">🔄 刷新</div>
-        </div>
+      <!-- 实时控制条 -->
+      <div class="rt-inline-ctrl">
+         <div class="rt-info">⚡ 盘中估值 <span id="sec-rt-status" style="font-size:10px; color:#94a3b8; font-weight:normal;">--</span></div>
+         <div class="rt-controls"><button class="rt-btn-icon" onclick="app.rtManualRefresh()">🔄刷新当前</button></div>
       </div>
 
+      <div style="display:flex; gap:10px; margin-bottom: 8px;">
+        <input type="text" id="new-sector-input" placeholder="新建板块名称" style="margin:0; flex:1;">
+        <button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button>
+      </div>
+
+      <div class="tabs-scroll" id="sector-tags" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px dashed #cbd5e1;"></div>
+      
+      <div class="action-bar-wrap" id="sector-action-wrap" style="display:none;">
+        <div class="action-row">
+          <span style="font-size:12px; font-weight:800;">属于该板块的基金</span>
+          <div class="view-toggle">
+            <span id="svt-card" class="active" onclick="app.setSecViewMode('card')">卡片</span>
+            <span id="svt-list" onclick="app.setSecViewMode('list')">列表</span>
+          </div>
+        </div>
+      </div>
       <div id="sector-list"></div>
     </div>
   </div>
 
-  <!-- ================= 视图4：设置 ================= -->
+  <!-- ================= 视图5：设置 ================= -->
   <div id="view-sync" class="page-view">
-    <div class="nav-bar"><div class="nav-title">⚙️ 设置与云同步</div></div>
+    <div class="nav-bar"><div class="nav-title">⚙️ 设置中心</div></div>
     <div class="scroll-area">
-      <div class="card">
-        <h3 style="margin-top:0; font-size: 15px;">S3 / Cloudflare R2 同步配置</h3>
-        <input type="text" class="std-input" id="r2-bucket" placeholder="Bucket Name (如: fund-app)">
-        <input type="text" class="std-input" id="r2-ak" placeholder="Access Key ID">
-        <input type="password" class="std-input" id="r2-sk" placeholder="Secret Access Key">
-        <input type="text" class="std-input" id="r2-endpoint" placeholder="Endpoint URL">
-        <button class="btn-primary" onclick="app.saveR2ParamsOnly()">💾 保存配置参数</button>
-        <button class="btn-primary" style="background:var(--green);" onclick="app.pullFromCloud()">📥 从云端拉取覆盖本地</button>
-        <button class="btn-primary" style="background:#fff; color:var(--blue); border:1px solid var(--blue);" onclick="app.pushToCloud()">☁️ 将本地数据强制上传云端</button>
+      <div class="card" style="margin-bottom: 12px;">
+        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">数据管理</h3>
+        <button class="btn-primary" style="background:#fff1f2; color:var(--red);" onclick="app.clearFundData()">🗑️ 清空本地所有基金</button>
       </div>
-      <button class="btn-primary" style="background:#fff1f2; color:var(--red);" onclick="app.clearFundData()">🗑️ 清空本地所有数据</button>
     </div>
   </div>
 
-  <!-- ================= 弹窗：预测页 ================= -->
-  <div id="modal-forecast" class="modal-view" onclick="app.closeOutside(event, 'forecast')">
-    <div class="modal-content">
+  <!-- ================= 弹窗：同步持仓选择 ================= -->
+  <div id="modal-sync-holdings" class="modal-view" onclick="app.closeOutside(event, 'sync-holdings')">
+      <div class="modal-center-content" onclick="app.stopProp(event)">
+          <div style="text-align:center; font-weight:bold; margin-bottom:20px;">上传“持有”截图即可同步持仓信息</div>
+          <button class="sync-btn-large" onclick="app.handleOCRUpload()">🖼️ 上传持仓页截图</button>
+          <button class="sync-btn-large sync-btn-outline" onclick="app.closeModal('sync-holdings'); app.openModal('manual-holdings')">📝 手动输入</button>
+          <div style="text-align:center; color:#94a3b8; font-size:12px; margin-top:10px; cursor:pointer;" onclick="app.closeModal('sync-holdings')">取消</div>
+      </div>
+  </div>
+
+  <!-- ================= 弹窗：手动输入持仓 ================= -->
+  <div id="modal-manual-holdings" class="modal-view" onclick="app.closeOutside(event, 'manual-holdings')">
+      <div class="modal-content" onclick="app.stopProp(event)">
+          <div class="nav-bar">
+              <div class="nav-btn left" onclick="app.closeModal('manual-holdings')">取消</div>
+              <div class="nav-title">手动录入持仓</div>
+              <div class="nav-btn" onclick="app.saveManualHolding()">保存</div>
+          </div>
+          <div class="scroll-area" style="padding: 20px;">
+              <input type="text" id="mh-code" placeholder="基金代码 (如: 000001)" oninput="app.searchHoldingFundName()">
+              <div id="mh-name-preview" style="font-size:12px; color:var(--blue); margin-top:-5px; margin-bottom:15px; padding-left:10px;"></div>
+              
+              <input type="number" id="mh-amount" placeholder="持有金额 (元)" step="0.01">
+              <input type="number" id="mh-profit" placeholder="持有收益 (元)" step="0.01">
+              
+              <input type="hidden" id="mh-edit-mode" value=""> <!-- 用于区分新增还是修改 -->
+              <div style="font-size:11px; color:#94a3b8; margin-top:10px;">
+                  💡 说明：输入最新持仓金额与总收益，系统将自动反推成本并计算每日变化。
+              </div>
+          </div>
+      </div>
+  </div>
+
+  <!-- ================= 弹窗：分组管理 ================= -->
+  <div id="modal-group-mgr" class="modal-view" onclick="app.closeOutside(event, 'group-mgr')">
+    <div class="modal-content" onclick="app.stopProp(event)">
       <div class="nav-bar">
-        <div class="nav-btn" style="background:none;" onclick="app.closeModal('forecast')">取消</div>
-        <div class="nav-title">🔮 预测波段胜率 Top10</div>
-        <div style="width:40px;"></div>
+        <div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div>
+        <div class="nav-title" id="mgr-title">分组管理</div>
+        <div style="width:60px;"></div>
       </div>
-      <div class="scroll-area" id="forecast-list-container">
-        <div style="text-align:center; padding:40px; color:#94a3b8;">计算中...</div>
+      <div class="scroll-area" id="mgr-scroll-box"></div>
+      <div style="padding: 12px;"><button class="btn-primary" onclick="app.createGroup(app.mgrType)">＋ 新建分组</button></div>
+    </div>
+  </div>
+
+  <!-- ================= 弹窗：基金搜索 ================= -->
+  <div id="modal-search" class="modal-view" onclick="app.closeOutside(event, 'search')">
+    <div class="modal-content" onclick="app.stopProp(event)">
+      <div class="nav-bar">
+        <input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%;">
+        <div class="nav-btn" style="background:none; box-shadow:none; color: var(--text-sub);" onclick="app.closeModal('search')">取消</div>
       </div>
+      <div class="scroll-area" id="search-results"></div>
+    </div>
+  </div>
+
+  <!-- 全局加载 -->
+  <div id="modal-loading" class="modal-view">
+    <div style="width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+        <div class="loading-spinner"></div>
+        <div id="loading-modal-title" style="font-weight: 800; color: var(--text-main); font-size: 16px;">数据更新中...</div>
     </div>
   </div>
 
   <!-- ================= 弹窗：基金详情与AI研判 ================= -->
   <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')">
-    <div class="modal-content">
+    <div class="modal-content" onclick="app.stopProp(event)">
       <div class="nav-bar">
-        <div class="nav-btn" style="background:none;" onclick="app.closeModal('detail')">‹ 返回</div>
-        <div class="nav-title">基金概况与 AI 研判</div>
-        <div style="width:50px;"></div>
+        <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
+        <div class="nav-title">基金详情</div>
+        <div style="width:60px;"></div>
       </div>
       <div class="scroll-area">
-        <div class="card">
-          <h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2>
-          <span id="det-code" style="font-size:12px; background:#f1f5f9; padding:2px 6px; border-radius:4px;">--</span>
-        </div>
         
-        <div class="tabs-wrap" style="border-bottom: 1px solid #e2e8f0; margin-bottom: 12px;">
-          <div class="action-pill active" id="tab-det-ai" onclick="app.switchDetTab('ai')">📊 量化 AI 研判</div>
-          <div class="action-pill" id="tab-det-base" onclick="app.switchDetTab('base')">📈 基础走势</div>
+        <div class="card" style="margin-bottom: 12px;">
+            <h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2>
+            <span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span>
+            <div id="det-rt-block" style="margin-top:10px;"></div>
         </div>
 
-        <div id="det-ai-area"></div>
-        <div id="det-base-area" style="display:none; text-align:center; padding:30px; color:#94a3b8;">开发中，可扩展K线图等</div>
+        <div class="detail-tabs" id="det-tabs">
+          <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
+          <div class="action-pill" style="background:linear-gradient(135deg,#e0e7ff,#c7d2fe); color:#4338ca;" onclick="app.renderDetailTab('analysis')">🤖 AI 量化研判</div>
+        </div>
+
+        <div id="det-chart-area">
+          <div class="card" style="padding:12px; margin-bottom: 12px;">
+            <canvas id="det-canvas"></canvas>
+          </div>
+          <div style="font-weight:800; font-size:14px; margin-bottom:8px;">历史净值明细</div>
+          <div id="det-table-area"></div>
+        </div>
+
+        <!-- AI 分析结果区 -->
+        <div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div>
       </div>
-    </div>
-  </div>
-
-  <!-- ================= 弹窗：持仓录入选择 ================= -->
-  <div id="modal-sync-choice" class="modal-view" onclick="app.closeOutside(event, 'sync-choice')">
-    <div class="modal-bottom" onclick="app.stopProp(event)">
-      <div style="text-align:center; margin-bottom: 20px; font-weight:bold;">上传“持有”截图即可同步持仓信息</div>
-      <button class="btn-primary" onclick="alert('图片识别接口开发中，请使用手动输入')">🖼️ 上传持仓页截图</button>
-      <button class="btn-primary" style="background:#f1f5f9; color:var(--blue);" onclick="app.openHoldAdd()">📝 手动输入</button>
-    </div>
-  </div>
-
-  <!-- ================= 弹窗：手动添加/编辑持仓 ================= -->
-  <div id="modal-hold-add" class="modal-view" onclick="app.closeOutside(event, 'hold-add')">
-    <div class="modal-bottom" onclick="app.stopProp(event)">
-      <div style="display:flex; justify-content:space-between; margin-bottom:15px; font-weight:bold;">
-        <span id="hold-modal-title">添加持仓</span>
-        <span onclick="app.closeModal('hold-add')" style="color:#94a3b8; font-size:20px;">✕</span>
-      </div>
-      <div style="font-size:12px; color:#94a3b8; margin-bottom:5px;">基金代码 (例如: 000001)</div>
-      <input type="text" class="std-input" id="hold-input-code" placeholder="请输入代码">
-      <div style="font-size:12px; color:#94a3b8; margin-bottom:5px;">当前持有金额 (元)</div>
-      <input type="number" class="std-input" id="hold-input-amt" placeholder="例如: 10000">
-      <div style="font-size:12px; color:#94a3b8; margin-bottom:5px;">累计持有收益 (元)</div>
-      <input type="number" class="std-input" id="hold-input-profit" placeholder="例如: 500或-200">
-      
-      <button class="btn-primary" onclick="app.saveHolding()">保存持仓记录</button>
-      <button class="btn-primary" id="hold-del-btn" style="background:#fff1f2; color:var(--red); display:none;" onclick="app.delHolding()">删除该记录</button>
-    </div>
-  </div>
-
-  <!-- ================= 弹窗：分组管理 ================= -->
-  <div id="modal-group-mgr" class="modal-view" onclick="app.closeOutside(event, 'group-mgr')">
-    <div class="modal-bottom" onclick="app.stopProp(event)">
-       <h3 style="margin-top:0;">管理分组</h3>
-       <div id="group-mgr-list" style="max-height: 40vh; overflow-y:auto; margin-bottom: 15px;"></div>
-       <button class="btn-primary" onclick="app.createGroup()">＋ 新建分组</button>
-       <button class="btn-primary" style="background:#f1f5f9; color:var(--text-sub);" onclick="app.closeModal('group-mgr')">完成</button>
     </div>
   </div>
 
@@ -301,599 +477,738 @@
 <script>
 const app = {
   data: {
-    // 首页自选分组
-    groups: [{ id: 'default', name: '全选', fundCodes: [] }],
-    // 持仓分组
-    holdGroups: [{ id: 'h_default', name: '全部持仓', items: [] }], 
+    groups: [{ id: 'default', name: '自选全部', fundCodes: [] }],
+    holdingGroups: [{ id: 'h_default', name: '我的持仓', funds: [] }], // funds: [{code, amount, profit}]
     fundsCache: {},
     customSectors: []
   },
-  s3: null,
-  currentTab: 'home',
   
-  // 状态
+  currentTab: 'home',
   currentGroupId: 'default',
   currentHoldGroupId: 'h_default',
   activeSector: '',
-  editingHoldItem: null, // 当前正在编辑的持仓记录
+  currentDetailCode: '',
   
-  // 实时估值机制
-  rtData: {},
-  rtTimer: null,
-  rtEnabled: false,
-  rtInterval: 60,
-  rtCountdown: 60,
-  rtIsFetching: false,
+  viewMode: 'card', secViewMode: 'card',
+  sortDir: 'desc', secSortDir: 'desc', rankDir: 'desc',
+  
+  rtData: {}, rtTimer: null, rtEnabled: true, rtInterval: 60, rtCountdown: 60, rtIsFetching: false,
+  mgrType: 'watch', masterFundList: [], searchTimer: null,
 
+  formatEMDate(ts, length = 10, offset = 0) {
+    return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
+  },
+
+  showToast(msg, type = 'success') {
+    const div = document.createElement('div');
+    div.innerText = msg;
+    const bg = type === 'success' ? 'var(--green)' : '#1e293b';
+    div.style.cssText = `position:fixed;top:70px;left:50%;transform:translateX(-50%);background:${bg};color:#fff;padding:8px 20px;border-radius:24px;z-index:999999;font-weight:bold;font-size:13px;`;
+    document.body.appendChild(div);
+    setTimeout(() => { div.style.opacity = '0'; div.style.transition = 'all 0.3s'; setTimeout(() => div.remove(), 300); }, 2000);
+  },
   stopProp(e) { if(e) e.stopPropagation(); },
-  closeOutside(e, id) { if (e.target === e.currentTarget) this.closeModal(id); },
+  closeOutside(e, modalId) { if (e.target === e.currentTarget) this.closeModal(modalId); },
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
   init() {
     const local = localStorage.getItem('fund_pwa_v7');
-    if (local) {
-        try { 
-            let d = JSON.parse(local); 
-            this.data.groups = d.groups || this.data.groups;
-            this.data.holdGroups = d.holdGroups || this.data.holdGroups;
-            this.data.fundsCache = d.fundsCache || {};
-            this.data.customSectors = d.customSectors || [];
-        } catch(e) {}
-    }
-    this.initS3(); 
+    if (local) { try { this.data = JSON.parse(local); } catch(e) {} }
+    if (!this.data.holdingGroups) this.data.holdingGroups = [{ id: 'h_default', name: '我的持仓', funds: [] }];
+
+    this.renderHomeGroups(); this.renderHoldGroups();
     this.switchTab('home');
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && this.rtEnabled) { this.rtStartTimer(); this.rtFetchAll(); }
+    });
+    setTimeout(() => this.refreshAll(true), 1000);
   },
 
   saveData() {
-    const lightData = {
-        groups: this.data.groups,
-        holdGroups: this.data.holdGroups,
-        customSectors: this.data.customSectors,
-        fundsCache: {}
-    };
-    for (let code in this.data.fundsCache) {
-        const f = this.data.fundsCache[code];
-        lightData.fundsCache[code] = { code: f.code, name: f.name, sectors: f.sectors || [] };
-    }
-    localStorage.setItem('fund_pwa_v7', JSON.stringify(lightData));
+      try { localStorage.setItem('fund_pwa_v7', JSON.stringify(this.data)); } catch(e) {}
+  },
+  clearFundData() {
+      if(confirm('清空本地所有自选、持仓和板块数据？')) { localStorage.removeItem('fund_pwa_v7'); location.reload(); }
   },
 
-  switchTab(tab) {
-    this.currentTab = tab;
+  switchTab(tabId) {
+    this.currentTab = tabId;
     document.querySelectorAll('.page-view, .tab-item').forEach(el => el.classList.remove('active'));
-    document.getElementById('view-' + tab).classList.add('active');
-    document.getElementById('tab-btn-' + tab).classList.add('active');
+    document.getElementById('view-' + tabId).classList.add('active');
+    document.getElementById('tab-btn-' + tabId).classList.add('active');
     
-    this.rtPauseTimer(); // 切换Tab先暂停，根据需要再开启
-
-    if(tab === 'home') { this.renderHomeGroups(); this.renderHome(); if(this.rtEnabled) this.rtStartTimer(); }
-    if(tab === 'holdings') { this.renderHoldGroups(); this.renderHoldings(); this.rtStartTimer(); } // 持仓页默认强制请求实时
-    if(tab === 'sector') { this.renderSector(); if(this.rtEnabled) this.rtStartTimer(); }
-  },
-
-  // ==================== 核心数据加载 ====================
-  loadFundData(code) {
-    return new Promise((resolve) => {
-      const script = document.createElement('script');
-      let isDone = false;
-      const finish = (res) => { if(isDone) return; isDone = true; script.remove(); resolve(res); };
-      setTimeout(() => finish(null), 5000);
-
-      script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`;
-      script.onload = () => {
-        if (window.Data_netWorthTrend) {
-          let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y }));
-          if (nw.length > 260) nw = nw.slice(-260);
-          const old = this.data.fundsCache[code] || {};
-          const fund = { code, name: window.fS_name || code, netWorth: nw, sectors: old.sectors || [] };
-          this.data.fundsCache[code] = fund;
-          window.Data_netWorthTrend = null; window.fS_name = null;
-          finish(fund);
-        } else finish(null);
-      };
-      script.onerror = () => finish(null);
-      document.head.appendChild(script);
-    });
-  },
-
-  async refreshAll() {
-    let codes = new Set();
-    this.data.groups.forEach(g => g.fundCodes.forEach(c => codes.add(c)));
-    this.data.holdGroups.forEach(g => g.items.forEach(i => codes.add(i.code)));
+    if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); }
+    if(tabId === 'holdings') { this.renderHoldGroups(); this.renderHoldings(); }
+    if(tabId === 'rank') this.renderRank();
+    if(tabId === 'sector') { this.renderSector(); }
     
-    let arr = Array.from(codes);
-    if(arr.length===0) return alert('暂无基金可更新');
-
-    for(let i=0; i<arr.length; i+=5) {
-        await Promise.all(arr.slice(i, i+5).map(c => this.loadFundData(c)));
-    }
-    this.saveData();
-    if(this.currentTab === 'home') this.renderHome();
-    if(this.currentTab === 'holdings') this.renderHoldings();
-    alert('净值数据更新完毕');
+    if(['home', 'holdings', 'sector'].includes(tabId)) {
+        if(this.rtEnabled) { this.rtFetchAll(); this.rtStartTimer(); }
+    } else { this.rtPauseTimer(); }
   },
 
-  // ==================== 实时估值引擎 ====================
+  // ==================== 实时估值核心逻辑 ====================
+  getVisibleFundCodes() {
+      if(this.currentTab === 'home') {
+          const g = this.data.groups.find(x => x.id === this.currentGroupId);
+          return g ? g.fundCodes : [];
+      } else if (this.currentTab === 'holdings') {
+          const g = this.data.holdingGroups.find(x => x.id === this.currentHoldGroupId);
+          return g ? g.funds.map(f => f.code) : [];
+      } else if (this.currentTab === 'sector') {
+          if (!this.activeSector) return [];
+          return Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => f.code);
+      }
+      return [];
+  },
+
   rtFetchSingle(code) {
       return new Promise((resolve) => {
           let timeoutId = setTimeout(() => resolve(null), 3000);
-          const tempCallback = (data) => {
-              clearTimeout(timeoutId);
-              if (window.jsonpgz === tempCallback) window.jsonpgz = null;
-              if (data && data.gsz) resolve({ code, gsz: parseFloat(data.gsz), gszzl: parseFloat(data.gszzl) });
+          const cb = 'jsonpgz_' + code.replace(/[^a-zA-Z0-9]/g, '');
+          window[cb] = (data) => {
+              clearTimeout(timeoutId); delete window[cb];
+              if (data && data.gsz) resolve({ code: data.fundcode, gsz: parseFloat(data.gsz), gszzl: parseFloat(data.gszzl), dwjz: parseFloat(data.dwjz), gztime: data.gztime });
               else resolve(null);
           };
-          window.jsonpgz = tempCallback;
           const script = document.createElement('script');
           script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
+          // The API returns `jsonpgz({...})`, so we need to mock it if we use custom cb name, but it hardcodes `jsonpgz`.
+          // We must intercept it globally.
+          window.jsonpgz = window[cb]; 
           script.onerror = () => { clearTimeout(timeoutId); resolve(null); };
           document.head.appendChild(script);
           setTimeout(() => { if(script.parentNode) script.remove(); }, 3500);
       });
   },
 
-  async rtFetchBatch() {
-      let codes = [];
-      if(this.currentTab === 'home') {
-          const g = this.data.groups.find(x=>x.id===this.currentGroupId);
-          if(g) codes = g.fundCodes;
-      } else if (this.currentTab === 'holdings') {
-          const g = this.data.holdGroups.find(x=>x.id===this.currentHoldGroupId);
-          if(g) codes = g.items.map(i=>i.code);
-      } else if (this.currentTab === 'sector') {
-          if(!this.activeSector) return;
-          codes = Object.values(this.data.fundsCache).filter(f=>f.sectors?.includes(this.activeSector)).map(f=>f.code);
-      }
-
-      if(codes.length===0) return;
+  async rtFetchAll() {
+      const codes = [...new Set(this.getVisibleFundCodes())];
+      if (codes.length === 0) return;
+      if (this.rtIsFetching) return;
       this.rtIsFetching = true;
-      
-      for(let code of codes) {
+      this.rtUpdateStatusUI('更新中...');
+
+      for (let code of codes) {
           const res = await this.rtFetchSingle(code);
-          if(res) this.rtData[code] = res;
+          if (res) this.rtData[code] = res;
       }
-      
       this.rtIsFetching = false;
       this.rtCountdown = this.rtInterval;
+      this.rtUpdateStatusUI();
       
       if(this.currentTab === 'home') this.renderHome();
-      if(this.currentTab === 'holdings') this.renderHoldings();
-      if(this.currentTab === 'sector') this.renderSector();
+      else if (this.currentTab === 'holdings') this.renderHoldings();
+      else if (this.currentTab === 'sector') this.renderSector();
   },
 
   rtStartTimer() {
-      this.rtPauseTimer();
-      this.rtFetchBatch(); // 立即执行一次
+      this.rtPauseTimer(); if (!this.rtEnabled) return;
       this.rtTimer = setInterval(() => {
-          if(!this.rtEnabled && this.currentTab !== 'holdings') return; 
-          if(this.rtIsFetching) return;
+          if (this.rtIsFetching) return;
           this.rtCountdown--;
-          if(this.rtCountdown <= 0) this.rtFetchBatch();
-          this.updateRtUI();
+          if (this.rtCountdown <= 0) this.rtFetchAll();
+          else this.rtUpdateStatusUI();
       }, 1000);
-      this.updateRtUI();
   },
-  rtPauseTimer() { if(this.rtTimer) { clearInterval(this.rtTimer); this.rtTimer = null; } this.updateRtUI(); },
+  rtPauseTimer() { if (this.rtTimer) { clearInterval(this.rtTimer); this.rtTimer = null; } },
   
   rtToggleAuto() {
       this.rtEnabled = !this.rtEnabled;
-      if(this.rtEnabled) this.rtStartTimer(); else this.rtPauseTimer();
+      const btnId1 = document.getElementById('home-rt-btn-toggle');
+      const btnId2 = document.getElementById('hold-rt-btn-toggle');
+      const txt = this.rtEnabled ? '⏸️' : '▶️';
+      if(btnId1) btnId1.innerText = txt; if(btnId2) btnId2.innerText = txt;
+      if (this.rtEnabled) { this.rtStartTimer(); this.rtFetchAll(); } 
+      else { this.rtPauseTimer(); this.rtUpdateStatusUI('已暂停'); }
   },
-  rtManualRefresh() {
-      this.rtCountdown = 0; this.rtFetchBatch();
-  },
-
-  updateRtUI() {
-      let statusStr = this.rtEnabled ? `自动更新(${this.rtCountdown}s)` : '已暂停';
-      let btnStr = this.rtEnabled ? '⏸️ 暂停' : '▶️ 开启';
-      
-      if(document.getElementById('rt-status-home')) {
-          document.getElementById('rt-status-home').innerText = statusStr;
-          document.getElementById('rt-toggle-btn-home').innerText = btnStr;
-      }
-      if(document.getElementById('rt-status-sec')) {
-          document.getElementById('rt-status-sec').innerText = statusStr;
-          document.getElementById('rt-toggle-btn-sec').innerText = btnStr;
-      }
-  },
-
-  // ==================== 模块1：自选首页 ====================
-  renderHomeGroups() {
-    let html = this.data.groups.map(g => `<div class="action-pill ${g.id === this.currentGroupId ? 'active' : ''}" onclick="app.currentGroupId='${g.id}'; app.renderHomeGroups(); app.renderHome();">${g.name}</div>`).join('');
-    document.getElementById('home-groups').innerHTML = html;
-  },
+  rtManualRefresh() { this.rtCountdown = this.rtInterval; this.rtFetchAll(); this.showToast('刷新估值中...'); },
   
-  renderHome() {
-    const group = this.data.groups.find(g => g.id === this.currentGroupId);
-    if(!group || group.fundCodes.length===0) { document.getElementById('home-list').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无基金，请点击右上角放大镜添加</div>'; return; }
-
-    let html = group.fundCodes.map(code => {
-        const f = this.data.fundsCache[code] || { name: code, code: code };
-        const rt = this.rtData[code];
-        
-        let nwStr = '--', chgStr = '--', col = '';
-        if(f.netWorth && f.netWorth.length>1) {
-            let last = f.netWorth[f.netWorth.length-1].y;
-            let prev = f.netWorth[f.netWorth.length-2].y;
-            let chg = ((last-prev)/prev*100).toFixed(2);
-            nwStr = last.toFixed(4);
-            chgStr = (chg>0?'+':'') + chg + '%';
-            col = chg>=0 ? 'red' : 'green';
-        }
-
-        let rtHtml = '';
-        if(rt) {
-            rtHtml = `<div class="c-rt-badge ${rt.gszzl>=0?'':'down'}">盘中估算 ${rt.gszzl>0?'+':''}${rt.gszzl.toFixed(2)}%</div>`;
-        }
-
-        return `
-        <div class="card" onclick="app.openDetail('${code}')">
-           <div style="font-size:14px; font-weight:800; display:flex; justify-content:space-between;">
-              <span>${f.name} <span style="font-size:10px; color:#94a3b8; background:#f1f5f9; padding:2px 4px; border-radius:4px;">${code}</span></span>
-              ${rtHtml}
-           </div>
-           <div class="c-main-flex">
-              <div>
-                 <div style="font-size:11px; color:#94a3b8;">最新净值</div>
-                 <div style="font-size:16px; font-weight:900;">${nwStr}</div>
-              </div>
-              <div style="text-align:right;">
-                 <div style="font-size:11px; color:#94a3b8;">单日涨跌</div>
-                 <div style="font-size:16px; font-weight:900;" class="${col}">${chgStr}</div>
-              </div>
-           </div>
-        </div>`;
-    }).join('');
-    document.getElementById('home-list').innerHTML = html;
+  rtUpdateStatusUI(msg) {
+      const statusTxt = msg || `${this.rtCountdown}s`;
+      ['home-rt-status', 'hold-rt-status', 'sec-rt-status'].forEach(id => {
+          const el = document.getElementById(id); if(el) el.innerText = statusTxt;
+      });
   },
 
-  // ==================== 模块2：持有资产重构 ====================
+  // ==================== 历史净值更新 ====================
+  async refreshAll(isSilent = false) {
+    let allCodes = new Set();
+    this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
+    this.data.holdingGroups.forEach(g => g.funds.forEach(f => allCodes.add(f.code)));
+    const codes = Array.from(allCodes);
+    if(codes.length === 0) return;
+    
+    if(!isSilent) document.getElementById('modal-loading').style.display = 'flex';
+    try {
+        const batchSize = 5;
+        for (let i = 0; i < codes.length; i += batchSize) {
+            const promises = codes.slice(i, i + batchSize).map(code => this.loadFundData(code));
+            await Promise.all(promises); 
+        }
+        this.saveData();
+        if(!isSilent) {
+            document.getElementById('modal-loading').style.display = 'none';
+            this.showToast('净值已更新');
+            if(this.currentTab==='home') this.renderHome();
+            if(this.currentTab==='holdings') this.renderHoldings();
+        }
+    } catch(err) { if(!isSilent) document.getElementById('modal-loading').style.display = 'none'; }
+  },
+
+  loadFundData(code) {
+    return new Promise((resolve) => {
+      const script = document.createElement('script');
+      let isDone = false;
+      const finish = () => { if (isDone) return; isDone = true; script.remove(); resolve(); };
+      const timeout = setTimeout(finish, 5000);
+      script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`;
+      script.onload = () => {
+        clearTimeout(timeout);
+        if (window.Data_netWorthTrend) {
+          let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })).slice(-260);
+          const oldCache = this.data.fundsCache[code] || {};
+          this.data.fundsCache[code] = { code, name: window.fS_name || code, netWorth: nw, sectors: oldCache.sectors || [] };
+          window.Data_netWorthTrend = null; window.fS_name = null;
+        }
+        finish();
+      };
+      script.onerror = () => { clearTimeout(timeout); finish(); };
+      document.head.appendChild(script);
+    });
+  },
+
+  calcRate(nw, days) {
+    if (!nw || nw.length < days) return '--';
+    const last = nw[nw.length-1].y; const prev = nw[nw.length-days].y;
+    return (((last - prev)/prev)*100).toFixed(2);
+  },
+
+  formatFund(code) {
+    const f = this.data.fundsCache[code];
+    if (!f || !f.netWorth) return { code, name: f ? f.name : code, isLoad: false };
+    const nw = f.netWorth;
+    const change = this.calcRate(nw, 2);
+    return { 
+        ...f, isLoad: true, latestDate: this.formatEMDate(nw[nw.length-1].x, 10), 
+        latest: nw[nw.length-1].y.toFixed(4), change, 
+        rates: [
+            { label: '3日', val: this.calcRate(nw, 3) },
+            { label: '1月', val: this.calcRate(nw, 21) },
+            { label: '1年', val: this.calcRate(nw, 252) }
+        ]
+    };
+  },
+
+  // ==================== 自选与板块 渲染 ====================
+  setViewMode(mode) { this.viewMode = mode; document.getElementById('vt-card').className = mode === 'card' ? 'active' : ''; document.getElementById('vt-list').className = mode === 'list' ? 'active' : ''; this.renderHome(); },
+  toggleSortDir() { this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc'; document.getElementById('sort-dir-btn').innerText = this.sortDir === 'desc' ? '降序 ↓' : '升序 ↑'; this.renderHome(); },
+
+  renderHomeGroups() {
+    document.getElementById('home-groups').innerHTML = this.data.groups.map(g => `<div class="action-pill ${g.id === this.currentGroupId ? 'active' : ''}" onclick="app.currentGroupId='${g.id}'; app.switchTab('home');">${g.name}</div>`).join('');
+  },
+
+  buildCardHtml(f) {
+    if(!f.isLoad) return `<div class="card"><div class="c-title">${f.name}</div><div style="font-size:12px;color:#94a3b8;margin-top:10px;">暂无数据</div></div>`;
+    
+    // 嵌入实时估值
+    const rt = this.rtData[f.code];
+    let rtHtml = '';
+    if(rt) {
+        let rtCol = rt.gszzl >= 0 ? 'red' : 'green';
+        rtHtml = `<span class="c-rt-tag" style="background:${rt.gszzl>=0?'var(--red)':'var(--green)'}">估 ${rt.gszzl>0?'+':''}${rt.gszzl.toFixed(2)}%</span>`;
+    }
+
+    let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join('');
+    const col = f.change >= 0 ? 'red' : 'green';
+    
+    return `
+      <div class="card" onclick="app.openDetail('${f.code}')">
+        <div class="c-title-area">
+          <span class="c-title">${f.name}</span><span class="c-code">${f.code}</span>${rtHtml}
+        </div>
+        <div class="c-main">
+          <span style="font-size:12px; font-weight:700; color:#94a3b8;">${f.latestDate}净值</span>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <div class="c-val">${f.latest}</div>
+            <div class="c-chg ${col}">${f.change > 0 ? '+' : ''}${f.change}%</div>
+          </div>
+        </div>
+        <div class="rates-row">${ratesHtml}</div>
+      </div>`;
+  },
+
+  renderHome() {
+    const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0];
+    let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad);
+    
+    const sortVal = document.getElementById('sort-rule').value;
+    funds.sort((a, b) => {
+      let va = parseFloat(sortVal === 'daily' ? a.change : a.rates.find(r=>r.label===sortVal)?.val) || 0;
+      let vb = parseFloat(sortVal === 'daily' ? b.change : b.rates.find(r=>r.label===sortVal)?.val) || 0;
+      return this.sortDir === 'desc' ? vb - va : va - vb;
+    });
+
+    const container = document.getElementById('home-list');
+    container.className = this.viewMode === 'card' ? 'card-grid' : '';
+    container.innerHTML = this.viewMode === 'card' ? funds.map(f => this.buildCardHtml(f)).join('') : this.buildListHtml(funds);
+  },
+
+  buildListHtml(funds) {
+      if(funds.length === 0) return '';
+      let header = `<div class="l-header"><div class="l-col-name th">基金名称</div><div class="l-col-rate th">最新净值</div><div class="l-col-rate th">实时估算</div></div>`;
+      let rows = funds.map(f => {
+          const rt = this.rtData[f.code];
+          let rtTxt = '--', rtCol = '';
+          if(rt) { rtTxt = `${rt.gszzl>0?'+':''}${rt.gszzl.toFixed(2)}%`; rtCol = rt.gszzl >= 0 ? 'red' : 'green'; }
+          
+          return `
+            <div class="l-row" onclick="app.openDetail('${f.code}')">
+              <div class="l-col-name"><div style="font-weight:800; font-size:13px;">${f.name}</div><div style="font-size:10px; color:#94a3b8;">${f.code}</div></div>
+              <div class="l-col-rate" style="width:70px;">
+                <div>${f.latest}</div><div class="${f.change>=0?'red':'green'}" style="font-size:11px;">${f.change>0?'+':''}${f.change}%</div>
+              </div>
+              <div class="l-col-rate ${rtCol}">${rtTxt}</div>
+            </div>`;
+      }).join('');
+      return `<div class="list-table-container">${header}${rows}</div>`;
+  },
+
+  // ==================== 板块页 ====================
+  addSector() {
+    let val = document.getElementById('new-sector-input').value.trim();
+    if(val && !this.data.customSectors.includes(val)) { 
+        this.data.customSectors.push(val); this.saveData(); this.renderSector(); 
+        document.getElementById('new-sector-input').value=''; 
+    }
+  },
+  setSecViewMode(mode) { this.secViewMode = mode; this.renderSector(); },
+  renderSector() {
+    document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => `<div class="action-pill ${this.activeSector === s ? 'active' : ''}" onclick="app.activeSector='${s}'; app.switchTab('sector');">${s}</div>`).join('');
+    const wrap = document.getElementById('sector-action-wrap');
+    if(!this.activeSector) { wrap.style.display = 'none'; document.getElementById('sector-list').innerHTML=''; return; }
+    wrap.style.display = 'block';
+    
+    let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code)).filter(f=>f.isLoad);
+    const container = document.getElementById('sector-list');
+    container.className = this.secViewMode === 'card' ? 'card-grid' : '';
+    container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f)).join('') : this.buildListHtml(funds);
+  },
+
+  // ==================== 持有 (持仓) 模块 ====================
   renderHoldGroups() {
-      let html = this.data.holdGroups.map(g => `<div class="action-pill ${g.id === this.currentHoldGroupId ? 'active' : ''}" onclick="app.currentHoldGroupId='${g.id}'; app.renderHoldGroups(); app.renderHoldings(); app.rtFetchBatch();">${g.name}</div>`).join('');
-      document.getElementById('hold-groups').innerHTML = html;
+      document.getElementById('hold-groups').innerHTML = this.data.holdingGroups.map(g => `<div class="action-pill ${g.id === this.currentHoldGroupId ? 'active' : ''}" onclick="app.currentHoldGroupId='${g.id}'; app.switchTab('holdings');">${g.name}</div>`).join('');
   },
 
   renderHoldings() {
-      const group = this.data.holdGroups.find(g => g.id === this.currentHoldGroupId);
-      if(!group || group.items.length===0) { document.getElementById('hold-list').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">空空如也，请点击右上角录入持仓</div>'; return; }
+      const g = this.data.holdingGroups.find(g => g.id === this.currentHoldGroupId);
+      if(!g || g.funds.length === 0) {
+          document.getElementById('holdings-list').innerHTML = `<div style="text-align:center; padding:40px; color:#94a3b8;">暂无持仓记录，请点击上方同步持仓</div>`;
+          document.getElementById('hs-total-asset').innerText = '0.00';
+          document.getElementById('hs-daily-profit').innerText = '+0.00';
+          return;
+      }
 
-      let html = group.items.map(item => {
-          const f = this.data.fundsCache[item.code] || { name: item.code };
-          const rt = this.rtData[item.code];
+      let totalAsset = 0;
+      let totalDailyProfit = 0;
+      let todayStr = this.formatEMDate(Date.now(), 10);
+
+      let html = g.funds.map((hf, idx) => {
+          const f = this.formatFund(hf.code);
+          const rt = this.rtData[hf.code];
           
-          let estGrowth = rt ? rt.gszzl : 0;
-          let estGrowthStr = rt ? ((estGrowth>0?'+':'')+estGrowth.toFixed(2)+'%') : '--';
-          let egCol = estGrowth >= 0 ? 'red' : 'green';
+          let amount = parseFloat(hf.amount) || 0;
+          let profit = parseFloat(hf.profit) || 0;
+          totalAsset += amount;
 
-          // 核心：若净值未更新，当日收益=持仓额*盘中估算。若已更新，此逻辑为简化的实际收益。
-          let dailyProfit = (item.amount * (estGrowth / 100)).toFixed(2);
-          let dpCol = dailyProfit >= 0 ? 'red' : 'green';
-
-          // 实际涨幅
-          let actualGrowth = '--';
-          if(f.netWorth && f.netWorth.length>1) {
-             let last = f.netWorth[f.netWorth.length-1].y;
-             let prev = f.netWorth[f.netWorth.length-2].y;
-             let chg = ((last-prev)/prev*100).toFixed(2);
-             actualGrowth = (chg>0?'+':'') + chg + '%';
+          // 当日收益计算逻辑 (依据最新净值或估值)
+          let dailyProfit = 0;
+          let estRateTxt = '--', estRateCol = '';
+          
+          if(f.isLoad) {
+              let isUpdatedToday = f.latestDate === todayStr;
+              let shares = amount / parseFloat(f.latest); // 粗略份额
+              
+              if (isUpdatedToday) {
+                  // 净值已更新，使用真实涨跌计算
+                  let yesterdayNav = parseFloat(f.latest) / (1 + parseFloat(f.change)/100);
+                  dailyProfit = shares * (parseFloat(f.latest) - yesterdayNav);
+                  estRateTxt = '已收盘'; estRateCol = '#94a3b8';
+              } else if (rt) {
+                  // 净值未更新，使用实时估值
+                  dailyProfit = amount * (rt.gszzl / 100);
+                  estRateTxt = `${rt.gszzl>0?'+':''}${rt.gszzl.toFixed(2)}%`;
+                  estRateCol = rt.gszzl >= 0 ? 'var(--red)' : 'var(--green)';
+              }
           }
-
-          let holdPCol = item.profit >= 0 ? 'red' : 'green';
+          
+          totalDailyProfit += dailyProfit;
+          let dailyCol = dailyProfit >= 0 ? 'var(--red)' : 'var(--green)';
+          let holdCol = profit >= 0 ? 'var(--red)' : 'var(--green)';
 
           return `
-          <div class="hold-row" onclick="app.openDetail('${item.code}')">
-             <div class="h-col" style="flex:1.5; text-align:left;">
-                <div style="font-weight:800; font-size:13px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${f.name}</div>
-                <div style="font-size:10px; color:#94a3b8;">¥${item.amount.toFixed(2)}</div>
-                <div class="hold-edit-btn" onclick="app.openHoldEdit(event, '${item.code}')">调仓/编辑</div>
-             </div>
-             <div class="h-col">
-                <span class="h-val-big ${egCol}">${estGrowthStr}</span>
-             </div>
-             <div class="h-col">
-                <span class="h-val-big ${dpCol}">${dailyProfit>0?'+':''}${dailyProfit}</span>
-                <span class="h-val-sub">${actualGrowth}</span>
-             </div>
-             <div class="h-col">
-                <span class="h-val-big ${holdPCol}">${item.profit>0?'+':''}${item.profit.toFixed(2)}</span>
-             </div>
-          </div>
+            <div class="hold-item-container" id="hold-box-${idx}">
+                <div class="hold-actions">
+                    <div class="h-btn-edit" onclick="app.openEditHold('${hf.code}')">修改</div>
+                    <div class="h-btn-del" onclick="app.delHold('${hf.code}')">删除</div>
+                </div>
+                <div class="hold-item" id="hold-item-${idx}" 
+                     ontouchstart="app.holdTouchStart(event, ${idx})" 
+                     ontouchmove="app.holdTouchMove(event, ${idx})" 
+                     ontouchend="app.holdTouchEnd(event, ${idx})">
+                    
+                    <div class="hold-item-row" onclick="app.openDetail('${hf.code}')">
+                        <div class="hold-col" style="flex:1.5; text-align:left;">
+                            <div style="font-weight:800; font-size:14px; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${f.name}</div>
+                            <div style="font-size:10px; color:#94a3b8; display:flex; align-items:center; gap:6px; margin-top:4px;">
+                                ${hf.code} <span class="adj-btn" onclick="app.stopProp(event); app.openEditHold('${hf.code}')">调仓</span>
+                            </div>
+                        </div>
+                        <div class="hold-col" style="color:${estRateCol}; font-weight:bold; font-size:13px;">${estRateTxt}</div>
+                        <div class="hold-col" style="color:${dailyCol}; font-weight:bold; font-size:14px;">${dailyProfit>0?'+':''}${dailyProfit.toFixed(2)}</div>
+                        <div class="hold-col">
+                            <div style="color:${holdCol}; font-weight:900; font-size:14px;">${profit>0?'+':''}${profit.toFixed(2)}</div>
+                            <div style="font-size:10px; color:#94a3b8; margin-top:2px;">¥${amount.toFixed(2)}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
           `;
       }).join('');
-      document.getElementById('hold-list').innerHTML = html;
+
+      document.getElementById('holdings-list').innerHTML = html;
+      document.getElementById('hs-total-asset').innerText = totalAsset.toFixed(2);
+      let tdpCol = totalDailyProfit >= 0 ? 'var(--red)' : 'var(--green)';
+      document.getElementById('hs-daily-profit').innerText = (totalDailyProfit>0?'+':'') + totalDailyProfit.toFixed(2);
+      document.getElementById('hs-daily-profit').style.color = tdpCol;
   },
 
-  openSyncChoice() { this.openModal('sync-choice'); },
-  openHoldAdd() { 
-      this.closeModal('sync-choice'); 
-      this.editingHoldItem = null;
-      document.getElementById('hold-modal-title').innerText = '添加持仓';
-      document.getElementById('hold-input-code').value = '';
-      document.getElementById('hold-input-amt').value = '';
-      document.getElementById('hold-input-profit').value = '';
-      document.getElementById('hold-input-code').disabled = false;
-      document.getElementById('hold-del-btn').style.display = 'none';
-      this.openModal('hold-add'); 
+  // 模拟 OCR
+  handleOCRUpload() {
+      alert("⚠️ 由于纯前端离线运行限制，OCR图像识别需接入云端大模型或后端接口。此处为UI演示，请使用【手动输入】录入持仓。");
   },
-  openHoldEdit(e, code) {
-      this.stopProp(e);
-      const group = this.data.holdGroups.find(g => g.id === this.currentHoldGroupId);
-      const item = group.items.find(i => i.code === code);
-      if(!item) return;
-      this.editingHoldItem = item;
-      document.getElementById('hold-modal-title').innerText = '编辑/调仓';
-      document.getElementById('hold-input-code').value = item.code;
-      document.getElementById('hold-input-code').disabled = true;
-      document.getElementById('hold-input-amt').value = item.amount;
-      document.getElementById('hold-input-profit').value = item.profit;
-      document.getElementById('hold-del-btn').style.display = 'block';
-      this.openModal('hold-add');
+
+  searchHoldingFundName() {
+      const code = document.getElementById('mh-code').value.trim();
+      const el = document.getElementById('mh-name-preview');
+      if(code.length === 6) {
+          const f = this.data.fundsCache[code];
+          if(f) el.innerText = "匹配到: " + f.name;
+          else { this.loadFundData(code).then(()=> { el.innerText = this.data.fundsCache[code] ? "抓取到: " + this.data.fundsCache[code].name : "未找到基金"; }); }
+      } else el.innerText = "";
   },
-  
-  async saveHolding() {
-      let code = document.getElementById('hold-input-code').value.trim();
-      let amt = parseFloat(document.getElementById('hold-input-amt').value) || 0;
-      let profit = parseFloat(document.getElementById('hold-input-profit').value) || 0;
-      
-      if(!code) return alert('请输入代码');
-      const group = this.data.holdGroups.find(g => g.id === this.currentHoldGroupId);
-      if(!group) return;
 
-      if(!this.data.fundsCache[code]) {
-          await this.loadFundData(code);
-          if(!this.data.fundsCache[code]) return alert('查无此基金数据，请检查代码');
-      }
-
-      if(this.editingHoldItem) {
-          this.editingHoldItem.amount = amt;
-          this.editingHoldItem.profit = profit;
+  openEditHold(code) {
+      this.closeModal('sync-holdings');
+      const g = this.data.holdingGroups.find(x => x.id === this.currentHoldGroupId);
+      if(!g) return;
+      const hf = g.funds.find(f => f.code === code);
+      if(hf) {
+          document.getElementById('mh-code').value = hf.code;
+          document.getElementById('mh-amount').value = hf.amount;
+          document.getElementById('mh-profit').value = hf.profit;
+          document.getElementById('mh-edit-mode').value = hf.code;
+          this.searchHoldingFundName();
+          this.openModal('manual-holdings');
       } else {
-          if(group.items.some(i=>i.code === code)) return alert('该分组已存在此基金，请点击调仓编辑');
-          group.items.push({ code, amount: amt, profit });
-          if(this.currentHoldGroupId !== 'h_default') {
-             const defG = this.data.holdGroups.find(g=>g.id==='h_default');
-             if(defG && !defG.items.some(i=>i.code===code)) defG.items.push({ code, amount: amt, profit });
-          }
+          document.getElementById('mh-code').value = '';
+          document.getElementById('mh-amount').value = '';
+          document.getElementById('mh-profit').value = '';
+          document.getElementById('mh-edit-mode').value = '';
+          this.openModal('manual-holdings');
       }
-      this.saveData(); this.closeModal('hold-add'); this.renderHoldings(); this.rtFetchBatch();
   },
 
-  delHolding() {
-      if(!this.editingHoldItem) return;
+  saveManualHolding() {
+      const code = document.getElementById('mh-code').value.trim();
+      const amount = parseFloat(document.getElementById('mh-amount').value);
+      const profit = parseFloat(document.getElementById('mh-profit').value);
+      
+      if(!code || isNaN(amount) || isNaN(profit)) return this.showToast('请填写完整数值', 'error');
+
+      const g = this.data.holdingGroups.find(x => x.id === this.currentHoldGroupId);
+      const existing = g.funds.find(f => f.code === code);
+
+      if(existing) {
+          existing.amount = amount; existing.profit = profit;
+      } else {
+          g.funds.push({ code, amount, profit });
+      }
+
+      // 确保缓存存在
+      if(!this.data.fundsCache[code]) this.loadFundData(code);
+      
+      this.saveData(); this.closeModal('manual-holdings'); this.renderHoldings(); this.showToast('保存成功');
+      if(this.rtEnabled) this.rtFetchAll();
+  },
+
+  delHold(code) {
       if(!confirm('确定删除该持仓记录？')) return;
-      const group = this.data.holdGroups.find(g => g.id === this.currentHoldGroupId);
-      group.items = group.items.filter(i => i.code !== this.editingHoldItem.code);
-      this.saveData(); this.closeModal('hold-add'); this.renderHoldings();
+      const g = this.data.holdingGroups.find(x => x.id === this.currentHoldGroupId);
+      g.funds = g.funds.filter(f => f.code !== code);
+      this.saveData(); this.renderHoldings();
   },
 
-  // ==================== 模块3：全新 AI 量化研判 (核心需求) ====================
-  openDetail(code) {
+  // 左滑交互
+  holdTouchStart(e, idx) {
+      this._htX = e.touches[0].clientX;
+      this._htY = e.touches[0].clientY;
+      this._htEl = document.getElementById(`hold-item-${idx}`);
+      this._htEl.style.transition = 'none';
+  },
+  holdTouchMove(e, idx) {
+      if(!this._htX) return;
+      let dx = e.touches[0].clientX - this._htX;
+      let dy = e.touches[0].clientY - this._htY;
+      if (Math.abs(dy) > Math.abs(dx)) return; // 垂直滚动时不触发
+      if (dx > 0) dx = 0; // 只允许左滑
+      if (dx < -120) dx = -120; // 最大滑出距离
+      this._htEl.style.transform = `translateX(${dx}px)`;
+  },
+  holdTouchEnd(e, idx) {
+      if(!this._htX) return;
+      let dx = e.changedTouches[0].clientX - this._htX;
+      this._htEl.style.transition = 'transform 0.2s ease-out';
+      if(dx < -40) { this._htEl.style.transform = `translateX(-120px)`; } 
+      else { this._htEl.style.transform = `translateX(0)`; }
+      this._htX = null;
+  },
+
+  // ==================== 分组管理 ====================
+  openGroupMgr(type) {
+    this.mgrType = type;
+    document.getElementById('mgr-title').innerText = type === 'watch' ? '自选分组管理' : '持仓分组管理';
+    this.renderGroupMgrList();
+    this.openModal('group-mgr');
+  },
+  renderGroupMgrList() {
+    const list = this.mgrType === 'watch' ? this.data.groups : this.data.holdingGroups;
+    const box = document.getElementById('mgr-scroll-box');
+    box.innerHTML = list.map(g => {
+      let isDef = g.id === 'default' || g.id === 'h_default';
+      return `<div class="mgr-item">
+                <div class="m-left">${g.name}</div>
+                <div class="m-actions">
+                  ${isDef ? '' : `<div class="m-btn" style="background:var(--blue-light); color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div>
+                                  <div class="m-btn" style="background:#fff1f2; color:var(--red);" onclick="app.delGroup('${g.id}')">✕</div>`}
+                </div>
+              </div>`;
+    }).join('');
+  },
+  createGroup(type) {
+    let name = prompt('新分组名称');
+    if(name && name.trim()) {
+      let list = type === 'watch' ? this.data.groups : this.data.holdingGroups;
+      list.push({id: (type==='watch'?'g_':'h_')+Date.now(), name: name.trim(), fundCodes:[], funds:[]});
+      this.saveData(); this.renderGroupMgrList(); 
+      if(type==='watch') this.renderHomeGroups(); else this.renderHoldGroups();
+    }
+  },
+  delGroup(id) {
+    if(!confirm('删除此分组？')) return;
+    if(this.mgrType === 'watch') this.data.groups = this.data.groups.filter(g=>g.id!==id);
+    else this.data.holdingGroups = this.data.holdingGroups.filter(g=>g.id!==id);
+    this.saveData(); this.renderGroupMgrList();
+    if(this.mgrType==='watch') { this.currentGroupId='default'; this.renderHomeGroups(); this.renderHome(); }
+    else { this.currentHoldGroupId='h_default'; this.renderHoldGroups(); this.renderHoldings(); }
+  },
+  renameGroup(id) {
+    let list = this.mgrType === 'watch' ? this.data.groups : this.data.holdingGroups;
+    let g = list.find(x=>x.id===id);
+    let nn = prompt('修改名称', g.name);
+    if(nn && nn.trim()) { g.name = nn.trim(); this.saveData(); this.renderGroupMgrList(); if(this.mgrType==='watch') this.renderHomeGroups(); else this.renderHoldGroups(); }
+  },
+
+  // ==================== 全新 AI 研判模块 (5种量化模型) ====================
+  getFundQuantAnalysis(code) {
       const f = this.data.fundsCache[code];
-      if(!f) return;
-      document.getElementById('det-name').innerText = f.name;
-      document.getElementById('det-code').innerText = code;
-      this.switchDetTab('ai', code);
-      this.openModal('detail');
-  },
-
-  switchDetTab(tab, code = null) {
-      document.getElementById('tab-det-ai').className = tab==='ai' ? 'action-pill active':'action-pill';
-      document.getElementById('tab-det-base').className = tab==='base' ? 'action-pill active':'action-pill';
-      document.getElementById('det-ai-area').style.display = tab==='ai'?'block':'none';
-      document.getElementById('det-base-area').style.display = tab==='base'?'block':'none';
-      
-      if(tab === 'ai') {
-          code = code || document.getElementById('det-code').innerText;
-          this.runAIQuantModels(code);
-      }
-  },
-
-  runAIQuantModels(code) {
-      const f = this.data.fundsCache[code];
-      const area = document.getElementById('det-ai-area');
-      if(!f || !f.netWorth || f.netWorth.length < 60) {
-          area.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">历史数据不足60天，无法运行量化模型</div>'; return;
-      }
-
-      // 获取数据并加入盘中估值（如果有）
-      let prices = f.netWorth.map(item => item.y);
       const rt = this.rtData[code];
-      if(rt && rt.gsz) prices.push(rt.gsz);
-      
-      const len = prices.length;
-      const currentPrice = prices[len-1];
+      if (!f || !f.netWorth || f.netWorth.length < 30) return { isValid: false, msg: '历史数据不足30天，无法进行多维度量化分析' };
 
-      // 辅助计算函数
-      const getMA = (days, offset = 0) => {
-          let slice = prices.slice(len - days - offset, len - offset);
-          return slice.reduce((a,b)=>a+b,0) / days;
+      let dataList = f.netWorth.map(item => item.y);
+      let latestPrice = rt ? rt.gsz : dataList[dataList.length - 1];
+      if (rt) dataList.push(latestPrice);
+      
+      const len = dataList.length;
+
+      // 工具函数：计算EMA
+      const getEMA = (data, days) => {
+          let k = 2 / (days + 1);
+          let ema = [data[0]];
+          for (let i = 1; i < data.length; i++) ema.push(data[i] * k + ema[i - 1] * (1 - k));
+          return ema;
       };
 
-      // 1. MA 均线模型 (短期突破)
-      const ma5 = getMA(5), ma10 = getMA(10), ma20 = getMA(20);
-      let maAction = '观望', maCss = 'hold', maScore = 0;
-      if(currentPrice > ma5 && ma5 > ma10) { maAction = '建议加仓1-2层'; maCss = 'buy'; maScore = 1; }
-      else if (currentPrice < ma5 && ma5 < ma10) { maAction = '建议减仓1-2层'; maCss = 'sell'; maScore = -1; }
+      // 工具函数：计算RSI
+      const getRSI = (data, days = 14) => {
+          let gains = 0, losses = 0;
+          for (let i = data.length - days; i < data.length; i++) {
+              let diff = data[i] - data[i - 1];
+              if (diff >= 0) gains += diff; else losses -= diff;
+          }
+          if (losses === 0) return 100;
+          let rs = (gains / days) / (losses / days);
+          return 100 - (100 / (1 + rs));
+      };
 
-      // 2. BOLL 布林带模型 (空间位置)
-      const slice20 = prices.slice(-20);
-      const stdDev = Math.sqrt(slice20.reduce((sum, val) => sum + Math.pow(val - ma20, 2), 0) / 20);
-      const upper = ma20 + 2*stdDev, lower = ma20 - 2*stdDev;
-      const bollPos = (currentPrice - lower) / (upper - lower);
-      let bollAction = '处于中轨震荡，观望', bollCss = 'hold', bollScore = 0;
-      if(bollPos <= 0.1) { bollAction = '极度超跌，建议重手加仓3层'; bollCss = 'buy'; bollScore = 2; }
-      else if(bollPos <= 0.3) { bollAction = '接近下轨支撑，可加仓1层'; bollCss = 'buy'; bollScore = 1; }
-      else if(bollPos >= 0.9) { bollAction = '极度超买，建议减仓2-3层'; bollCss = 'sell'; bollScore = -2; }
-      else if(bollPos >= 0.7) { bollAction = '接近上轨压力，建议减仓1层'; bollCss = 'sell'; bollScore = -1; }
+      // Model 1: 均线系统 (MA5, MA10, MA20)
+      const ma5 = dataList.slice(-5).reduce((a,b)=>a+b)/5;
+      const ma10 = dataList.slice(-10).reduce((a,b)=>a+b)/10;
+      const ma20 = dataList.slice(-20).reduce((a,b)=>a+b)/20;
+      let maAction = "观望", maScore = 0;
+      if (latestPrice > ma5 && ma5 > ma10 && ma10 > ma20) { maAction = "加1层仓"; maScore = 1; }
+      else if (latestPrice < ma5 && ma5 < ma10 && ma10 < ma20) { maAction = "减1层仓"; maScore = -1; }
 
-      // 3. RSI 强弱指标 (14日)
-      let gains = 0, losses = 0;
-      for(let i = len-14; i < len; i++) {
-          let diff = prices[i] - prices[i-1];
-          if(diff>0) gains+=diff; else losses-=diff;
-      }
-      let rs = (gains/14)/(Math.abs(losses)/14 || 1);
-      let rsi = 100 - (100/(1+rs));
-      let rsiAction = '中性强弱，维持原仓位', rsiCss = 'hold', rsiScore = 0;
-      if(rsi < 30) { rsiAction = '严重超卖区，准备加仓2层'; rsiCss = 'buy'; rsiScore = 1.5; }
-      else if (rsi > 70) { rsiAction = '严重超买区，建议减仓2层'; rsiCss = 'sell'; rsiScore = -1.5; }
+      // Model 2: MACD (12, 26, 9)
+      const ema12 = getEMA(dataList, 12); const ema26 = getEMA(dataList, 26);
+      let dif = []; for(let i=0; i<len; i++) dif.push(ema12[i] - ema26[i]);
+      const dea = getEMA(dif, 9);
+      const macd = (dif[len-1] - dea[len-1]) * 2;
+      let macdAction = "观望", macdScore = 0;
+      if (dif[len-1] > 0 && macd > 0) { macdAction = "加1层仓"; macdScore = 1; }
+      else if (macd < 0 && dif[len-1] < 0) { macdAction = "减1层仓"; macdScore = -1; }
 
-      // 4. 简单 MACD 模型 (基于MA近似替代EMA实现轻量化)
-      const ma12 = getMA(12), ma26 = getMA(26);
-      const dif = ma12 - ma26;
-      const prevMa12 = getMA(12, 1), prevMa26 = getMA(26, 1);
-      const prevDif = prevMa12 - prevMa26;
-      let macdAction = '趋势未明，观望为主', macdCss = 'hold', macdScore = 0;
-      if(dif > 0 && dif > prevDif) { macdAction = '多头水上发散，顺势加仓1层'; macdCss = 'buy'; macdScore = 1; }
-      else if (dif < 0 && dif < prevDif) { macdAction = '空头水下发散，坚决减仓2层'; macdCss = 'sell'; macdScore = -1.5; }
-      else if (dif < 0 && dif > prevDif) { macdAction = '跌势趋缓有金叉预期，底仓观望'; macdCss = 'buy'; macdScore = 0.5; }
+      // Model 3: RSI (超买超卖)
+      const rsi14 = getRSI(dataList, 14);
+      let rsiAction = "观望", rsiScore = 0;
+      if (rsi14 < 30) { rsiAction = "加2层仓 (极度超跌)"; rsiScore = 2; }
+      else if (rsi14 > 70) { rsiAction = "减2层仓 (极度超买)"; rsiScore = -2; }
 
-      // 5. 动态回撤修复模型
-      let peak60 = Math.max(...prices.slice(-60));
-      let drawdown = (peak60 - currentPrice) / peak60 * 100;
-      let ddAction = '回撤在可控范围', ddCss = 'hold', ddScore = 0;
-      if(drawdown > 15 && currentPrice > prices[len-2]) { ddAction = '深度回撤且出现止跌，做黄金坑加仓'; ddCss = 'buy'; ddScore = 1.5; }
-      else if (drawdown > 20) { ddAction = '深套区，暂停定投，卧倒装死'; ddCss = 'hold'; ddScore = 0; }
+      // Model 4: 布林带 (BOLL, 20日, 2倍标准差)
+      const slice20 = dataList.slice(-20);
+      const stdDev = Math.sqrt(slice20.reduce((s, v) => s + Math.pow(v - ma20, 2), 0) / 20);
+      const upBand = ma20 + 2 * stdDev; const dnBand = ma20 - 2 * stdDev;
+      const bandPos = ((latestPrice - dnBand) / (upBand - dnBand)) * 100;
+      let bollAction = "观望", bollScore = 0;
+      if (bandPos <= 10) { bollAction = "加2层仓 (触及下轨)"; bollScore = 2; }
+      else if (bandPos >= 90) { bollAction = "减2层仓 (触及上轨)"; bollScore = -2; }
 
-      // === 汇总逻辑：是否适合进场做波段 ===
-      let totalScore = maScore + bollScore + rsiScore + macdScore + ddScore;
-      let finalTitle = '', finalDesc = '', finalBg = '';
-      if(totalScore >= 3.5) { finalTitle = '绝佳击球点：全线看多'; finalDesc = '多模型共振提示处于低位超跌/右侧突破区，非常适合进场大规模布局做波段，建议大幅加仓。'; finalBg = '#fff1f2'; }
-      else if (totalScore >= 1.5) { finalTitle = '偏多布局：逢低吸纳'; finalDesc = '整体处于相对低位或上升通道初段，适合分批小幅进场，建立底仓做波段。'; finalBg = '#fff1f2'; }
-      else if (totalScore <= -3) { finalTitle = '高位预警：风险极大'; finalDesc = '指标全面超买或处于加速下跌通道，绝对不适合做多，建议大幅度减仓止盈止损。'; finalBg = '#ecfdf5'; }
-      else if (totalScore <= -1) { finalTitle = '偏空防守：逢高减磅'; finalDesc = '上方压力较重或动能衰竭，不建议新进场，持有者可趁反弹适当减仓。'; finalBg = '#ecfdf5'; }
-      else { finalTitle = '震荡分歧：多看少动'; finalDesc = '各大量化模型信号互相矛盾或处于中性区，无明显波段套利空间，建议观望。'; finalBg = '#f1f5f9'; }
+      // Model 5: 回撤盈亏风险比 (近60日)
+      const slice60 = dataList.slice(Math.max(0, len-60));
+      let maxPeak = Math.max(...slice60); let minTrough = Math.min(...slice60);
+      let currentDrop = ((maxPeak - latestPrice) / maxPeak) * 100;
+      let dropAction = "观望", dropScore = 0;
+      if (currentDrop > 15) { dropAction = "加1层仓 (高回撤安全区)"; dropScore = 1; }
+      else if (currentDrop < 2) { dropAction = "减1层仓 (无安全垫)"; dropScore = -1; }
 
-      area.innerHTML = `
-         <div class="ai-card" style="background:${finalBg}; border:none;">
-            <div style="font-size:12px; font-weight:bold; color:var(--text-sub); margin-bottom:6px;">🧠 综合波段布局结论</div>
-            <div style="font-size:18px; font-weight:900; color:var(--text-main); margin-bottom:8px;">${finalTitle}</div>
-            <div style="font-size:12px; color:var(--text-sub); line-height:1.5;">${finalDesc}</div>
-         </div>
+      // 综合位置分析
+      let totalScore = maScore + macdScore + rsiScore + bollScore + dropScore;
+      let summaryStr = "震荡区间，暂且观望"; let sumCol = "#64748b";
+      if (totalScore >= 4) { summaryStr = "底部黄金坑，适合进场做波段！🚀"; sumCol = "#f43f5e"; }
+      else if (totalScore >= 2) { summaryStr = "估值偏低，可分批逢低布局"; sumCol = "#f59e0b"; }
+      else if (totalScore <= -4) { summaryStr = "极度高估，建议大幅减仓止盈！⚠️"; sumCol = "#10b981"; }
+      else if (totalScore <= -2) { summaryStr = "估值偏高，注意回调风险"; sumCol = "#059669"; }
 
-         <div class="ai-card">
-            <div style="font-size:12px; font-weight:bold; color:var(--text-sub); margin-bottom:10px;">📐 量化模型独立信号</div>
-            
-            <div class="ai-model-row">
-               <div class="ai-name">BOLL 布林带空间位置<span class="ai-desc">判断标的处于高位还是低位</span></div>
-               <div class="ai-tag ${bollCss}">${bollAction}</div>
-            </div>
-            <div class="ai-model-row">
-               <div class="ai-name">RSI 强弱指标 (14日)<span class="ai-desc">识别超买(>70)与超卖(<30)</span></div>
-               <div class="ai-tag ${rsiCss}">${rsiAction}</div>
-            </div>
-            <div class="ai-model-row">
-               <div class="ai-name">MA 均线攻击系统<span class="ai-desc">监测短期右侧突破或破位</span></div>
-               <div class="ai-tag ${maCss}">${maAction}</div>
-            </div>
-            <div class="ai-model-row">
-               <div class="ai-name">MACD 趋势发散模型<span class="ai-desc">跟踪中期多空力量变化</span></div>
-               <div class="ai-tag ${macdCss}">${macdAction}</div>
-            </div>
-            <div class="ai-model-row">
-               <div class="ai-name">MaxDD 最大回撤修复<span class="ai-desc">寻找跌出来的“黄金坑”</span></div>
-               <div class="ai-tag ${ddCss}">${ddAction}</div>
-            </div>
-         </div>
-      `;
+      return {
+          isValid: true,
+          summaryStr, sumCol, totalScore,
+          models: [
+              { name: "均线趋势模型 (MA)", val: `价格: ${latestPrice.toFixed(4)} / MA20: ${ma20.toFixed(4)}`, action: maAction, score: maScore },
+              { name: "动能趋势模型 (MACD)", val: `MACD柱: ${macd.toFixed(4)}`, action: macdAction, score: macdScore },
+              { name: "强弱指标 (RSI14)", val: `RSI数值: ${rsi14.toFixed(1)}`, action: rsiAction, score: rsiScore },
+              { name: "布林极限模型 (BOLL)", val: `轨道位置: ${bandPos.toFixed(1)}%`, action: bollAction, score: bollScore },
+              { name: "近60日风险偏好", val: `当前回撤: ${currentDrop.toFixed(2)}%`, action: dropAction, score: dropScore }
+          ]
+      };
   },
 
-  // ==================== 其他管理功能模块 ====================
-  openGroupMgr(type) {
-      this.mgrType = type; // 'home' or 'hold'
-      let list = type === 'home' ? this.data.groups : this.data.holdGroups;
-      
-      let html = list.map(g => {
-          let delBtn = (g.id === 'default' || g.id === 'h_default') ? '<div style="width:50px;"></div>' : `<button class="btn-primary" style="width:auto; margin:0; padding:4px 10px; font-size:12px; background:#fff1f2; color:var(--red);" onclick="app.delGroup('${g.id}')">删除</button>`;
-          let renameBtn = (g.id === 'default' || g.id === 'h_default') ? '' : `<button class="btn-primary" style="width:auto; margin:0; padding:4px 10px; font-size:12px; background:var(--blue-light); color:var(--blue);" onclick="app.renameGroup('${g.id}')">重命名</button>`;
-          
-          return `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #f1f5f9;">
-             <span style="font-weight:bold;">${g.name}</span>
-             <div style="display:flex; gap:6px;">${renameBtn}${delBtn}</div>
-          </div>`;
-      }).join('');
-      document.getElementById('group-mgr-list').innerHTML = html;
-      this.openModal('group-mgr');
-  },
-  
-  createGroup() {
-      let n = prompt('请输入新分组名称');
-      if(!n || !n.trim()) return;
-      let target = this.mgrType === 'home' ? this.data.groups : this.data.holdGroups;
-      let prefix = this.mgrType === 'home' ? 'g_' : 'h_';
-      target.push({ id: prefix + Date.now(), name: n.trim(), fundCodes: [], items: [] });
-      this.saveData(); this.openGroupMgr(this.mgrType);
-      if(this.mgrType==='home') this.renderHomeGroups(); else this.renderHoldGroups();
-  },
-  
-  renameGroup(id) {
-      let target = this.mgrType === 'home' ? this.data.groups : this.data.holdGroups;
-      let g = target.find(x=>x.id===id);
-      if(!g) return;
-      let n = prompt('修改名称', g.name);
-      if(n && n.trim()) { g.name = n.trim(); this.saveData(); this.openGroupMgr(this.mgrType); }
-      if(this.mgrType==='home') this.renderHomeGroups(); else this.renderHoldGroups();
+  renderDetailTab(type) {
+    document.querySelectorAll('#det-tabs .action-pill').forEach(el => el.classList.remove('active'));
+    event && event.currentTarget.classList.add('active');
+    
+    document.getElementById('det-chart-area').style.display = 'none';
+    document.getElementById('det-analysis-area').style.display = 'none';
+
+    if (type === 'analysis') {
+        document.getElementById('det-analysis-area').style.display = 'block';
+        const res = this.getFundQuantAnalysis(this.currentDetailCode);
+        const area = document.getElementById('det-analysis-area');
+        if (!res.isValid) { area.innerHTML = `<div style="text-align:center; padding:30px; color:#94a3b8;">${res.msg}</div>`; return; }
+
+        let modelsHtml = res.models.map(m => {
+            let bg = m.score > 0 ? 'var(--red)' : (m.score < 0 ? 'var(--green)' : '#94a3b8');
+            return `
+              <div class="ana-row" style="flex-direction:column; align-items:flex-start; gap:6px;">
+                 <div style="width:100%; display:flex; justify-content:space-between; align-items:center;">
+                     <span style="font-weight:bold; color:var(--text-main);">${m.name}</span>
+                     <span class="ai-badge" style="background:${bg};">${m.action}</span>
+                 </div>
+                 <div style="font-size:11px; color:var(--text-sub);">${m.val}</div>
+              </div>
+            `;
+        }).join('');
+
+        area.innerHTML = `
+            <div class="card" style="border-left: 4px solid ${res.sumCol}; margin-bottom: 15px;">
+                <div style="font-size:12px; color:var(--text-sub); font-weight:bold;">📍 综合波段位置判定</div>
+                <div style="font-size:16px; font-weight:900; color:${res.sumCol}; margin-top:6px;">${res.summaryStr}</div>
+            </div>
+            <div class="ana-block">
+                <div class="ana-title">🔬 5大核心量化模型研判结果</div>
+                ${modelsHtml}
+            </div>
+            <div style="font-size:10px; color:#94a3b8; text-align:center;">💡 提示：AI研判基于历史数据统计，仅供参考，不构成投资建议。</div>
+        `;
+    } else {
+        document.getElementById('det-chart-area').style.display = 'block';
+        // 原有绘制图表逻辑 (简化保留核心)
+        const f = this.data.fundsCache[this.currentDetailCode];
+        if(!f || !f.netWorth) return;
+        const nw = f.netWorth.slice(-type);
+        if(nw.length < 2) return;
+        document.getElementById('det-table-area').innerHTML = nw.slice().reverse().map((item, i, arr) => {
+            let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--';
+            return `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9;"><span style="color:#64748b; font-size:13px;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:800; font-size:14px;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="font-weight:800;">${chg>0?'+':''}${chg}%</span></div>`;
+        }).join('');
+    }
   },
 
-  delGroup(id) {
-      if(!confirm('确定删除该分组吗？')) return;
-      if(this.mgrType === 'home') {
-          this.data.groups = this.data.groups.filter(x=>x.id!==id);
-          if(this.currentGroupId === id) this.currentGroupId = 'default';
-          this.renderHomeGroups(); this.renderHome();
-      } else {
-          this.data.holdGroups = this.data.holdGroups.filter(x=>x.id!==id);
-          if(this.currentHoldGroupId === id) this.currentHoldGroupId = 'h_default';
-          this.renderHoldGroups(); this.renderHoldings();
-      }
-      this.saveData(); this.openGroupMgr(this.mgrType);
+  async openDetail(code) {
+    this.currentDetailCode = code;
+    const f = this.data.fundsCache[code];
+    document.getElementById('det-name').innerText = f.name;
+    document.getElementById('det-code').innerText = f.code;
+    
+    const rt = this.rtData[code];
+    const rtBlock = document.getElementById('det-rt-block');
+    if (rt) {
+        let col = rt.gszzl >= 0 ? 'var(--red)' : 'var(--green)';
+        rtBlock.innerHTML = `<div style="font-size:22px; font-weight:900; color:${col}">${rt.gsz.toFixed(4)} <span style="font-size:14px;">${rt.gszzl>0?'+':''}${rt.gszzl.toFixed(2)}%</span></div><div style="font-size:10px; color:#94a3b8; margin-top:2px;">实时估值 ${rt.gztime.slice(11)}</div>`;
+    } else { rtBlock.innerHTML = ''; }
+
+    this.renderDetailTab(30);
+    this.openModal('detail');
   },
 
-  // 预测弹窗计算
-  renderForecast() {
-      this.openModal('forecast');
-      const container = document.getElementById('forecast-list-container');
-      
-      setTimeout(() => {
-          let list = [];
-          Object.values(this.data.fundsCache).forEach(f => {
-             if(!f.netWorth || f.netWorth.length < 20) return;
-             let prices = f.netWorth.map(item => item.y);
-             let len = prices.length;
-             let cur = prices[len-1];
-             let ma20 = prices.slice(-20).reduce((a,b)=>a+b,0)/20;
-             let std = Math.sqrt(prices.slice(-20).reduce((s, v) => s + Math.pow(v - ma20, 2), 0) / 20);
-             let lower = ma20 - 2*std;
-             // 简单的跌破布林下轨且刚拐头向上的胜率高
-             let score = 100 - ((cur - lower) / ma20) * 500; 
-             if(cur > prices[len-2]) score += 20; // 出现拐头
-             if(score > 99) score = 99;
-             if(score > 60) list.push({ name: f.name, code: f.code, score });
-          });
-          
-          list.sort((a,b)=>b.score - a.score);
-          list = list.slice(0, 10);
-          
-          if(list.length===0) { container.innerHTML='<div style="padding:30px; text-align:center; color:#94a3b8;">暂无符合抄底模型的高胜率基金</div>'; return; }
-          
-          container.innerHTML = list.map((item, idx) => `
-             <div class="card" style="display:flex; justify-content:space-between; align-items:center;" onclick="app.openDetail('${item.code}')">
-                <div><span style="color:var(--red); font-weight:900; font-style:italic; margin-right:8px;">${idx+1}</span> <b>${item.name}</b></div>
-                <div style="text-align:right;">
-                   <div style="color:var(--red); font-weight:900; font-size:18px;">${item.score.toFixed(1)}%</div>
-                   <div style="font-size:10px; color:#94a3b8;">波段胜率</div>
-                </div>
-             </div>
-          `).join('');
+  // 搜索相关 (极简保留)
+  openSearch() { this.openModal('search'); document.getElementById('search-input').value=''; document.getElementById('search-results').innerHTML=''; this.loadMasterList(); },
+  loadMasterList() {
+      if(this.masterFundList.length>0) return;
+      const script = document.createElement('script');
+      script.src = `https://fund.eastmoney.com/js/fundcode_search.js?t=${Date.now()}`;
+      script.onload = () => { if(window.r) this.masterFundList = window.r; };
+      document.head.appendChild(script);
+  },
+  doSearch() {
+      clearTimeout(this.searchTimer);
+      const kw = document.getElementById('search-input').value.trim().toLowerCase();
+      const box = document.getElementById('search-results');
+      if (kw.length < 2) { box.innerHTML = ''; return; }
+      this.searchTimer = setTimeout(() => {
+          const res = this.masterFundList.filter(i => i[0].includes(kw) || i[2].toLowerCase().includes(kw) || i[1].toLowerCase().includes(kw)).slice(0, 20);
+          box.innerHTML = res.map(i => `<div style="padding:12px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between;" onclick="app.addFromSearch('${i[0]}')"><span style="font-weight:bold; font-size:14px;">${i[2]} <span style="font-size:12px;color:#94a3b8;">${i[0]}</span></span><span style="color:var(--blue); font-weight:bold;">+</span></div>`).join('');
       }, 300);
   },
-  
-  // 简化的 S3 同步逻辑保留
-  initS3() { /* 初始化略，保持原逻辑 */ },
-  saveR2ParamsOnly() { /* 保存逻辑略 */ },
-  pullFromCloud() { alert('拉取接口待对接'); },
-  pushToCloud() { alert('上传接口待对接'); }
+  async addFromSearch(code) {
+      const activeGroup = this.data.groups.find(g => g.id === this.currentGroupId);
+      if(!activeGroup) return;
+      if(!activeGroup.fundCodes.includes(code)) activeGroup.fundCodes.push(code);
+      if(!this.data.groups[0].fundCodes.includes(code)) this.data.groups[0].fundCodes.push(code);
+      await this.loadFundData(code);
+      this.saveData(); this.closeModal('search'); this.renderHome(); this.showToast('添加成功');
+  }
 };
 
 window.onload = () => app.init();

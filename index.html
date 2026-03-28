@@ -607,7 +607,7 @@ const app = {
 
   rtData: {},
   rtTimer: null,
-  rtEnabled: true,
+  rtEnabled: false,
   rtInterval: 60,
   rtCountdown: 60,
   rtIsFetching: false,
@@ -636,21 +636,22 @@ const app = {
   stopProp(e) { if(e) e.stopPropagation(); },
 
   async init() {
-    // 1. 初始化大容量数据库
     await this.dbHelper.init();
     
-    // 2. 从数据库读取完整数据 (包含所有历史净值)
+    // 从数据库读取完整数据 (包含所有历史净值 和 rtData实时估值)
     const savedData = await this.dbHelper.get('fund_pwa_full_data');
     
     if (savedData && savedData.groups) {
-        this.data = savedData;
+        this.data.groups = savedData.groups;
+        this.data.fundsCache = savedData.fundsCache || {};
+        this.data.customSectors = savedData.customSectors || [];
+        if (savedData.rtData) this.rtData = savedData.rtData; // 恢复实时估值
     } else {
-        // 兼容过渡：如果新数据库没有，尝试从旧版 localStorage 读取配置并迁移
         const local = localStorage.getItem('fund_pwa_v6');
         if (local) {
             try { 
                 this.data = JSON.parse(local); 
-                await this.dbHelper.set('fund_pwa_full_data', this.data);
+                await this.dbHelper.set('fund_pwa_full_data', { ...this.data, rtData: this.rtData });
             } catch(e) {}
         }
     }
@@ -661,17 +662,26 @@ const app = {
     this.renderHome();
     this.enablePCMouseScroll();
 
+    // 根据 rtEnabled 的默认值 (false) 初始化 UI 状态
+    setTimeout(() => {
+        const toggleTxt = this.rtEnabled ? '⏸️ 暂停' : '▶️ 开启';
+        const statusTxt = this.rtEnabled ? '⏱️ 等待更新' : '⏸️ 已暂停';
+        if(document.getElementById('home-rt-toggle')) document.getElementById('home-rt-toggle').innerText = toggleTxt;
+        if(document.getElementById('sec-rt-toggle')) document.getElementById('sec-rt-toggle').innerText = toggleTxt;
+        if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = statusTxt;
+        if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = statusTxt;
+    }, 100);
+
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             this.rtPauseTimer();
         } else {
-            if (document.getElementById('view-realtime').classList.contains('active') && this.rtEnabled && this.getRtFundCodes() !== null) {
+            if (this.rtEnabled && this.getRtFundCodes() !== null) {
                 this.rtStartTimer(); this.rtFetchAll();
             }
         }
     });
 
-    // 智能检测：如果发现有基金没有任何历史净值，才静默拉取补充（平时秒开）
     setTimeout(() => {
         const defaultGroup = this.data.groups.find(g => g.id === 'default');
         if (defaultGroup && defaultGroup.fundCodes.length > 0) {
@@ -688,8 +698,9 @@ const app = {
 
   async saveData() {
     try {
-        // 保存完整数据(含几百天净值)到大容量数据库，彻底告别超限报错
-        await this.dbHelper.set('fund_pwa_full_data', this.data);
+        // 将 rtData 打包进完整数据中一起保存到 IndexedDB
+        const payload = { ...this.data, rtData: this.rtData };
+        await this.dbHelper.set('fund_pwa_full_data', payload);
         this.processGroupRisks();
     } catch(e) {
         this.showToast('本地存储失败', 'error');
@@ -699,17 +710,12 @@ const app = {
   async clearFundData() {
       if(confirm('警告：这将清空您本地所有的分组、板块和基金数据！\n（您的云端同步配置将保留）\n\n确认清空吗？')) {
           localStorage.removeItem('fund_pwa_v6');
-          await this.dbHelper.remove('fund_pwa_full_data'); // 清空大数据库
-          this.showToast('本地数据已清空');
-          setTimeout(() => { location.reload(); }, 500);
-      }
-  },
-
- 
-
-  clearFundData() {
-      if(confirm('警告：这将清空您本地所有的分组、板块和基金数据！\n（您的云端同步配置将保留）\n\n确认清空吗？')) {
-          localStorage.removeItem('fund_pwa_v6');
+          await this.dbHelper.remove('fund_pwa_full_data'); 
+          
+          // 彻底强制重置内存中的所有数据结构
+          this.data = { groups: [{ id: 'default', name: '全部', fundCodes: [] }], fundsCache: {}, customSectors: [] };
+          this.rtData = {};
+          
           this.showToast('本地数据已清空');
           setTimeout(() => { location.reload(); }, 500);
       }
@@ -845,6 +851,8 @@ const app = {
       if (this.currentDetailCode && document.getElementById('modal-detail').classList.contains('active')) {
           this.updateDetailRtInfo(this.currentDetailCode);
       }
+    // 添加这行代码：获取完实时估值后立刻存入本地数据库
+      this.saveData();
   },
 
   rtStartTimer() {
@@ -1498,13 +1506,23 @@ const app = {
 
       let dataList = f.netWorth.map(item => item.y);
       let latestPrice = dataList[dataList.length - 1];
-      if (rt && rt.gsz) {
-          dataList.push(rt.gsz);
-          latestPrice = rt.gsz;
+      
+      // 获取官方最后一条净值的日期 (例如 "2024-05-20")
+      const lastOfficialTs = f.netWorth[f.netWorth.length - 1].x;
+      const lastOfficialDate = this.formatEMDate(lastOfficialTs, 10);
+
+      // 如果有实时估值，且估值的日期 大于 官方净值日期 (说明今天是交易日，且官方还没出净值)
+      if (rt && rt.gsz && rt.gztime) {
+          const rtDate = rt.gztime.slice(0, 10); // 截取 "YYYY-MM-DD"
+          if (rtDate > lastOfficialDate) {
+              dataList.push(rt.gsz);      // 将今日盘中估值纳入 AI 历史数据序列
+              latestPrice = rt.gsz;       // 更新最新价格用于计算均线
+          }
       }
+      
       const len = dataList.length;
       
-      // 数学工具函数
+      // 以下为原来的数学工具函数，保持不变
       const getMA = (days) => {
           if(len < days) return latestPrice;
           const slice = dataList.slice(-days);
@@ -2005,7 +2023,6 @@ const app = {
         isTimeout = true; loadingModal.style.display = 'none'; this.showToast('网络请求超时，请检查跨域配置(CORS)', 'error');
     }, 15000); 
 
-    // 获取完整云端文件
     this.s3.getObject({ Bucket: conf.bucket, Key: 'fund_pwa_v6_full.json' }, async (err, data) => {
       if (isTimeout) return; clearTimeout(fallbackTimer);
       if (err) {
@@ -2022,9 +2039,14 @@ const app = {
             const parsedData = JSON.parse(jsonString);
             
             if (parsedData && parsedData.groups) {
-                this.data = parsedData; 
-                // 直接存入本地大容量数据库
-                await this.dbHelper.set('fund_pwa_full_data', this.data); 
+                this.data.groups = parsedData.groups;
+                this.data.fundsCache = parsedData.fundsCache || {};
+                this.data.customSectors = parsedData.customSectors || [];
+                // 恢复云端的实时估值数据
+                if (parsedData.rtData) this.rtData = parsedData.rtData;
+                
+                // 将完整数据保存回本地 IndexedDB
+                await this.dbHelper.set('fund_pwa_full_data', { ...this.data, rtData: this.rtData }); 
                 progressText.innerText = '拉取并固化成功，即将刷新';
                 setTimeout(() => { location.reload(); }, 600);
             } else { throw new Error('云端数据格式异常(缺少groups节点)'); }
@@ -2041,13 +2063,12 @@ const app = {
     if (!this.s3) return this.showToast('请先保存配置参数', 'error');
     const conf = JSON.parse(localStorage.getItem('r2_conf'));
     
-    // 直接将内存中的完整数据(包含数百条历史走势)转为字符串上传
-    const fullDataStr = JSON.stringify(this.data);
+    // 将内存中的历史数据 和 实时估值 rtData 打包转为字符串上传
+    const fullDataStr = JSON.stringify({ ...this.data, rtData: this.rtData });
     this.showToast('正在备份完整数据，请稍候...');
     
-    // 改名保存为 fund_pwa_v6_full.json
     this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v6_full.json', Body: fullDataStr, ContentType: 'application/json' }, (err) => {
-      if (err) this.showToast('上传失败: ' + err.message, 'error'); else this.showToast('✅ 完整数据已成功备份到云端！');
+      if (err) this.showToast('上传失败: ' + err.message, 'error'); else this.showToast('✅ 完整历史和估值数据已成功备份到云端！');
     });
   }
 };

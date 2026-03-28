@@ -2049,7 +2049,8 @@ const app = {
     this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v6_full.json', Body: fullDataStr, ContentType: 'application/json' }, (err) => {
       if (err) this.showToast('上传失败: ' + err.message, 'error'); else this.showToast('✅ 完整数据已成功备份到云端！');
     });
-  };
+  }
+};
 
 window.onload = () => app.init();
 </script>

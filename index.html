@@ -1332,7 +1332,7 @@ const app = {
     const btn = document.getElementById('sec-sort-dir-btn'); btn.innerText = this.secSortDir === 'desc' ? '降序 ↓' : '升序 ↑'; btn.className = 'sort-dir-btn active';
     this.renderSector();
   },
-  // ==================== 新增：板块页 AI 波段狙击筛选 ====================
+ // ==================== 新增：板块页 AI 波段狙击筛选 ====================
   renderSectorAIPrediction() {
       // 隐藏正常的板块工具栏和控制条
       document.getElementById('sector-top-tools').style.display = 'none';
@@ -1345,7 +1345,7 @@ const app = {
       setTimeout(() => {
           let qualifyingFunds = [];
 
-          // 1. 遍历全库进行AI推算，寻找建议 "加" 仓的模型数量 >= 4 的基金
+          // 1. 遍历全库进行AI推算，寻找建议 "加" 仓的模型数量等于总模型数（所有模型均建议加仓）的基金
           for (let code in this.data.fundsCache) {
               const f = this.data.fundsCache[code];
               if (!f.netWorth || f.netWorth.length < 60) continue; 
@@ -1356,7 +1356,8 @@ const app = {
               let addCount = 0;
               aiRes.models.forEach(m => { if (m.adv.includes('加')) addCount++; });
 
-              if (addCount >= 4) {
+              // 【修改位置】：这里将 addCount >= 4 改为 addCount === aiRes.models.length (即 5)
+              if (addCount === aiRes.models.length) {
                   qualifyingFunds.push({ code: code, score: aiRes.totalScore });
               }
           }
@@ -1374,7 +1375,8 @@ const app = {
                   if (!finalSelectedCodes.has(best.code)) {
                       finalSelectedCodes.add(best.code);
                       let formattedF = this.formatFund(best.code);
-                      formattedF.aiBadge = `组别: ${g.name} | 分数: ${best.score}`;
+                      // 动态绑定一个属性，用于在卡片上展示AI筛选信息
+                      formattedF.aiBadge = `组别: ${g.name} | 综合得分: ${best.score}`;
                       finalSelectedFunds.push(formattedF);
                   }
               }
@@ -1391,7 +1393,7 @@ const app = {
               if (!finalSelectedCodes.has(bestOrphan.code)) {
                   finalSelectedCodes.add(bestOrphan.code);
                   let formattedF = this.formatFund(bestOrphan.code);
-                  formattedF.aiBadge = `组别: 未分组 | 分数: ${bestOrphan.score}`;
+                  formattedF.aiBadge = `组别: 未分组 | 综合得分: ${bestOrphan.score}`;
                   finalSelectedFunds.push(formattedF);
               }
           }
@@ -1402,7 +1404,8 @@ const app = {
                   <div style="text-align:center; padding: 40px; color:#94a3b8;">
                       <div style="font-size:40px; margin-bottom:10px;">📉</div>
                       <div style="font-weight:bold; color:var(--text-main);">当前库中，暂无满足条件的“黄金坑”基金</div>
-                      <div style="font-size:12px; margin-top:8px;">(需至少4个核心AI模型同时发出看多信号)</div>
+                      <!-- 【修改位置】：修改文字提示为“所有核心AI模型” -->
+                      <div style="font-size:12px; margin-top:8px;">(要求所有核心 AI 模型必须同时发出加仓信号)</div>
                       <button class="btn-primary" style="margin-top:30px; width:140px; border-radius:20px;" onclick="app.renderSector()">🔙 退出 AI 模式</button>
                   </div>
               `;
@@ -1412,9 +1415,10 @@ const app = {
           // 恢复视图网格排版
           container.className = this.secViewMode === 'card' ? 'card-grid' : '';
 
+          // 【修改位置】：修改标题文字
           let html = `
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 4px; grid-column: 1 / -1;">
-                  <span style="font-size:14px; font-weight:800; color:var(--text-main);">🤖 满足 4+ 模型看多基金</span>
+                  <span style="font-size:14px; font-weight:800; color:var(--text-main);">🤖 所有模型一致看多基金</span>
                   <span class="action-pill" style="margin:0; background:var(--blue-light); color:var(--blue);" onclick="app.renderSector()">🔙 退出AI模式</span>
               </div>
           `;
@@ -1423,7 +1427,7 @@ const app = {
           if (this.secViewMode === 'card') {
               html += finalSelectedFunds.map(f => {
                    let cardHtml = this.buildCardHtml(f, false);
-                   return cardHtml.replace('<div class="c-title-area">', `<div style="font-size:10px; color:#f43f5e; font-weight:900; background:#fff1f2; padding:3px 8px; border-radius:6px; display:inline-block; margin-bottom:6px; border:1px solid #ffe4e6;">🎯 核心看多 | ${f.aiBadge}</div><div class="c-title-area">`);
+                   return cardHtml.replace('<div class="c-title-area">', `<div style="font-size:10px; color:#f43f5e; font-weight:900; background:#fff1f2; padding:3px 8px; border-radius:6px; display:inline-block; margin-bottom:6px; border:1px solid #ffe4e6;">🎯 强烈看多 | ${f.aiBadge}</div><div class="c-title-area">`);
               }).join('');
           } else {
                html += this.buildListHtml(finalSelectedFunds, false, true);

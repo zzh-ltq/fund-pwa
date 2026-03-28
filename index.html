@@ -327,24 +327,37 @@
   <div id="view-sector" class="page-view">
     <div class="nav-bar">
       <div class="nav-title">🏷️ 板块分析</div>
+      <!-- 新增：红色的 AI预测 按钮 -->
+      <div class="nav-btn" style="background: linear-gradient(135deg, #f43f5e, #e11d48); color: white; box-shadow: 0 4px 10px rgba(244,63,94,0.3); border: none;" onclick="app.renderSectorAIPrediction()">🤖 AI 狙击</div>
     </div>
     <div class="scroll-area">
-      <div style="display:flex; gap:10px; margin-bottom: 8px;">
-        <input type="text" id="new-sector-input" placeholder="新建板块名称(限8字)" style="margin:0; flex:1;">
-        <button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button>
-      </div>
-
-      <div style="display:flex; gap:10px; margin-bottom: 12px;">
-        <input type="text" id="search-sector-input" placeholder="搜索已建板块" style="margin:0; flex:1;" oninput="app.searchSector()">
-        <button class="btn-primary" style="width:70px; margin:0; background: var(--text-sub); box-shadow: none;" onclick="app.searchSector()">搜索</button>
-      </div>
-      <div id="sector-search-msg" style="display:none; color:var(--red); font-size:12px; margin-bottom:12px; font-weight:bold;">
-        暂无相关板块，请在上方新建。
-      </div>
-
-      <div class="tabs-scroll" id="sector-tags" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px dashed #cbd5e1; flex-wrap: wrap; white-space: normal; gap: 8px;"></div>
       
+      <!-- 新增：用 id="sector-top-tools" 将顶部工具栏包裹起来，方便切换视图时隐藏 -->
+      <div id="sector-top-tools">
+          <div style="display:flex; gap:10px; margin-bottom: 8px;">
+            <input type="text" id="new-sector-input" placeholder="新建板块名称(限8字)" style="margin:0; flex:1;">
+            <button class="btn-primary" style="width:70px; margin:0;" onclick="app.addSector()">添加</button>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-bottom: 12px;">
+            <input type="text" id="search-sector-input" placeholder="搜索已建板块" style="margin:0; flex:1;" oninput="app.searchSector()">
+            <button class="btn-primary" style="width:70px; margin:0; background: var(--text-sub); box-shadow: none;" onclick="app.searchSector()">搜索</button>
+          </div>
+          <div id="sector-search-msg" style="display:none; color:var(--red); font-size:12px; margin-bottom:12px; font-weight:bold;">
+            暂无相关板块，请在上方新建。
+          </div>
+
+          <div class="tabs-scroll" id="sector-tags" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px dashed #cbd5e1; flex-wrap: wrap; white-space: normal; gap: 8px;"></div>
+      </div>
+
       <div class="action-bar-wrap" id="sector-action-wrap" style="display:none;">
+        <div class="action-row">
+          <span id="sector-title-lbl" style="font-size:12px; font-weight:800; color:var(--text-main);">属于该板块的基金</span>
+          <div class="view-toggle">
+            <span id="svt-card" class="active" onclick="app.setSecViewMode('card')">卡片</span>
+            <span id="svt-list" onclick="app.setSecViewMode('list')">列表</span>
+          </div>
+        </div>
         
         <!-- 实时估值控制栏 (板块页) -->
         <div class="rt-controls-mini">
@@ -354,14 +367,7 @@
                 <button class="rt-btn-icon" onclick="app.rtManualRefresh()">🔄 刷新</button>
             </div>
         </div>
-        
-        <div class="action-row">
-          <span id="sector-title-lbl" style="font-size:12px; font-weight:800; color:var(--text-main);">属于该板块的基金</span>
-          <div class="view-toggle">
-            <span id="svt-card" class="active" onclick="app.setSecViewMode('card')">卡片</span>
-            <span id="svt-list" onclick="app.setSecViewMode('list')">列表</span>
-          </div>
-        </div>
+
         <div class="action-row" style="justify-content: flex-start; gap: 10px;">
           <div id="sec-sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleSecSortDir()">降序 ↓</div>
           <select id="sec-sort-rule" class="sort-rule" onchange="app.renderSector()">
@@ -1020,6 +1026,21 @@ const app = {
     }
   },
 
+  // ====== 新增：彻底清理缓存中的孤儿基金数据 ======
+  cleanOrphanFunds() {
+      const validCodes = new Set();
+      // 收集目前还存在于任何分组(包含 default)中的代码
+      this.data.groups.forEach(g => g.fundCodes.forEach(code => validCodes.add(code)));
+      
+      // 遍历资金池，删除不在 validCodes 里的僵尸数据
+      for (let code in this.data.fundsCache) {
+          if (!validCodes.has(code)) {
+              delete this.data.fundsCache[code];
+              if (this.rtData[code]) delete this.rtData[code];
+          }
+      }
+  },
+
   removeFundFromGroup(e, code) {
     this.stopProp(e);
     if (!confirm('确定从该分组移除吗？')) return;
@@ -1032,6 +1053,10 @@ const app = {
       const defaultGroup = this.data.groups.find(g => g.id === 'default');
       if (defaultGroup) defaultGroup.fundCodes = defaultGroup.fundCodes.filter(c => c !== code);
     }
+    
+    // 执行垃圾回收，彻底从 fundsCache 和板块中擦除
+    this.cleanOrphanFunds();
+    
     this.saveData(); this.renderHome(); 
   },
 
@@ -1307,8 +1332,118 @@ const app = {
     const btn = document.getElementById('sec-sort-dir-btn'); btn.innerText = this.secSortDir === 'desc' ? '降序 ↓' : '升序 ↑'; btn.className = 'sort-dir-btn active';
     this.renderSector();
   },
+  // ==================== 新增：板块页 AI 波段狙击筛选 ====================
+  renderSectorAIPrediction() {
+      // 隐藏正常的板块工具栏和控制条
+      document.getElementById('sector-top-tools').style.display = 'none';
+      document.getElementById('sector-action-wrap').style.display = 'none';
+      
+      const container = document.getElementById('sector-list');
+      container.className = ''; // 暂时取消网格
+      container.innerHTML = '<div style="text-align:center; padding: 60px 20px; color:#94a3b8; font-weight:bold;">🤖 全库深度量化演算中，请稍候...</div>';
+
+      setTimeout(() => {
+          let qualifyingFunds = [];
+
+          // 1. 遍历全库进行AI推算，寻找建议 "加" 仓的模型数量 >= 4 的基金
+          for (let code in this.data.fundsCache) {
+              const f = this.data.fundsCache[code];
+              if (!f.netWorth || f.netWorth.length < 60) continue; 
+              
+              const aiRes = this.getFundQuantAnalysis(code);
+              if (!aiRes.isValid) continue;
+
+              let addCount = 0;
+              aiRes.models.forEach(m => { if (m.adv.includes('加')) addCount++; });
+
+              if (addCount >= 4) {
+                  qualifyingFunds.push({ code: code, score: aiRes.totalScore });
+              }
+          }
+
+          let finalSelectedCodes = new Set();
+          let finalSelectedFunds = [];
+
+          // 2. 按自定义分组去重：如果同一分组有多个达标基金，只保留分数最高的一个
+          this.data.groups.forEach(g => {
+              if (g.id === 'default') return; // 跳过默认总库
+              let groupFunds = qualifyingFunds.filter(qf => g.fundCodes.includes(qf.code));
+              if (groupFunds.length > 0) {
+                  groupFunds.sort((a, b) => b.score - a.score); // 分数降序
+                  const best = groupFunds[0];
+                  if (!finalSelectedCodes.has(best.code)) {
+                      finalSelectedCodes.add(best.code);
+                      let formattedF = this.formatFund(best.code);
+                      formattedF.aiBadge = `组别: ${g.name} | 分数: ${best.score}`;
+                      finalSelectedFunds.push(formattedF);
+                  }
+              }
+          });
+
+          // 3. 处理孤儿基金 (没放进任何自定义分组，只在 default 里的)
+          let orphanFunds = qualifyingFunds.filter(qf => {
+              let inCustomGroup = this.data.groups.some(g => g.id !== 'default' && g.fundCodes.includes(qf.code));
+              return !inCustomGroup;
+          });
+          if (orphanFunds.length > 0) {
+              orphanFunds.sort((a, b) => b.score - a.score);
+              const bestOrphan = orphanFunds[0];
+              if (!finalSelectedCodes.has(bestOrphan.code)) {
+                  finalSelectedCodes.add(bestOrphan.code);
+                  let formattedF = this.formatFund(bestOrphan.code);
+                  formattedF.aiBadge = `组别: 未分组 | 分数: ${bestOrphan.score}`;
+                  finalSelectedFunds.push(formattedF);
+              }
+          }
+
+          // 如果没有符合条件的基金
+          if (finalSelectedFunds.length === 0) {
+              container.innerHTML = `
+                  <div style="text-align:center; padding: 40px; color:#94a3b8;">
+                      <div style="font-size:40px; margin-bottom:10px;">📉</div>
+                      <div style="font-weight:bold; color:var(--text-main);">当前库中，暂无满足条件的“黄金坑”基金</div>
+                      <div style="font-size:12px; margin-top:8px;">(需至少4个核心AI模型同时发出看多信号)</div>
+                      <button class="btn-primary" style="margin-top:30px; width:140px; border-radius:20px;" onclick="app.renderSector()">🔙 退出 AI 模式</button>
+                  </div>
+              `;
+              return;
+          }
+
+          // 恢复视图网格排版
+          container.className = this.secViewMode === 'card' ? 'card-grid' : '';
+
+          let html = `
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 4px; grid-column: 1 / -1;">
+                  <span style="font-size:14px; font-weight:800; color:var(--text-main);">🤖 满足 4+ 模型看多基金</span>
+                  <span class="action-pill" style="margin:0; background:var(--blue-light); color:var(--blue);" onclick="app.renderSector()">🔙 退出AI模式</span>
+              </div>
+          `;
+
+          // 将 AI 标签动态注入到卡片或列表的标题区
+          if (this.secViewMode === 'card') {
+              html += finalSelectedFunds.map(f => {
+                   let cardHtml = this.buildCardHtml(f, false);
+                   return cardHtml.replace('<div class="c-title-area">', `<div style="font-size:10px; color:#f43f5e; font-weight:900; background:#fff1f2; padding:3px 8px; border-radius:6px; display:inline-block; margin-bottom:6px; border:1px solid #ffe4e6;">🎯 核心看多 | ${f.aiBadge}</div><div class="c-title-area">`);
+              }).join('');
+          } else {
+               html += this.buildListHtml(finalSelectedFunds, false, true);
+          }
+
+          container.innerHTML = html;
+
+      }, 50); // 微延迟让UI先显示Loading
+  },
+
+  // 修改原有的 renderSector 方法
   renderSector() {
-    let kw = this.sectorSearchKeyword; let matchCount = 0;
+    // 【重要】退出 AI 模式时，恢复顶部工具栏的显示
+    const topTools = document.getElementById('sector-top-tools');
+    if(topTools) topTools.style.display = 'block';
+
+    let kw = this.sectorSearchKeyword; 
+    let matchCount = 0;
+    
+    // ... 下方保留您代码原本剩余的 renderSector() 逻辑不变 ...
     document.getElementById('sector-tags').innerHTML = this.data.customSectors.map(s => {
       let isMatch = kw && s.toLowerCase().includes(kw); if (isMatch) matchCount++;
       let highlightCls = isMatch ? 'highlight-match' : ''; let activeCls = this.activeSector === s ? 'active' : '';
@@ -1321,6 +1456,7 @@ const app = {
     if(!this.activeSector) { wrap.style.display = 'none'; document.getElementById('sector-list').innerHTML=''; return; }
     
     wrap.style.display = 'block';
+    // ... 后续逻辑保持不变 ...
     let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code));
     let loadedFunds = funds.filter(f => f.isLoad);
 
@@ -1372,8 +1508,19 @@ const app = {
       }
     }
   },
+
   clearGroup(id) {
-    if(confirm('清空组内所有基金?')) { let g = this.data.groups.find(g=>g.id===id); if(g) { g.fundCodes=[]; this.saveData(); this.showToast('已清空'); this.renderHome(); } }
+    if(confirm('清空组内所有基金?')) { 
+        let g = this.data.groups.find(g=>g.id===id); 
+        if(g) { 
+            g.fundCodes=[]; 
+            // 同样执行垃圾回收
+            this.cleanOrphanFunds();
+            this.saveData(); 
+            this.showToast('已清空'); 
+            this.renderHome(); 
+        } 
+    }
   },
 
   renderGroupMgrList() {

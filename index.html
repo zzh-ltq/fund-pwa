@@ -173,6 +173,34 @@
     .rt-btn-icon { background: #f1f5f9; border: none; font-size: 11px; font-weight:bold; cursor: pointer; padding: 4px 10px; border-radius: 12px; transition: 0.2s; color: #3b4e6b; display:flex; align-items:center; gap: 4px;}
     .rt-card-row { display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:8px; border-top:1px dashed #e2e8f0; background: linear-gradient(90deg, transparent, rgba(0,102,255,0.02)); margin-left:-14px; margin-right:-14px; padding-left:14px; padding-right:14px;}
     
+    /* ========== 行情与资金模块专属样式 ========== */
+    .market-tabs { display: flex; border-bottom: 1px solid #e2e8f0; margin-bottom: 10px; background: var(--surface-color); padding: 0 10px; }
+    .m-tab { padding: 12px 16px; font-size: 15px; font-weight: 800; color: #64748b; cursor: pointer; position: relative; transition: 0.3s;}
+    .m-tab.active { color: #f59e0b; }
+    .m-tab.active::after { content:''; position:absolute; bottom:0; left:10px; right:10px; height:3px; background:#f59e0b; border-radius:3px 3px 0 0;}
+    
+    .idx-scroll { display: flex; overflow-x: auto; gap: 10px; padding: 0 12px 10px; -webkit-overflow-scrolling: touch; }
+    .idx-card { flex-shrink: 0; width: 110px; background: #fff; padding: 12px 10px; border-radius: 12px; text-align: center; box-shadow: var(--shadow-sm); border: 1px solid rgba(0,0,0,0.02); cursor: pointer;}
+    .idx-name { font-size: 13px; font-weight: 800; color: var(--text-main); margin-bottom: 6px;}
+    .idx-val { font-size: 18px; font-weight: 900; margin-bottom: 4px;}
+    .idx-chg { font-size: 11px; font-weight: bold; display: flex; justify-content: space-between; padding: 0 4px;}
+    
+    .m-search-wrap { padding: 0 12px; margin-bottom: 10px; position: relative;}
+    .m-search-res { position: absolute; top: 100%; left: 12px; right: 12px; background: #fff; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); z-index: 50; max-height: 250px; overflow-y: auto;}
+    
+    /* 盘口数据网格 */
+    .pk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; padding: 12px; font-size: 12px; color: #64748b; background: #fff; border-top: 1px dashed #e2e8f0; border-bottom: 1px dashed #e2e8f0;}
+    .pk-row { display: flex; justify-content: space-between; align-items: center;}
+    .pk-row span:last-child { font-weight: 800; color: var(--text-main);}
+    
+    /* 资金流向图表 */
+    .flow-bar-wrap { margin-top: 15px; padding: 12px; background: #fff; border-radius: var(--radius-md); box-shadow: var(--shadow-sm);}
+    .flow-title { font-size: 14px; font-weight: 800; margin-bottom: 12px; display: flex; justify-content: space-between;}
+    .flow-history { display: flex; align-items: flex-end; justify-content: space-between; height: 60px; margin-top: 10px; gap: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;}
+    .flow-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;}
+    .flow-stick { width: 100%; border-radius: 2px 2px 0 0; min-height: 2px;}
+    .flow-date { font-size: 9px; color: #94a3b8; margin-top: 4px; transform: scale(0.9);}
+
     /* ========== 分组管理页面 ========== */
     .mgr-header { display: flex; padding: 10px 16px; font-size: 12px; color: #94a3b8; font-weight: bold;}
     .mgr-list-wrap { flex: 1; position: relative; margin: 0 12px; background: var(--surface-color); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); overflow-y: auto; border: 1px solid rgba(255,255,255,0.8);}
@@ -211,34 +239,6 @@
     .ana-badge { font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 6px;}
     .ana-desc { font-size: 12px; color: var(--text-sub); line-height: 1.5;}
 
-    /* ========== 行情与资金模块专属样式 ========== */
-    .market-tabs { display: flex; border-bottom: 1px solid #e2e8f0; margin-bottom: 10px; background: var(--surface-color); padding: 0 10px; }
-    .m-tab { padding: 12px 16px; font-size: 15px; font-weight: 800; color: #64748b; cursor: pointer; position: relative; transition: 0.3s;}
-    .m-tab.active { color: #f59e0b; }
-    .m-tab.active::after { content:''; position:absolute; bottom:0; left:10px; right:10px; height:3px; background:#f59e0b; border-radius:3px 3px 0 0;}
-    
-    .idx-scroll { display: flex; overflow-x: auto; gap: 10px; padding: 0 12px 10px; -webkit-overflow-scrolling: touch; }
-    .idx-card { flex-shrink: 0; width: 110px; background: #fff; padding: 12px 10px; border-radius: 12px; text-align: center; box-shadow: var(--shadow-sm); border: 1px solid rgba(0,0,0,0.02); cursor: pointer;}
-    .idx-name { font-size: 13px; font-weight: 800; color: var(--text-main); margin-bottom: 6px;}
-    .idx-val { font-size: 18px; font-weight: 900; margin-bottom: 4px;}
-    .idx-chg { font-size: 11px; font-weight: bold; display: flex; justify-content: space-between; padding: 0 4px;}
-    
-    .m-search-wrap { padding: 0 12px; margin-bottom: 10px; position: relative;}
-    .m-search-res { position: absolute; top: 100%; left: 12px; right: 12px; background: #fff; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); z-index: 50; max-height: 250px; overflow-y: auto;}
-    
-    /* 盘口数据网格 */
-    .pk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; padding: 12px; font-size: 12px; color: #64748b; background: #fff; border-top: 1px dashed #e2e8f0; border-bottom: 1px dashed #e2e8f0;}
-    .pk-row { display: flex; justify-content: space-between; align-items: center;}
-    .pk-row span:last-child { font-weight: 800; color: var(--text-main);}
-    
-    /* 资金流向图表 */
-    .flow-bar-wrap { margin-top: 15px; padding: 12px; background: #fff; border-radius: var(--radius-md); box-shadow: var(--shadow-sm);}
-    .flow-title { font-size: 14px; font-weight: 800; margin-bottom: 12px; display: flex; justify-content: space-between;}
-    .flow-history { display: flex; align-items: flex-end; justify-content: space-between; height: 60px; margin-top: 10px; gap: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;}
-    .flow-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;}
-    .flow-stick { width: 100%; border-radius: 2px 2px 0 0; min-height: 2px;}
-    .flow-date { font-size: 9px; color: #94a3b8; margin-top: 4px; transform: scale(0.9);}
-
     @media (min-width: 768px) {
       .app-container { max-width: 1400px; flex-direction: row; align-items: stretch; padding: 20px; gap: 20px; }
       .tab-bar { position: relative; width: 80px; height: calc(100vh - 40px); padding: 20px 0; bottom: auto; top: auto; left: auto; flex-direction: column; justify-content: flex-start; border-radius: 16px; border-top: none; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.8); box-shadow: var(--shadow-sm); z-index: 10; }
@@ -272,13 +272,11 @@
   <!-- ================= 底部菜单栏(移动)/侧边栏(PC) ================= -->
   <div class="tab-bar">
     <div class="tab-item active" onclick="app.switchTab('home')" id="tab-btn-home"><span class="tab-icon">🏠</span><span>自选</span></div>
+    <div class="tab-item" onclick="app.switchTab('market')" id="tab-btn-market"><span class="tab-icon">📊</span><span>行情</span></div>
     <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
     <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
-    <!-- 新增：行情菜单 -->
-    <div class="tab-item" onclick="app.switchTab('market')" id="tab-btn-market"><span class="tab-icon">📊</span><span>行情</span></div>
     <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
   </div>
-
 
   <!-- ================= 新增视图：行情页 ================= -->
   <div id="view-market" class="page-view">
@@ -307,7 +305,7 @@
        <div id="market-watched-list"></div>
     </div>
   </div>
-  
+
   <!-- ================= 视图1：自选首页 ================= -->
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
@@ -529,6 +527,63 @@
     </div>
   </div>
 
+  <!-- ================= 弹窗：基金详情 ================= -->
+  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')">
+    <div class="modal-content" onclick="app.stopProp(event)">
+      <div class="nav-bar">
+        <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
+        <div class="nav-title">基金详情</div>
+        <div style="width:60px;"></div>
+      </div>
+      <div class="scroll-area">
+        
+        <div class="card" style="margin-bottom: 12px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2>
+              <span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span>
+              <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="margin-left:8px; padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);">
+                <option value="">+ 加自选</option>
+              </select>
+            </div>
+            <div id="det-rt-block" style="text-align:right; display:none;">
+                <div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div>
+                <div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;">
+                    <div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div>
+                </div>
+                <div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-tabs" id="det-tabs">
+          <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
+          <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
+          <div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div>
+          <div class="action-pill" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff;" onclick="app.renderDetailTab('analysis')">🤖 AI波段研判</div>
+        </div>
+
+        <div id="det-chart-area">
+          <div class="card" style="padding:12px; margin-bottom: 12px;">
+            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px; padding:0 2px;">
+              <span style="color:#1e293b; font-weight:800;">业绩走势(累计涨跌)</span>
+              <span style="color:#64748b;">最大回撤 <span id="det-maxdrop" class="green">--</span></span>
+            </div>
+            <canvas id="det-canvas" 
+                    onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()"
+                    ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas>
+          </div>
+          <div style="font-weight:800; font-size:14px; margin-bottom:8px; padding-left: 2px;">历史净值明细</div>
+          <div id="det-table-area"></div>
+        </div>
+
+        <div id="det-hold-area" style="display:none;"></div>
+        <div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- ================= 弹窗：行情详情(分时/盘口/资金) ================= -->
   <div id="modal-market-detail" class="modal-view" onclick="app.closeOutside(event, 'market-detail')">
@@ -593,71 +648,12 @@
     </div>
   </div>
 
-  <!-- ================= 弹窗：基金详情 ================= -->
-  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')">
-    <div class="modal-content" onclick="app.stopProp(event)">
-      <div class="nav-bar">
-        <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
-        <div class="nav-title">基金详情</div>
-        <div style="width:60px;"></div>
-      </div>
-      <div class="scroll-area">
-        
-        <div class="card" style="margin-bottom: 12px;">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
-              <h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2>
-              <span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span>
-              <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="margin-left:8px; padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);">
-                <option value="">+ 加自选</option>
-              </select>
-            </div>
-            <div id="det-rt-block" style="text-align:right; display:none;">
-                <div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div>
-                <div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;">
-                    <div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div>
-                </div>
-                <div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="detail-tabs" id="det-tabs">
-          <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
-          <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
-          <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
-          <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
-          <div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div>
-          <div class="action-pill" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff;" onclick="app.renderDetailTab('analysis')">🤖 AI波段研判</div>
-        </div>
-
-        <div id="det-chart-area">
-          <div class="card" style="padding:12px; margin-bottom: 12px;">
-            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px; padding:0 2px;">
-              <span style="color:#1e293b; font-weight:800;">业绩走势(累计涨跌)</span>
-              <span style="color:#64748b;">最大回撤 <span id="det-maxdrop" class="green">--</span></span>
-            </div>
-            <canvas id="det-canvas" 
-                    onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()"
-                    ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas>
-          </div>
-          <div style="font-weight:800; font-size:14px; margin-bottom:8px; padding-left: 2px;">历史净值明细</div>
-          <div id="det-table-area"></div>
-        </div>
-
-        <div id="det-hold-area" style="display:none;"></div>
-        <div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 <script>
-// 修改 script 标签最上方的 fetchJSONP
+// 优化了 fetchJSONP, 使用jQuery开头以绕过东财接口的过滤机制
 function fetchJSONP(url, callbackName = 'callback') {
   return new Promise((resolve, reject) => {
-    // 使用固定的前缀和随机数规避东财安全限制
     const cb = 'jQuery' + Math.floor(Math.random()*1000000) + '_' + Date.now();
     const script = document.createElement('script');
     const sep = url.includes('?') ? '&' : '?';
@@ -669,14 +665,12 @@ function fetchJSONP(url, callbackName = 'callback') {
   });
 }
 
-
 const app = {
   data: {
     groups: [{ id: 'default', name: '全部', fundCodes: [] }],
     fundsCache: {},
-    customSectors: []
-watchedMarkets: [] // 新增：保存自选板块/ETF
-
+    customSectors: [],
+    watchedMarkets: [] // 新增：保存自选板块/ETF
   },
   
   // ====== 新增：大容量本地数据库引擎 (IndexedDB) ======
@@ -724,38 +718,6 @@ watchedMarkets: [] // 新增：保存自选板块/ETF
       });
     }
   },
-
-
-// 新增：行情状态属性
-  marketState: {
-      currentTab: 'A',
-      searchTimer: null,
-      intradayTimer: null,
-      currentSecid: null,
-      currentPrevClose: 0
-  },
-
-  // 新增：全球指数代码字典 (东财 secid 格式)
-  marketDict: {
-      'A': [
-          {name: '上证指数', secid: '1.000001'}, {name: '深证成指', secid: '0.399001'},
-          {name: '创业板指', secid: '0.399006'}, {name: '科创50', secid: '1.000688'},
-          {name: '北证50', secid: '0.899050'}, {name: '沪深300', secid: '1.000300'}
-      ],
-      'HK': [
-          {name: '恒生指数', secid: '116.HSI'}, {name: '恒生科技', secid: '116.HSTECH'},
-          {name: '国企指数', secid: '124.HSCEI'}
-      ],
-      'US': [
-          {name: '纳斯达克', secid: '105.IXIC'}, {name: '标普500', secid: '106.INX'},
-          {name: '道琼斯', secid: '105.DJIA'}
-      ],
-      'ASIA': [
-          {name: '日经225', secid: '100.N225'}, {name: '韩国KOSPI', secid: '100.KS11'},
-          {name: '孟买SENSEX', secid: '146.SENSEX'}
-      ]
-  },
-
   // ====================================================
 
   s3: null,
@@ -781,6 +743,36 @@ watchedMarkets: [] // 新增：保存自选板块/ETF
   rtViewType: 'group', 
   rtActiveGroup: '',   
   rtActiveSector: '',  
+
+  // 行情状态属性
+  marketState: {
+      currentTab: 'A',
+      searchTimer: null,
+      intradayTimer: null,
+      currentSecid: null,
+      currentPrevClose: 0
+  },
+
+  // 全球指数代码字典 (东财 secid 格式)
+  marketDict: {
+      'A': [
+          {name: '上证指数', secid: '1.000001'}, {name: '深证成指', secid: '0.399001'},
+          {name: '创业板指', secid: '0.399006'}, {name: '科创50', secid: '1.000688'},
+          {name: '北证50', secid: '0.899050'}, {name: '沪深300', secid: '1.000300'}
+      ],
+      'HK': [
+          {name: '恒生指数', secid: '116.HSI'}, {name: '恒生科技', secid: '116.HSTECH'},
+          {name: '国企指数', secid: '124.HSCEI'}
+      ],
+      'US': [
+          {name: '纳斯达克', secid: '105.IXIC'}, {name: '标普500', secid: '106.INX'},
+          {name: '道琼斯', secid: '105.DJIA'}
+      ],
+      'ASIA': [
+          {name: '日经225', secid: '100.N225'}, {name: '韩国KOSPI', secid: '100.KS11'},
+          {name: '孟买SENSEX', secid: '146.SENSEX'}
+      ]
+  },
 
   formatEMDate(ts, length = 10, offset = 0) {
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
@@ -812,14 +804,14 @@ watchedMarkets: [] // 新增：保存自选板块/ETF
         this.data.groups = savedData.groups;
         this.data.fundsCache = savedData.fundsCache || {};
         this.data.customSectors = savedData.customSectors || [];
-        this.data.watchedMarkets = savedData.watchedMarkets || []; // 新增恢复
-
-        if (savedData.rtData) this.rtData = savedData.rtData; // 恢复实时估值
+        this.data.watchedMarkets = savedData.watchedMarkets || []; // 恢复自选板块
+        if (savedData.rtData) this.rtData = savedData.rtData; 
     } else {
         const local = localStorage.getItem('fund_pwa_v6');
         if (local) {
             try { 
                 this.data = JSON.parse(local); 
+                if (!this.data.watchedMarkets) this.data.watchedMarkets = [];
                 await this.dbHelper.set('fund_pwa_full_data', { ...this.data, rtData: this.rtData });
             } catch(e) {}
         }
@@ -882,7 +874,7 @@ watchedMarkets: [] // 新增：保存自选板块/ETF
           await this.dbHelper.remove('fund_pwa_full_data'); 
           
           // 彻底强制重置内存中的所有数据结构
-          this.data = { groups: [{ id: 'default', name: '全部', fundCodes: [] }], fundsCache: {}, customSectors: [] };
+          this.data = { groups: [{ id: 'default', name: '全部', fundCodes: [] }], fundsCache: {}, customSectors: [], watchedMarkets: [] };
           this.rtData = {};
           
           this.showToast('本地数据已清空');
@@ -946,18 +938,130 @@ watchedMarkets: [] // 新增：保存自选板块/ETF
     if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); }
     if(tabId === 'rank') this.renderRank();
     if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
-// 找到 switchTab 的末尾，补充如下：
-    if(tabId === 'market') { 
-        this.renderMarketTabs(); 
-        this.renderWatchedMarkets(); 
-    }
-
+    if(tabId === 'market') { this.renderMarketTabs(); this.renderWatchedMarkets(); }
   },
 
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
-// ==================== 全新行情核心模块 ====================
+  // ==================== 实时估值逻辑 (卡片融合版) ====================
+  getRtFundCodes() {
+      if (document.getElementById('view-home').classList.contains('active')) {
+          const group = this.data.groups.find(g => g.id === this.currentGroupId);
+          return group ? group.fundCodes : null;
+      } else if (document.getElementById('view-sector').classList.contains('active')) {
+          if (!this.activeSector) return null;
+          return Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => f.code);
+      }
+      return null;
+  },
+
+  rtFetchSingle(code) {
+      return new Promise((resolve) => {
+          // 缩短单次请求超时时间为 2.5 秒，避免某个废弃基金卡住整个队列
+          let timeoutId = setTimeout(() => {
+              if (window.jsonpgz === tempCallback) window.jsonpgz = null;
+              resolve(null);
+          }, 2500); 
+
+          const tempCallback = (data) => {
+              clearTimeout(timeoutId);
+              if (window.jsonpgz === tempCallback) window.jsonpgz = null;
+              if (data && data.gsz) {
+                  resolve({ code: data.fundcode, name: data.name, gsz: parseFloat(data.gsz), gszzl: parseFloat(data.gszzl), dwjz: data.dwjz, gztime: data.gztime });
+              } else resolve(null);
+          };
+          
+          // 天天基金回调名固定为 jsonpgz
+          window.jsonpgz = tempCallback;
+          const script = document.createElement('script');
+          script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
+          script.onerror = () => { clearTimeout(timeoutId); resolve(null); };
+          document.head.appendChild(script);
+          
+          // 执行完后清理 script 节点
+          setTimeout(() => { if(script.parentNode) script.remove(); }, 3000);
+      });
+  },
+
+  async rtFetchAll() {
+      const codes = this.getRtFundCodes(); // 获取当前分组或板块内的基金代码
+      if (!codes || codes.length === 0) return;
+      if (this.rtIsFetching) return;
+      
+      this.rtIsFetching = true;
+      if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 逐个拉取中...';
+      if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 逐个拉取中...';
+
+      // 必须使用串行拉取 (for...of)，因为JSONP回调函数名固定为全局的 jsonpgz
+      // 并发会导致全局函数互相覆盖，发生只有一个卡片更新的 BUG
+      for (let code of codes) {
+          const res = await this.rtFetchSingle(code);
+          if (res) this.rtData[code] = res;
+      }
+
+      this.rtIsFetching = false; 
+      this.rtCountdown = this.rtInterval; 
+      this.rtUpdateStatusUI();
+      
+      if (this.rtEnabled && !this.rtTimer) this.rtStartTimer();
+      
+      // 拉取完整个分组后，触发重新渲染以展示所有最新估值
+      if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+      if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+
+      if (this.currentDetailCode && document.getElementById('modal-detail').classList.contains('active')) {
+          this.updateDetailRtInfo(this.currentDetailCode);
+      }
+      // 获取完实时估值后立刻存入本地数据库
+      this.saveData();
+  },
+
+  rtStartTimer() {
+      this.rtPauseTimer();
+      if (!this.rtEnabled || !this.getRtFundCodes()) return;
+      this.rtTimer = setInterval(() => {
+          if (!this.rtEnabled || this.rtIsFetching) return;
+          this.rtCountdown--;
+          if (this.rtCountdown <= 0) { this.rtFetchAll(); } else { this.rtUpdateStatusUI(); }
+      }, 1000);
+  },
+
+  rtPauseTimer() {
+      if (this.rtTimer) { clearInterval(this.rtTimer); this.rtTimer = null; }
+  },
+
+  rtToggleAuto() {
+      this.rtEnabled = !this.rtEnabled;
+      const toggleTxt = this.rtEnabled ? '⏸️ 暂停' : '▶️ 开启';
+      if(document.getElementById('home-rt-toggle')) document.getElementById('home-rt-toggle').innerText = toggleTxt;
+      if(document.getElementById('sec-rt-toggle')) document.getElementById('sec-rt-toggle').innerText = toggleTxt;
+
+      if (this.rtEnabled) {
+          this.rtStartTimer(); this.showToast('盘中自动更新已开启');
+      } else {
+          this.rtPauseTimer(); 
+          if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '⏸️ 已暂停';
+          if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '⏸️ 已暂停';
+          this.showToast('盘中自动更新已暂停');
+      }
+  },
+
+  rtManualRefresh() {
+      this.rtCountdown = this.rtInterval; 
+      this.rtFetchAll(); 
+      this.showToast('正在拉取最新估算');
+  },
+
+  rtUpdateStatusUI() {
+      if(this.rtEnabled && !this.rtIsFetching) { 
+          const txt = `⏱️ ${this.rtCountdown}s 更新`;
+          if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = txt;
+          if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = txt;
+      }
+  },
+
+  // ==================== 全新行情核心模块 ====================
   switchMarketTab(tab) {
       this.marketState.currentTab = tab;
       document.querySelectorAll('#market-tabs .m-tab').forEach(el => el.classList.remove('active'));
@@ -1268,126 +1372,6 @@ watchedMarkets: [] // 新增：保存自选板块/ETF
       }
   },
   // ==================== 结束：行情核心模块 ====================
-
-
-
-  // ==================== 实时估值逻辑 (卡片融合版) ====================
-  getRtFundCodes() {
-      if (document.getElementById('view-home').classList.contains('active')) {
-          const group = this.data.groups.find(g => g.id === this.currentGroupId);
-          return group ? group.fundCodes : null;
-      } else if (document.getElementById('view-sector').classList.contains('active')) {
-          if (!this.activeSector) return null;
-          return Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => f.code);
-      }
-      return null;
-  },
-
-  rtFetchSingle(code) {
-      return new Promise((resolve) => {
-          // 缩短单次请求超时时间为 2.5 秒，避免某个废弃基金卡住整个队列
-          let timeoutId = setTimeout(() => {
-              if (window.jsonpgz === tempCallback) window.jsonpgz = null;
-              resolve(null);
-          }, 2500); 
-
-          const tempCallback = (data) => {
-              clearTimeout(timeoutId);
-              if (window.jsonpgz === tempCallback) window.jsonpgz = null;
-              if (data && data.gsz) {
-                  resolve({ code: data.fundcode, name: data.name, gsz: parseFloat(data.gsz), gszzl: parseFloat(data.gszzl), dwjz: data.dwjz, gztime: data.gztime });
-              } else resolve(null);
-          };
-          
-          // 天天基金回调名固定为 jsonpgz
-          window.jsonpgz = tempCallback;
-          const script = document.createElement('script');
-          script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
-          script.onerror = () => { clearTimeout(timeoutId); resolve(null); };
-          document.head.appendChild(script);
-          
-          // 执行完后清理 script 节点
-          setTimeout(() => { if(script.parentNode) script.remove(); }, 3000);
-      });
-  },
-
-  async rtFetchAll() {
-      const codes = this.getRtFundCodes(); // 获取当前分组或板块内的基金代码
-      if (!codes || codes.length === 0) return;
-      if (this.rtIsFetching) return;
-      
-      this.rtIsFetching = true;
-      if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 逐个拉取中...';
-      if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 逐个拉取中...';
-
-      // 必须使用串行拉取 (for...of)，因为JSONP回调函数名固定为全局的 jsonpgz
-      // 并发会导致全局函数互相覆盖，发生只有一个卡片更新的 BUG
-      for (let code of codes) {
-          const res = await this.rtFetchSingle(code);
-          if (res) this.rtData[code] = res;
-      }
-
-      this.rtIsFetching = false; 
-      this.rtCountdown = this.rtInterval; 
-      this.rtUpdateStatusUI();
-      
-      if (this.rtEnabled && !this.rtTimer) this.rtStartTimer();
-      
-      // 拉取完整个分组后，触发重新渲染以展示所有最新估值
-      if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
-      if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
-
-      if (this.currentDetailCode && document.getElementById('modal-detail').classList.contains('active')) {
-          this.updateDetailRtInfo(this.currentDetailCode);
-      }
-    // 添加这行代码：获取完实时估值后立刻存入本地数据库
-      this.saveData();
-  },
-
-  rtStartTimer() {
-      this.rtPauseTimer();
-      if (!this.rtEnabled || !this.getRtFundCodes()) return;
-      this.rtTimer = setInterval(() => {
-          if (!this.rtEnabled || this.rtIsFetching) return;
-          this.rtCountdown--;
-          if (this.rtCountdown <= 0) { this.rtFetchAll(); } else { this.rtUpdateStatusUI(); }
-      }, 1000);
-  },
-
-  rtPauseTimer() {
-      if (this.rtTimer) { clearInterval(this.rtTimer); this.rtTimer = null; }
-  },
-
-  rtToggleAuto() {
-      this.rtEnabled = !this.rtEnabled;
-      const toggleTxt = this.rtEnabled ? '⏸️ 暂停' : '▶️ 开启';
-      if(document.getElementById('home-rt-toggle')) document.getElementById('home-rt-toggle').innerText = toggleTxt;
-      if(document.getElementById('sec-rt-toggle')) document.getElementById('sec-rt-toggle').innerText = toggleTxt;
-
-      if (this.rtEnabled) {
-          this.rtStartTimer(); this.showToast('盘中自动更新已开启');
-      } else {
-          this.rtPauseTimer(); 
-          if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '⏸️ 已暂停';
-          if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '⏸️ 已暂停';
-          this.showToast('盘中自动更新已暂停');
-      }
-  },
-
-  rtManualRefresh() {
-      this.rtCountdown = this.rtInterval; 
-      this.rtFetchAll(); 
-      this.showToast('正在拉取最新估算');
-  },
-
-  rtUpdateStatusUI() {
-      if(this.rtEnabled && !this.rtIsFetching) { 
-          const txt = `⏱️ ${this.rtCountdown}s 更新`;
-          if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = txt;
-          if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = txt;
-      }
-  },
-
 
   async refreshAll(isSilent = false) {
     const codes = this.data.groups[0]?.fundCodes || [];
@@ -2676,6 +2660,7 @@ watchedMarkets: [] // 新增：保存自选板块/ETF
                 this.data.groups = parsedData.groups;
                 this.data.fundsCache = parsedData.fundsCache || {};
                 this.data.customSectors = parsedData.customSectors || [];
+                this.data.watchedMarkets = parsedData.watchedMarkets || []; // 恢复云端自选板块
                 // 恢复云端的实时估值数据
                 if (parsedData.rtData) this.rtData = parsedData.rtData;
                 

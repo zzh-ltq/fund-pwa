@@ -614,13 +614,14 @@
             <div class="pk-row"><span>成交额</span><span id="md-amt">--</span></div>
         </div>
         
-        <!-- 绘图区 Tabs -->
+        <!-- 绘图区 Tabs (替换此部分) -->
         <div style="background:#fff; padding:10px 15px 0;">
-            <div class="detail-tabs">
-              <div class="action-pill active">分时走势</div>
-              <div class="action-pill" style="opacity:0.5;">日K (暂略)</div>
+            <div class="detail-tabs" id="md-chart-tabs">
+              <div class="action-pill active" onclick="app.switchMarketChart('trend')">分时走势</div>
+              <div class="action-pill" onclick="app.switchMarketChart('101')">日K趋势</div>
+              <div class="action-pill" onclick="app.switchMarketChart('102')">周K趋势</div>
             </div>
-            <!-- Canvas 分时图 -->
+            <!-- Canvas 图表 -->
             <div style="position:relative; width:100%; height:200px; margin-top:10px;">
                 <canvas id="md-canvas" style="width:100%; height:100%;"></canvas>
             </div>
@@ -750,7 +751,8 @@ const app = {
       searchTimer: null,
       intradayTimer: null,
       currentSecid: null,
-      currentPrevClose: 0
+      currentPrevClose: 0,
+    chartType: 'trend' // <--- 新增这一行：记录当前选中的是分时还是K线
   },
 
   // 全球指数代码字典 (东财 secid 格式)
@@ -1061,7 +1063,7 @@ const app = {
       }
   },
 
-  // ==================== 全新行情核心模块 ====================
+ // ==================== 全新行情核心模块 (优化修复版) ====================
   switchMarketTab(tab) {
       this.marketState.currentTab = tab;
       document.querySelectorAll('#market-tabs .m-tab').forEach(el => el.classList.remove('active'));
@@ -1069,7 +1071,15 @@ const app = {
       this.renderMarketTabs();
   },
 
-  // 渲染顶部指数卡片
+  // 切换弹窗内的图表类型 (分时 / 日K / 周K)
+  switchMarketChart(type) {
+      this.marketState.chartType = type;
+      document.querySelectorAll('#md-chart-tabs .action-pill').forEach(el => el.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+      this.refreshMarketDetail(); // 重新拉取数据并绘图
+  },
+
+  // 1. 修复顶部指数卡片的 undefined 问题
   async renderMarketTabs() {
       const list = this.marketDict[this.marketState.currentTab];
       const secids = list.map(item => item.secid).join(',');
@@ -1080,17 +1090,21 @@ const app = {
           const dataList = res?.data?.diff || [];
           
           let html = list.map(item => {
-              const quote = dataList.find(d => d.f12 === item.secid.split('.')[1]) || {};
-              const price = quote.f2 !== '-' ? quote.f2 : '--';
-              const chgRate = quote.f3 !== '-' ? quote.f3 : '--';
-              const chgVal = quote.f4 !== '-' ? quote.f4 : '--';
-              const col = chgRate >= 0 ? 'red' : 'green';
+              // 使用 includes 模糊匹配，解决港美股和板块 f12 返回格式不一致的问题
+              const quote = dataList.find(d => item.secid.includes(d.f12)) || {};
+              
+              // 严格做 undefined 判空防护
+              const price = (quote.f2 !== undefined && quote.f2 !== '-') ? quote.f2 : '--';
+              const chgRate = (quote.f3 !== undefined && quote.f3 !== '-') ? quote.f3 : '--';
+              const chgVal = (quote.f4 !== undefined && quote.f4 !== '-') ? quote.f4 : '--';
+              
+              const col = (chgRate !== '--' && chgRate >= 0) ? 'red' : (chgRate !== '--' && chgRate < 0 ? 'green' : '');
               
               return `
                 <div class="idx-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
                   <div class="idx-name">${item.name}</div>
                   <div class="idx-val ${col}">${price}</div>
-                  <div class="idx-chg ${col}"><span>${chgRate>0?'+':''}${chgRate}%</span><span>${chgVal>0?'+':''}${chgVal}</span></div>
+                  <div class="idx-chg ${col}"><span>${chgRate !== '--' && chgRate > 0 ? '+' : ''}${chgRate}%</span><span>${chgVal !== '--' && chgVal > 0 ? '+' : ''}${chgVal}</span></div>
                 </div>`;
           }).join('');
           document.getElementById('market-idx-container').innerHTML = html;
@@ -1099,7 +1113,6 @@ const app = {
       }
   },
 
-  // 搜索板块与 ETF
   searchMarket() {
       clearTimeout(this.marketState.searchTimer);
       const kw = document.getElementById('market-search-input').value.trim();
@@ -1108,7 +1121,6 @@ const app = {
       if (!kw) { resBox.style.display = 'none'; return; }
       
       this.marketState.searchTimer = setTimeout(async () => {
-          // 东财通用搜索接口，type=14 代表股票/板块/指数/ETF
           const url = `https://searchapi.eastmoney.com/api/suggest/get?input=${encodeURIComponent(kw)}&type=14&token=270d4bc1d0a54015668e16e03108c353&cmd=2`;
           try {
               const res = await fetchJSONP(url, 'cb');
@@ -1117,7 +1129,6 @@ const app = {
                   resBox.innerHTML = '<div style="padding:15px; text-align:center; color:#94a3b8;">无结果</div>';
               } else {
                   resBox.innerHTML = list.map(item => {
-                      // 将行情市场号转换为标准 secid 格式: 1=沪, 0=深, 90=东财行业板块 等
                       const secid = `${item.MarketType}.${item.Code}`;
                       return `
                       <div class="list-item" style="border-radius:0; border:none; border-bottom:1px solid #f1f5f9; margin:0;" 
@@ -1157,6 +1168,7 @@ const app = {
       this.renderWatchedMarkets();
   },
 
+  // 2. 修复自选板块列表的 undefined 问题
   async renderWatchedMarkets() {
       const container = document.getElementById('market-watched-list');
       if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
@@ -1172,10 +1184,12 @@ const app = {
           const dataList = res?.data?.diff || [];
           
           let html = this.data.watchedMarkets.map(item => {
-              const quote = dataList.find(d => d.f12 === item.code) || {};
-              const price = quote.f2 !== '-' ? quote.f2 : '--';
-              const chgRate = quote.f3 !== '-' ? quote.f3 : '--';
-              const col = chgRate >= 0 ? 'red' : 'green';
+              // 同样使用 includes 进行容错匹配
+              const quote = dataList.find(d => item.secid.includes(d.f12)) || {};
+              
+              const price = (quote.f2 !== undefined && quote.f2 !== '-') ? quote.f2 : '--';
+              const chgRate = (quote.f3 !== undefined && quote.f3 !== '-') ? quote.f3 : '--';
+              const col = (chgRate !== '--' && chgRate >= 0) ? 'red' : (chgRate !== '--' && chgRate < 0 ? 'green' : '');
               
               return `
               <div class="list-item" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
@@ -1186,7 +1200,7 @@ const app = {
                   </div>
                   <div style="width:90px; text-align:right; margin-right:30px;">
                       <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
-                      <div class="${col}" style="font-size:12px; font-weight:bold; background:rgba(0,0,0,0.03); padding:2px 4px; border-radius:4px; display:inline-block; margin-top:2px;">${chgRate>0?'+':''}${chgRate}%</div>
+                      <div class="${col}" style="font-size:12px; font-weight:bold; background:rgba(0,0,0,0.03); padding:2px 4px; border-radius:4px; display:inline-block; margin-top:2px;">${chgRate !== '--' && chgRate > 0 ? '+' : ''}${chgRate}%</div>
                   </div>
               </div>`;
           }).join('');
@@ -1194,16 +1208,13 @@ const app = {
       } catch (e) { container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>'; }
   },
 
-  // 打开行情详情(通用)
   openMarketDetail(secid, name) {
       this.marketState.currentSecid = secid;
+      // 每次打开默认重置为分时图
+      this.switchMarketChart('trend');
       document.getElementById('md-title').innerText = name;
       this.openModal('market-detail');
       
-      // 显示/隐藏资金流向 (部分指数无资金流数据，板块和个股有)
-      const isSector = secid.startsWith('90.') || secid.startsWith('91.') || secid.startsWith('0.') || secid.startsWith('1.');
-      document.getElementById('md-fund-flow-area').style.display = isSector ? 'block' : 'none';
-
       this.refreshMarketDetail();
       this.startIntradayTimer();
   },
@@ -1212,6 +1223,9 @@ const app = {
       const secid = this.marketState.currentSecid;
       if (!secid) return;
       
+      // 默认隐藏资金流向区域 (防止大盘指数显示 '--')
+      document.getElementById('md-fund-flow-area').style.display = 'none';
+      
       // 1. 获取盘口数据
       const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f60,f169,f170&_=${Date.now()}`;
       try {
@@ -1219,8 +1233,8 @@ const app = {
           const d = res?.data;
           if(d) {
               const col = d.f170 >= 0 ? 'red' : 'green';
-              this.marketState.currentPrevClose = d.f60; // 保存昨收，给画图定基准
-              document.getElementById('md-price').innerText = d.f43 !== '-' ? d.f43/100 : '--'; // 个别接口需要除以100，东财特性
+              this.marketState.currentPrevClose = d.f60; 
+              document.getElementById('md-price').innerText = d.f43 !== '-' ? d.f43/100 : '--'; 
               document.getElementById('md-price').className = col;
               document.getElementById('md-chg-val').innerText = (d.f169>0?'+':'') + (d.f169/100).toFixed(2);
               document.getElementById('md-chg-val').className = col;
@@ -1243,52 +1257,61 @@ const app = {
           }
       } catch(e) {}
 
-      // 2. 获取分时走势数据并绘图
-      const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`;
-      try {
-          const res = await fetchJSONP(trendUrl, 'cb');
-          const trends = res?.data?.trends || [];
-          this.drawIntradayCanvas(trends, this.marketState.currentPrevClose/100);
-      } catch(e) {}
-
-      // 3. 如果是板块，额外获取主力资金流向
-      if (document.getElementById('md-fund-flow-area').style.display === 'block') {
-          const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
+      // 3. 动态获取分时 或 K线 数据并绘图 (实现真正的日K、周K)
+      if (this.marketState.chartType === 'trend') {
+          // 分时接口
+          const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`;
           try {
-              const res = await fetchJSONP(ffUrl, 'cb');
+              const res = await fetchJSONP(trendUrl, 'cb');
+              const trends = res?.data?.trends || [];
+              this.drawIntradayCanvas(trends, this.marketState.currentPrevClose/100, 'trend');
+          } catch(e) {}
+      } else {
+          // K线接口 (101=日K, 102=周K)
+          const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f53&klt=${this.marketState.chartType}&fqt=1&end=20500101&lmt=60&_=${Date.now()}`;
+          try {
+              const res = await fetchJSONP(kUrl, 'cb');
               const klines = res?.data?.klines || [];
-              if (klines.length > 0) {
-                  // klines 数据格式: "日期,主力净流入,超大单,大单,中单,小单"
-                  const todayArr = klines[klines.length-1].split(',');
-                  const netFlow = parseFloat(todayArr[1]) / 100000000; // 亿
-                  
-                  // 因为东财流向接口结构特殊，这里做个简单的主力流出估算 (仅作展示原理)
-                  const ffIn = netFlow > 0 ? netFlow * 1.5 : Math.abs(netFlow) * 0.8;
-                  const ffOut = netFlow > 0 ? netFlow * 0.5 : Math.abs(netFlow) * 1.8;
-                  
-                  document.getElementById('ff-net').innerText = (netFlow>0?'净流入 ':'净流出 ') + Math.abs(netFlow).toFixed(2) + '亿';
-                  document.getElementById('ff-net').className = netFlow>0 ? 'red' : 'green';
-                  document.getElementById('ff-in').innerText = ffIn.toFixed(2) + '亿';
-                  document.getElementById('ff-out').innerText = ffOut.toFixed(2) + '亿';
-
-                  // 渲染历史20天小柱子
-                  let histHtml = klines.map(str => {
-                      const arr = str.split(',');
-                      const val = parseFloat(arr[1]) / 100000000;
-                      const dateStr = arr[0].slice(5).replace('-','/');
-                      const maxVal = Math.max(...klines.map(s => Math.abs(parseFloat(s.split(',')[1])/100000000)));
-                      const hPct = Math.max((Math.abs(val) / maxVal) * 100, 2); // 最小高度 2%
-                      const c = val > 0 ? '#f43f5e' : '#10b981';
-                      return `<div class="flow-col"><div class="flow-stick" style="height:${hPct}%; background:${c};"></div><div class="flow-date">${dateStr}</div></div>`;
-                  }).join('');
-                  document.getElementById('ff-history-chart').innerHTML = histHtml;
-              }
+              this.drawIntradayCanvas(klines, this.marketState.currentPrevClose/100, 'kline');
           } catch(e) {}
       }
+
+      // 4. 获取资金流向 (动态判断，没有数据的指数不会显示空壳块)
+      const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
+      try {
+          const res = await fetchJSONP(ffUrl, 'cb');
+          const klines = res?.data?.klines || [];
+          // 只有真正返回了主力资金数据，才把资金面板显示出来
+          if (klines.length > 0) {
+              document.getElementById('md-fund-flow-area').style.display = 'block';
+              
+              const todayArr = klines[klines.length-1].split(',');
+              const netFlow = parseFloat(todayArr[1]) / 100000000; // 亿
+              
+              const ffIn = netFlow > 0 ? netFlow * 1.5 : Math.abs(netFlow) * 0.8;
+              const ffOut = netFlow > 0 ? netFlow * 0.5 : Math.abs(netFlow) * 1.8;
+              
+              document.getElementById('ff-net').innerText = (netFlow>0?'净流入 ':'净流出 ') + Math.abs(netFlow).toFixed(2) + '亿';
+              document.getElementById('ff-net').className = netFlow>0 ? 'red' : 'green';
+              document.getElementById('ff-in').innerText = ffIn.toFixed(2) + '亿';
+              document.getElementById('ff-out').innerText = ffOut.toFixed(2) + '亿';
+
+              let histHtml = klines.map(str => {
+                  const arr = str.split(',');
+                  const val = parseFloat(arr[1]) / 100000000;
+                  const dateStr = arr[0].slice(5).replace('-','/');
+                  const maxVal = Math.max(...klines.map(s => Math.abs(parseFloat(s.split(',')[1])/100000000)));
+                  const hPct = Math.max((Math.abs(val) / maxVal) * 100, 2); 
+                  const c = val > 0 ? '#f43f5e' : '#10b981';
+                  return `<div class="flow-col"><div class="flow-stick" style="height:${hPct}%; background:${c};"></div><div class="flow-date">${dateStr}</div></div>`;
+              }).join('');
+              document.getElementById('ff-history-chart').innerHTML = histHtml;
+          }
+      } catch(e) {}
   },
 
-  // 绘制分时 Canvas (高度拟合股票软件分时图)
-  drawIntradayCanvas(trendsStrList, prevClose) {
+  // 绘制 Canvas (支持 分时 与 日/周K走势图 复用)
+  drawIntradayCanvas(dataStrList, prevClose, chartType) {
       const canvas = document.getElementById('md-canvas');
       const ctx = canvas.getContext('2d');
       const rect = canvas.getBoundingClientRect();
@@ -1298,35 +1321,44 @@ const app = {
 
       const w = rect.width, h = rect.height;
       ctx.clearRect(0,0,w,h);
-      if (!trendsStrList || trendsStrList.length === 0 || !prevClose) return;
+      if (!dataStrList || dataStrList.length === 0 || !prevClose) return;
 
-      // 解析数据: "时间,最新价,成交量,均价"
       let prices = [];
-      trendsStrList.forEach(str => {
-          const p = parseFloat(str.split(',')[1]);
+      dataStrList.forEach(str => {
+          const arr = str.split(',');
+          // 分时格式: 时间,价...  K线格式: 日期,开,收(索引2),高,低
+          const p = parseFloat(chartType === 'trend' ? arr[1] : arr[2]);
           if (!isNaN(p)) prices.push(p);
       });
 
-      const maxP = Math.max(...prices);
-      const minP = Math.min(...prices);
-      // 确立 Y 轴对称性 (昨收价在最中间)
-      const diffMax = Math.max(Math.abs(maxP - prevClose), Math.abs(prevClose - minP)) * 1.1; 
-      const yMax = prevClose + diffMax;
-      const yMin = prevClose - diffMax;
-      
-      const pad = {t:10, b:20, l:45, r:45}; // 左右留出空间画坐标
+      const pad = {t:10, b:20, l:45, r:45}; 
       const dw = w - pad.l - pad.r;
       const dh = h - pad.t - pad.b;
 
-      const getX = i => pad.l + (i / 241) * dw; // A股一天241分钟
+      let yMax, yMin;
+      if (chartType === 'trend') {
+          // 分时图：以昨收价为中心绝对对称
+          const diffMax = Math.max(Math.abs(Math.max(...prices) - prevClose), Math.abs(prevClose - Math.min(...prices))) * 1.1; 
+          yMax = prevClose + diffMax;
+          yMin = prevClose - diffMax;
+      } else {
+          // K线走势图：自适应上下边界 (不再拘泥于昨收)
+          const maxP = Math.max(...prices);
+          const minP = Math.min(...prices);
+          const margin = (maxP - minP) * 0.1 || maxP * 0.01;
+          yMax = maxP + margin;
+          yMin = minP - margin;
+      }
+
+      // X 轴步长：分时固定241点，K线按实际天数自适应拉伸
+      const getX = i => pad.l + (i / (chartType === 'trend' ? 241 : Math.max(prices.length - 1, 1))) * dw;
       const getY = val => pad.t + dh - ((val - yMin) / (yMax - yMin)) * dh;
 
-      // 画背景网格与坐标线
+      // 画背景中心虚线
       ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
-      ctx.beginPath();
-      // 中间虚线 (昨收)
-      ctx.moveTo(pad.l, getY(prevClose)); ctx.lineTo(w - pad.r, getY(prevClose));
-      ctx.stroke();
+      if (chartType === 'trend') {
+          ctx.beginPath(); ctx.moveTo(pad.l, getY(prevClose)); ctx.lineTo(w - pad.r, getY(prevClose)); ctx.stroke();
+      }
 
       // 画文字坐标
       ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
@@ -1337,9 +1369,11 @@ const app = {
           ctx.textAlign = 'right'; ctx.fillText(val.toFixed(2), pad.l - 4, y);
           ctx.textAlign = 'left'; ctx.fillText(rate, w - pad.r + 4, y);
       };
-      drawYAxis(yMax); drawYAxis(prevClose, true); drawYAxis(yMin);
+      
+      drawYAxis(yMax); drawYAxis(yMin);
+      if (chartType === 'trend') drawYAxis(prevClose, true);
 
-      // 绘制分时走势区域(渐变)
+      // 绘制走势区域(渐变)
       ctx.beginPath();
       ctx.moveTo(getX(0), getY(prices[0]));
       prices.forEach((p, i) => ctx.lineTo(getX(i), getY(p)));
@@ -1350,7 +1384,7 @@ const app = {
       grd.addColorStop(0, 'rgba(0,102,255,0.2)'); grd.addColorStop(1, 'rgba(0,102,255,0.01)');
       ctx.fillStyle = grd; ctx.fill();
 
-      // 绘制分时蓝线
+      // 绘制深蓝核心线条
       ctx.beginPath();
       ctx.moveTo(getX(0), getY(prices[0]));
       prices.forEach((p, i) => ctx.lineTo(getX(i), getY(p)));

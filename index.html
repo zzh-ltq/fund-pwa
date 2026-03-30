@@ -1079,7 +1079,7 @@ const app = {
       this.refreshMarketDetail(); // 重新拉取数据并绘图
   },
 
-  // 1. 修复顶部指数卡片的 undefined 问题
+ // 渲染顶部指数卡片
   async renderMarketTabs() {
       const list = this.marketDict[this.marketState.currentTab];
       const secids = list.map(item => item.secid).join(',');
@@ -1090,10 +1090,9 @@ const app = {
           const dataList = res?.data?.diff || [];
           
           let html = list.map(item => {
-              // 使用 includes 模糊匹配，解决港美股和板块 f12 返回格式不一致的问题
               const quote = dataList.find(d => item.secid.includes(d.f12)) || {};
               
-              // 严格做 undefined 判空防护
+              // 【修复核心】：严格判空，防止 undefined 溢出
               const price = (quote.f2 !== undefined && quote.f2 !== '-') ? quote.f2 : '--';
               const chgRate = (quote.f3 !== undefined && quote.f3 !== '-') ? quote.f3 : '--';
               const chgVal = (quote.f4 !== undefined && quote.f4 !== '-') ? quote.f4 : '--';
@@ -1104,7 +1103,7 @@ const app = {
                 <div class="idx-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
                   <div class="idx-name">${item.name}</div>
                   <div class="idx-val ${col}">${price}</div>
-                  <div class="idx-chg ${col}"><span>${chgRate !== '--' && chgRate > 0 ? '+' : ''}${chgRate}%</span><span>${chgVal !== '--' && chgVal > 0 ? '+' : ''}${chgVal}</span></div>
+                  <div class="idx-chg ${col}"><span>${chgRate !== '--' && chgRate > 0 ? '+' : ''}${chgRate !== '--' ? chgRate + '%' : '--'}</span><span>${chgVal !== '--' && chgVal > 0 ? '+' : ''}${chgVal}</span></div>
                 </div>`;
           }).join('');
           document.getElementById('market-idx-container').innerHTML = html;
@@ -1168,7 +1167,7 @@ const app = {
       this.renderWatchedMarkets();
   },
 
-  // 2. 修复自选板块列表的 undefined 问题
+ // 渲染自选板块列表
   async renderWatchedMarkets() {
       const container = document.getElementById('market-watched-list');
       if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
@@ -1184,9 +1183,9 @@ const app = {
           const dataList = res?.data?.diff || [];
           
           let html = this.data.watchedMarkets.map(item => {
-              // 同样使用 includes 进行容错匹配
               const quote = dataList.find(d => item.secid.includes(d.f12)) || {};
               
+              // 【修复核心】：严格判空
               const price = (quote.f2 !== undefined && quote.f2 !== '-') ? quote.f2 : '--';
               const chgRate = (quote.f3 !== undefined && quote.f3 !== '-') ? quote.f3 : '--';
               const col = (chgRate !== '--' && chgRate >= 0) ? 'red' : (chgRate !== '--' && chgRate < 0 ? 'green' : '');
@@ -1200,7 +1199,7 @@ const app = {
                   </div>
                   <div style="width:90px; text-align:right; margin-right:30px;">
                       <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
-                      <div class="${col}" style="font-size:12px; font-weight:bold; background:rgba(0,0,0,0.03); padding:2px 4px; border-radius:4px; display:inline-block; margin-top:2px;">${chgRate !== '--' && chgRate > 0 ? '+' : ''}${chgRate}%</div>
+                      <div class="${col}" style="font-size:12px; font-weight:bold; background:rgba(0,0,0,0.03); padding:2px 4px; border-radius:4px; display:inline-block; margin-top:2px;">${chgRate !== '--' && chgRate > 0 ? '+' : ''}${chgRate !== '--' ? chgRate + '%' : '--'}</div>
                   </div>
               </div>`;
           }).join('');
@@ -1219,11 +1218,11 @@ const app = {
       this.startIntradayTimer();
   },
 
-  async refreshMarketDetail() {
+ async refreshMarketDetail() {
       const secid = this.marketState.currentSecid;
       if (!secid) return;
       
-      // 默认隐藏资金流向区域 (防止大盘指数显示 '--')
+      // 默认隐藏资金流向区域
       document.getElementById('md-fund-flow-area').style.display = 'none';
       
       // 1. 获取盘口数据
@@ -1233,7 +1232,7 @@ const app = {
           const d = res?.data;
           if(d) {
               const col = d.f170 >= 0 ? 'red' : 'green';
-              this.marketState.currentPrevClose = d.f60; 
+              this.marketState.currentPrevClose = d.f60; // 保存昨收，给画图定基准
               document.getElementById('md-price').innerText = d.f43 !== '-' ? d.f43/100 : '--'; 
               document.getElementById('md-price').className = col;
               document.getElementById('md-chg-val').innerText = (d.f169>0?'+':'') + (d.f169/100).toFixed(2);
@@ -1257,9 +1256,8 @@ const app = {
           }
       } catch(e) {}
 
-      // 3. 动态获取分时 或 K线 数据并绘图 (实现真正的日K、周K)
+      // 2. 动态获取分时 或 K线 数据并绘图
       if (this.marketState.chartType === 'trend') {
-          // 分时接口
           const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`;
           try {
               const res = await fetchJSONP(trendUrl, 'cb');
@@ -1267,8 +1265,8 @@ const app = {
               this.drawIntradayCanvas(trends, this.marketState.currentPrevClose/100, 'trend');
           } catch(e) {}
       } else {
-          // K线接口 (101=日K, 102=周K)
-          const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f53&klt=${this.marketState.chartType}&fqt=1&end=20500101&lmt=60&_=${Date.now()}`;
+          // 【修复核心】：请求标准的 K线字段 (开、高、低、收)，保证索引正确对齐
+          const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${this.marketState.chartType}&fqt=1&end=20500101&lmt=60&_=${Date.now()}`;
           try {
               const res = await fetchJSONP(kUrl, 'cb');
               const klines = res?.data?.klines || [];
@@ -1276,12 +1274,11 @@ const app = {
           } catch(e) {}
       }
 
-      // 4. 获取资金流向 (动态判断，没有数据的指数不会显示空壳块)
+      // 3. 获取资金流向
       const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
       try {
           const res = await fetchJSONP(ffUrl, 'cb');
           const klines = res?.data?.klines || [];
-          // 只有真正返回了主力资金数据，才把资金面板显示出来
           if (klines.length > 0) {
               document.getElementById('md-fund-flow-area').style.display = 'block';
               

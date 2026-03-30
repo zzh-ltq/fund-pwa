@@ -1278,93 +1278,156 @@ crosshair: {                 // 十字线状态
   },
 
  async refreshMarketDetail() {
-      const secid = this.marketState.currentSecid;
-      if (!secid) return;
-      
-      // 默认隐藏资金流向区域
-      document.getElementById('md-fund-flow-area').style.display = 'none';
-      
-      // 1. 获取盘口数据
-      const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f60,f169,f170&_=${Date.now()}`;
-      try {
-          const res = await fetchJSONP(pkUrl, 'cb');
-          const d = res?.data;
-          if(d) {
-              const col = d.f170 >= 0 ? 'red' : 'green';
-              this.marketState.currentPrevClose = d.f60; // 保存昨收，给画图定基准
-              document.getElementById('md-price').innerText = d.f43 !== '-' ? d.f43/100 : '--'; 
-              document.getElementById('md-price').className = col;
-              document.getElementById('md-chg-val').innerText = (d.f169>0?'+':'') + (d.f169/100).toFixed(2);
-              document.getElementById('md-chg-val').className = col;
-              document.getElementById('md-chg-rate').innerText = (d.f170>0?'+':'') + d.f170 + '%';
-              document.getElementById('md-chg-rate').className = col;
-              
-              const formatNum = (v) => v !== '-' ? (v/100).toFixed(2) : '--';
-              const formatVol = (v) => v !== '-' ? (v/10000).toFixed(2)+'万手' : '--';
-              const formatAmt = (v) => v !== '-' ? (v/100000000).toFixed(2)+'亿' : '--';
-              
-              document.getElementById('md-high').innerText = formatNum(d.f44);
-              document.getElementById('md-open').innerText = formatNum(d.f46);
-              document.getElementById('md-low').innerText = formatNum(d.f45);
-              document.getElementById('md-prev').innerText = formatNum(d.f60);
-              document.getElementById('md-vol').innerText = formatVol(d.f47);
-              document.getElementById('md-amt').innerText = formatAmt(d.f48);
-              
-              const dTime = new Date();
-              document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`;
-          }
-      } catch(e) {}
+    const secid = this.marketState.currentSecid;
+    if (!secid) return;
 
-      // 2. 动态获取分时 或 K线 数据并绘图
-      if (this.marketState.chartType === 'trend') {
-          const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`;
-          try {
-              const res = await fetchJSONP(trendUrl, 'cb');
-              const trends = res?.data?.trends || [];
-              this.drawIntradayCanvas(trends, this.marketState.currentPrevClose/100, 'trend');
-          } catch(e) {}
-      } else {
-          // 【修复核心】：请求标准的 K线字段 (开、高、低、收)，保证索引正确对齐
-          const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${this.marketState.chartType}&fqt=1&end=20500101&lmt=60&_=${Date.now()}`;
-          try {
-              const res = await fetchJSONP(kUrl, 'cb');
-              const klines = res?.data?.klines || [];
-              this.drawIntradayCanvas(klines, this.marketState.currentPrevClose/100, 'kline');
-          } catch(e) {}
-      }
+    // 默认隐藏资金流向区域（等待数据）
+    document.getElementById('md-fund-flow-area').style.display = 'none';
 
-      // 3. 获取资金流向
-      const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
-      try {
-          const res = await fetchJSONP(ffUrl, 'cb');
-          const klines = res?.data?.klines || [];
-          if (klines.length > 0) {
-              document.getElementById('md-fund-flow-area').style.display = 'block';
-              
-              const todayArr = klines[klines.length-1].split(',');
-              const netFlow = parseFloat(todayArr[1]) / 100000000; // 亿
-              
-              const ffIn = netFlow > 0 ? netFlow * 1.5 : Math.abs(netFlow) * 0.8;
-              const ffOut = netFlow > 0 ? netFlow * 0.5 : Math.abs(netFlow) * 1.8;
-              
-              document.getElementById('ff-net').innerText = (netFlow>0?'净流入 ':'净流出 ') + Math.abs(netFlow).toFixed(2) + '亿';
-              document.getElementById('ff-net').className = netFlow>0 ? 'red' : 'green';
-              document.getElementById('ff-in').innerText = ffIn.toFixed(2) + '亿';
-              document.getElementById('ff-out').innerText = ffOut.toFixed(2) + '亿';
+    // 1. 获取盘口数据（最高、最低、成交量等）
+    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f51,f52,f60,f169,f170&_=${Date.now()}`;
+    try {
+        const res = await fetchJSONP(pkUrl, 'cb');
+        const d = res?.data;
+        if (d) {
+            const col = d.f170 >= 0 ? 'red' : 'green';
+            this.marketState.currentPrevClose = d.f60; // 昨收价（分）
+            const price = d.f43 !== '-' ? (d.f43 / 100).toFixed(2) : '--';
+            const chgVal = d.f169 !== '-' ? ((d.f169 / 100).toFixed(2)) : '--';
+            const chgRate = d.f170 !== '-' ? d.f170.toFixed(2) : '--';
 
-              let histHtml = klines.map(str => {
-                  const arr = str.split(',');
-                  const val = parseFloat(arr[1]) / 100000000;
-                  const dateStr = arr[0].slice(5).replace('-','/');
-                  const maxVal = Math.max(...klines.map(s => Math.abs(parseFloat(s.split(',')[1])/100000000)));
-                  const hPct = Math.max((Math.abs(val) / maxVal) * 100, 2); 
-                  const c = val > 0 ? '#f43f5e' : '#10b981';
-                  return `<div class="flow-col"><div class="flow-stick" style="height:${hPct}%; background:${c};"></div><div class="flow-date">${dateStr}</div></div>`;
-              }).join('');
-              document.getElementById('ff-history-chart').innerHTML = histHtml;
-          }
-      } catch(e) {}
-  },
+            document.getElementById('md-price').innerText = price;
+            document.getElementById('md-price').className = col;
+            document.getElementById('md-chg-val').innerText = (chgVal !== '--' && parseFloat(chgVal) > 0 ? '+' : '') + chgVal;
+            document.getElementById('md-chg-val').className = col;
+            document.getElementById('md-chg-rate').innerText = (chgRate !== '--' && parseFloat(chgRate) > 0 ? '+' : '') + chgRate + '%';
+            document.getElementById('md-chg-rate').className = col;
+
+            const formatNum = (v) => v !== '-' ? (v / 100).toFixed(2) : '--';
+            const formatVol = (v) => v !== '-' ? (v / 10000).toFixed(2) + '万手' : '--';
+            const formatAmt = (v) => v !== '-' ? (v / 100000000).toFixed(2) + '亿' : '--';
+
+            document.getElementById('md-high').innerText = formatNum(d.f44);
+            document.getElementById('md-open').innerText = formatNum(d.f46);
+            document.getElementById('md-low').innerText = formatNum(d.f45);
+            document.getElementById('md-prev').innerText = formatNum(d.f60);
+            document.getElementById('md-vol').innerText = formatVol(d.f47);
+            document.getElementById('md-amt').innerText = formatAmt(d.f48);
+
+            const dTime = new Date();
+            document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2, '0')}:${String(dTime.getSeconds()).padStart(2, '0')}`;
+        }
+    } catch (e) {
+        console.warn('盘口数据获取失败', e);
+    }
+
+    // 2. 获取走势数据（分时或K线）
+    if (this.marketState.chartType === 'trend') {
+        // 分时数据
+        const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`;
+        try {
+            const res = await fetchJSONP(trendUrl, 'cb');
+            const trends = res?.data?.trends || [];
+            if (trends.length > 0) {
+                const parsed = trends.map(str => {
+                    const parts = str.split(',');
+                    return {
+                        time: parts[0],           // 时间 "09:30"
+                        price: parseFloat(parts[1]),
+                        avgPrice: parseFloat(parts[2]),
+                        volume: parseInt(parts[5] || 0)
+                    };
+                });
+                this.marketChartData = {
+                    type: 'trend',
+                    xLabels: parsed.map(p => p.time),
+                    prices: parsed.map(p => p.price),
+                    volumes: parsed.map(p => p.volume),
+                    prevClose: this.marketState.currentPrevClose / 100,
+                    lastPrice: parsed[parsed.length - 1]?.price || 0,
+                    timeStr: new Date().toLocaleTimeString()
+                };
+                this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index);
+                this.bindChartEvents();  // 绑定交互事件（首次或重绑）
+            }
+        } catch (e) {
+            console.warn('分时数据获取失败', e);
+        }
+    } else {
+        // K线数据（日K/周K）
+        const klt = this.marketState.chartType === '101' ? 101 : 102; // 101=日K, 102=周K
+        const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=60&_=${Date.now()}`;
+        try {
+            const res = await fetchJSONP(kUrl, 'cb');
+            const klines = res?.data?.klines || [];
+            if (klines.length > 0) {
+                const parsed = klines.map(str => {
+                    const parts = str.split(',');
+                    return {
+                        date: parts[0],
+                        open: parseFloat(parts[1]),
+                        close: parseFloat(parts[2]),
+                        high: parseFloat(parts[3]),
+                        low: parseFloat(parts[4]),
+                        volume: parseInt(parts[5] || 0)
+                    };
+                });
+                this.marketChartData = {
+                    type: 'kline',
+                    xLabels: parsed.map(p => p.date),
+                    prices: parsed.map(p => p.close),
+                    volumes: parsed.map(p => p.volume),
+                    prevClose: this.marketState.currentPrevClose / 100,
+                    lastPrice: parsed[parsed.length - 1]?.close || 0,
+                    timeStr: new Date().toLocaleTimeString()
+                };
+                this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index);
+                this.bindChartEvents();
+            }
+        } catch (e) {
+            console.warn('K线数据获取失败', e);
+        }
+    }
+
+    // 3. 获取主力资金流向
+    const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
+    try {
+        const res = await fetchJSONP(ffUrl, 'cb');
+        const klines = res?.data?.klines || [];
+        if (klines.length > 0) {
+            document.getElementById('md-fund-flow-area').style.display = 'block';
+
+            const todayArr = klines[klines.length - 1].split(',');
+            const netFlow = parseFloat(todayArr[1]) / 100000000; // 亿元
+            const netColor = netFlow >= 0 ? 'red' : 'green';
+            const netText = netFlow >= 0 ? '净流入' : '净流出';
+            document.getElementById('ff-net').innerHTML = `${netText} ${Math.abs(netFlow).toFixed(2)}亿`;
+            document.getElementById('ff-net').className = netColor;
+
+            // 估算主力流入流出（简单模拟，实际可用净额和总成交推算，这里简化）
+            const totalVol = parseFloat(todayArr[5]) / 100000000; // 成交额（亿元）
+            const inFlow = netFlow > 0 ? netFlow + totalVol * 0.2 : totalVol * 0.6;
+            const outFlow = netFlow > 0 ? totalVol * 0.8 : Math.abs(netFlow) + totalVol * 0.2;
+            document.getElementById('ff-in').innerText = inFlow.toFixed(2) + '亿';
+            document.getElementById('ff-out').innerText = outFlow.toFixed(2) + '亿';
+
+            // 绘制历史资金流向柱状图
+            let histHtml = '';
+            const maxAbs = Math.max(...klines.map(s => Math.abs(parseFloat(s.split(',')[1]) / 100000000)));
+            klines.forEach(str => {
+                const arr = str.split(',');
+                const val = parseFloat(arr[1]) / 100000000;
+                const dateStr = arr[0].slice(5).replace('-', '/');
+                const hPct = (Math.abs(val) / maxAbs) * 100;
+                const c = val > 0 ? '#f43f5e' : '#10b981';
+                histHtml += `<div class="flow-col"><div class="flow-stick" style="height:${Math.max(hPct, 2)}%; background:${c};"></div><div class="flow-date">${dateStr}</div></div>`;
+            });
+            document.getElementById('ff-history-chart').innerHTML = histHtml;
+        }
+    } catch (e) {
+        console.warn('资金流向获取失败', e);
+    }
+},
 
   drawMarketChartWithCrosshair(showCrosshair = false, crosshairX = null) {
 

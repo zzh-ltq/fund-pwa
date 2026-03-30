@@ -755,6 +755,21 @@ const app = {
     chartType: 'trend' // <--- 新增这一行：记录当前选中的是分时还是K线
   },
 
+  marketChartData: {           // 存储当前图表数据
+    type: 'trend',           // trend 或 kline
+    xLabels: [],             // 时间/日期标签数组
+    prices: [],              // 价格数组
+    volumes: [],             // 成交量数组
+    prevClose: 0,            // 昨收价
+    lastPrice: 0,            // 最新价
+    timeStr: ''              // 更新时间字符串
+},
+crosshair: {                 // 十字线状态
+    active: false,
+    x: 0, y: 0,
+    index: -1
+},
+
   // 全球指数代码字典 (东财 secid 格式)
   marketDict: {
       'A': [
@@ -859,6 +874,40 @@ const app = {
     }, 500);
   },
 
+  bindChartEvents() {
+    const canvas = document.getElementById('md-canvas');
+    if (!canvas) return;
+    
+    const getIndexFromEvent = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        let x = clientX - rect.left - 50; // 左边距补偿
+        const dw = rect.width - 100;
+        if (x < 0) x = 0;
+        if (x > dw) x = dw;
+        let idx = Math.round((x / dw) * (this.marketChartData.prices.length - 1));
+        return Math.min(Math.max(idx, 0), this.marketChartData.prices.length - 1);
+    };
+    
+    const onMove = (e) => {
+        e.preventDefault();
+        if (!this.marketChartData.prices.length) return;
+        const idx = getIndexFromEvent(e);
+        this.crosshair.active = true;
+        this.crosshair.index = idx;
+        this.drawMarketChartWithCrosshair(true, idx);
+    };
+    
+    const onEnd = () => {
+        this.crosshair.active = false;
+        this.drawMarketChartWithCrosshair(false);
+    };
+    
+    canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseleave', onEnd);
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onEnd);
+},
   async saveData() {
     try {
         // 将 rtData 打包进完整数据中一起保存到 IndexedDB
@@ -1071,47 +1120,55 @@ const app = {
       this.renderMarketTabs();
   },
 
-  // 切换弹窗内的图表类型 (分时 / 日K / 周K)
   switchMarketChart(type) {
-      this.marketState.chartType = type;
-      document.querySelectorAll('#md-chart-tabs .action-pill').forEach(el => el.classList.remove('active'));
-      event.currentTarget.classList.add('active');
-      this.refreshMarketDetail(); // 重新拉取数据并绘图
-  },
+    this.marketState.chartType = type;
+    document.querySelectorAll('#md-chart-tabs .action-pill').forEach(el => el.classList.remove('active'));
+    event.currentTarget.classList.add('active');
+    this.crosshair = { active: false, x: 0, y: 0, index: -1 }; // 重置十字线
+    this.refreshMarketDetail();
+},
 
- // 渲染顶部指数卡片
-  async renderMarketTabs() {
-      const list = this.marketDict[this.marketState.currentTab];
-      const secids = list.map(item => item.secid).join(',');
-      const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
-      
-      try {
-          const res = await fetchJSONP(url, 'cb');
-          const dataList = res?.data?.diff || [];
-          
-          let html = list.map(item => {
-              const quote = dataList.find(d => item.secid.includes(d.f12)) || {};
-              
-              // 【修复核心】：严格判空，防止 undefined 溢出
-              const price = (quote.f2 !== undefined && quote.f2 !== '-') ? quote.f2 : '--';
-              const chgRate = (quote.f3 !== undefined && quote.f3 !== '-') ? quote.f3 : '--';
-              const chgVal = (quote.f4 !== undefined && quote.f4 !== '-') ? quote.f4 : '--';
-              
-              const col = (chgRate !== '--' && chgRate >= 0) ? 'red' : (chgRate !== '--' && chgRate < 0 ? 'green' : '');
-              
-              return `
-                <div class="idx-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
-                  <div class="idx-name">${item.name}</div>
-                  <div class="idx-val ${col}">${price}</div>
-                  <div class="idx-chg ${col}"><span>${chgRate !== '--' && chgRate > 0 ? '+' : ''}${chgRate !== '--' ? chgRate + '%' : '--'}</span><span>${chgVal !== '--' && chgVal > 0 ? '+' : ''}${chgVal}</span></div>
-                </div>`;
-          }).join('');
-          document.getElementById('market-idx-container').innerHTML = html;
-      } catch (e) {
-          document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8;">获取数据失败</div>';
-      }
-  },
-
+ async renderMarketTabs() {
+    const list = this.marketDict[this.marketState.currentTab];
+    const secids = list.map(item => item.secid).join(',');
+    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
+    
+    try {
+        const res = await fetchJSONP(url, 'cb');
+        const dataList = res?.data?.diff || [];
+        
+        let html = list.map(item => {
+            const quote = dataList.find(d => item.secid.endsWith(d.f12) || d.f12 === item.secid.split('.').pop()) || {};
+            
+            // 增强：处理 null/undefined 及科学计数法
+            let price = quote.f2;
+            if (price === undefined || price === null || price === '-') price = '--';
+            else price = typeof price === 'number' ? price.toFixed(2) : price;
+            
+            let chgRate = quote.f3;
+            if (chgRate === undefined || chgRate === null || chgRate === '-') chgRate = '--';
+            else chgRate = chgRate.toFixed(2);
+            
+            let chgVal = quote.f4;
+            if (chgVal === undefined || chgVal === null || chgVal === '-') chgVal = '--';
+            else chgVal = chgVal.toFixed(2);
+            
+            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
+            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
+            const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : '';
+            
+            return `
+              <div class="idx-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
+                <div class="idx-name">${item.name}</div>
+                <div class="idx-val ${col}">${price}</div>
+                <div class="idx-chg ${col}"><span>${rateSign}${chgRate}%</span><span>${valSign}${chgVal}</span></div>
+              </div>`;
+        }).join('');
+        document.getElementById('market-idx-container').innerHTML = html;
+    } catch (e) {
+        document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8;">获取数据失败，请检查网络</div>';
+    }
+},
   searchMarket() {
       clearTimeout(this.marketState.searchTimer);
       const kw = document.getElementById('market-search-input').value.trim();
@@ -1209,6 +1266,8 @@ const app = {
 
   openMarketDetail(secid, name) {
       this.marketState.currentSecid = secid;
+    this.marketState.chartType = 'trend'; // 默认分时
+    this.crosshair = { active: false, x: 0, y: 0, index: -1 };
       // 每次打开默认重置为分时图
       this.switchMarketChart('trend');
       document.getElementById('md-title').innerText = name;
@@ -1306,6 +1365,191 @@ const app = {
           }
       } catch(e) {}
   },
+
+  drawMarketChartWithCrosshair(showCrosshair = false, crosshairX = null) {
+
+    window.addEventListener('resize', () => {
+    if (document.getElementById('modal-market-detail').classList.contains('active')) {
+        this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index);
+    }
+});
+    const canvas = document.getElementById('md-canvas');
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+    
+    const data = this.marketChartData;
+    if (!data.prices || data.prices.length === 0) return;
+    
+    // 绘图边距（左、右、上、下）
+    const pad = { l: 50, r: 50, t: 20, b: 35 };
+    const dw = w - pad.l - pad.r;
+    const dh = h - pad.t - pad.b;
+    
+    // 计算Y轴范围（分时以昨收为中心，K线自适应）
+    let yMax, yMin;
+    if (data.type === 'trend') {
+        const diffMax = Math.max(Math.abs(Math.max(...data.prices) - data.prevClose), Math.abs(data.prevClose - Math.min(...data.prices))) * 1.1;
+        yMax = data.prevClose + diffMax;
+        yMin = data.prevClose - diffMax;
+    } else {
+        const maxP = Math.max(...data.prices);
+        const minP = Math.min(...data.prices);
+        const margin = (maxP - minP) * 0.1 || maxP * 0.01;
+        yMax = maxP + margin;
+        yMin = minP - margin;
+    }
+    
+    const getX = idx => pad.l + (idx / (data.prices.length - 1)) * dw;
+    const getY = price => pad.t + dh - ((price - yMin) / (yMax - yMin)) * dh;
+    
+    // 绘制背景网格
+    ctx.save();
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    // 水平网格线
+    for (let i = 0; i <= 4; i++) {
+        let y = pad.t + (i / 4) * dh;
+        ctx.beginPath();
+        ctx.moveTo(pad.l, y);
+        ctx.lineTo(w - pad.r, y);
+        ctx.stroke();
+    }
+    // 垂直网格线（分时每1小时，K线每5根）
+    const step = data.type === 'trend' ? Math.ceil(data.prices.length / 6) : Math.ceil(data.prices.length / 10);
+    for (let i = 0; i < data.prices.length; i += step) {
+        let x = getX(i);
+        ctx.beginPath();
+        ctx.moveTo(x, pad.t);
+        ctx.lineTo(x, h - pad.b);
+        ctx.stroke();
+    }
+    
+    // 绘制Y轴刻度（价格、涨跌幅）
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#64748b';
+    for (let i = 0; i <= 4; i++) {
+        let price = yMin + (i / 4) * (yMax - yMin);
+        let y = getY(price);
+        ctx.fillText(price.toFixed(2), pad.l - 5, y);
+        let rate = ((price - data.prevClose) / data.prevClose * 100);
+        ctx.textAlign = 'left';
+        ctx.fillText(rate.toFixed(2) + '%', w - pad.r + 5, y);
+        ctx.textAlign = 'right';
+    }
+    
+    // 绘制X轴时间/日期标签
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#64748b';
+    const xStep = data.type === 'trend' ? Math.ceil(data.xLabels.length / 6) : Math.ceil(data.xLabels.length / 8);
+    for (let i = 0; i < data.xLabels.length; i += xStep) {
+        let x = getX(i);
+        let label = data.xLabels[i];
+        if (data.type === 'trend') label = label.slice(11, 16); // 显示时:分
+        else label = label.slice(5, 10); // 显示月-日
+        ctx.fillText(label, x, h - pad.b + 12);
+    }
+    
+    // 绘制走势线
+    ctx.beginPath();
+    ctx.moveTo(getX(0), getY(data.prices[0]));
+    for (let i = 1; i < data.prices.length; i++) {
+        ctx.lineTo(getX(i), getY(data.prices[i]));
+    }
+    ctx.strokeStyle = '#0066ff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // 绘制成交量柱状图（可选，缩放在底部区域）
+    if (data.volumes && data.volumes.length > 0) {
+        const maxVol = Math.max(...data.volumes);
+        const volHeight = h * 0.12; // 占用底部12%高度
+        const volY = h - pad.b - volHeight;
+        for (let i = 0; i < data.volumes.length; i++) {
+            let x = getX(i) - 2;
+            let wBar = (dw / data.prices.length) * 0.6;
+            let hBar = (data.volumes[i] / maxVol) * volHeight;
+            ctx.fillStyle = '#cbd5e1';
+            ctx.fillRect(x, volY + volHeight - hBar, wBar, hBar);
+        }
+    }
+    
+    // 绘制十字线及信息浮层
+    if (showCrosshair && crosshairX !== null && this.crosshair.index >= 0 && this.crosshair.index < data.prices.length) {
+        const idx = this.crosshair.index;
+        const cx = getX(idx);
+        const cy = getY(data.prices[idx]);
+        
+        // 绘制十字线
+        ctx.beginPath();
+        ctx.moveTo(cx, pad.t);
+        ctx.lineTo(cx, h - pad.b);
+        ctx.moveTo(pad.l, cy);
+        ctx.lineTo(w - pad.r, cy);
+        ctx.strokeStyle = '#94a3b8';
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // 绘制圆点
+        ctx.beginPath();
+        ctx.arc(cx, cy, 4, 0, 2 * Math.PI);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.strokeStyle = '#0066ff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        
+        // 构建信息文本
+        const priceVal = data.prices[idx].toFixed(4);
+        const change = priceVal - data.prevClose;
+        const changeRate = (change / data.prevClose * 100).toFixed(2);
+        const infoText = `${data.xLabels[idx]}  ${priceVal}  ${change>=0?'+':''}${change.toFixed(4)}  ${changeRate}%`;
+        
+        // 计算信息框位置
+        let boxW = ctx.measureText(infoText).width + 20;
+        let boxX = cx - boxW / 2;
+        if (boxX < pad.l) boxX = pad.l;
+        if (boxX + boxW > w - pad.r) boxX = w - pad.r - boxW;
+        let boxY = cy - 35;
+        if (boxY < pad.t) boxY = cy + 15;
+        
+        // 绘制背景框
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxW, 24, 8);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(infoText, boxX + boxW / 2, boxY + 16);
+    }
+    
+    ctx.restore();
+},
+
+// 辅助方法：canvas 圆角矩形
+roundRect(ctx, x, y, w, h, r) {
+    if (w < 2 * r) r = w / 2;
+    if (h < 2 * r) r = h / 2;
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+},
 
   // 绘制 Canvas (支持 分时 与 日/周K走势图 复用)
   drawIntradayCanvas(dataStrList, prevClose, chartType) {

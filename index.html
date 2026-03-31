@@ -1138,20 +1138,28 @@ crosshair: {                 // 十字线状态
         const dataList = res?.data?.diff || [];
         
         let html = list.map(item => {
-            const quote = dataList.find(d => item.secid.endsWith(d.f12) || d.f12 === item.secid.split('.').pop()) || {};
+            // 更精确的匹配：使用 secid 最后一段（如 HSI、000001）与 f12 比较
+            const secidSuffix = item.secid.split('.').pop();
+            const quote = dataList.find(d => d.f12 === secidSuffix) || {};
             
-            // 增强：处理 null/undefined 及科学计数法
+            // 价格处理（分 → 元，仅当是数字且大于1000时可能为分单位，但指数点位通常是整数，直接使用）
             let price = quote.f2;
             if (price === undefined || price === null || price === '-') price = '--';
             else price = typeof price === 'number' ? price.toFixed(2) : price;
             
-            let chgRate = quote.f3;
-            if (chgRate === undefined || chgRate === null || chgRate === '-') chgRate = '--';
-            else chgRate = chgRate.toFixed(2);
+            // 涨跌幅：东财返回的是基点（0.01%），需除以100得到百分比
+            let chgRateRaw = quote.f3;
+            let chgRate = '--';
+            if (chgRateRaw !== undefined && chgRateRaw !== null && chgRateRaw !== '-') {
+                chgRate = (chgRateRaw / 100).toFixed(2);
+            }
             
-            let chgVal = quote.f4;
-            if (chgVal === undefined || chgVal === null || chgVal === '-') chgVal = '--';
-            else chgVal = chgVal.toFixed(2);
+            // 涨跌额：同样基点（0.01元?），除以100得到实际金额
+            let chgValRaw = quote.f4;
+            let chgVal = '--';
+            if (chgValRaw !== undefined && chgValRaw !== null && chgValRaw !== '-') {
+                chgVal = (chgValRaw / 100).toFixed(2);
+            }
             
             const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
@@ -1224,30 +1232,41 @@ crosshair: {                 // 十字线状态
       this.renderWatchedMarkets();
   },
 
- // 渲染自选板块列表
-  async renderWatchedMarkets() {
-      const container = document.getElementById('market-watched-list');
-      if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
-          container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>'; return;
-      }
-      
-      const secids = this.data.watchedMarkets.map(m => m.secid).join(',');
-      const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
-      
-      container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>';
-      try {
-          const res = await fetchJSONP(url, 'cb');
-          const dataList = res?.data?.diff || [];
-          
-          let html = this.data.watchedMarkets.map(item => {
-              const quote = dataList.find(d => item.secid.includes(d.f12)) || {};
-              
-              // 【修复核心】：严格判空
-              const price = (quote.f2 !== undefined && quote.f2 !== '-') ? quote.f2 : '--';
-              const chgRate = (quote.f3 !== undefined && quote.f3 !== '-') ? quote.f3 : '--';
-              const col = (chgRate !== '--' && chgRate >= 0) ? 'red' : (chgRate !== '--' && chgRate < 0 ? 'green' : '');
-              
-              return `
+ async renderWatchedMarkets() {
+    const container = document.getElementById('market-watched-list');
+    if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>'; 
+        return;
+    }
+    
+    const secids = this.data.watchedMarkets.map(m => m.secid).join(',');
+    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
+    
+    container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>';
+    try {
+        const res = await fetchJSONP(url, 'cb');
+        const dataList = res?.data?.diff || [];
+        
+        let html = this.data.watchedMarkets.map(item => {
+            const secidSuffix = item.secid.split('.').pop();
+            const quote = dataList.find(d => d.f12 === secidSuffix) || {};
+            
+            // 价格（分→元）
+            let price = quote.f2;
+            if (price === undefined || price === null || price === '-') price = '--';
+            else price = typeof price === 'number' ? (price / 100).toFixed(2) : price;
+            
+            // 涨跌幅（基点→百分比）
+            let chgRateRaw = quote.f3;
+            let chgRate = '--';
+            if (chgRateRaw !== undefined && chgRateRaw !== null && chgRateRaw !== '-') {
+                chgRate = (chgRateRaw / 100).toFixed(2);
+            }
+            
+            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
+            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
+            
+            return `
               <div class="list-item" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
                   <div class="c-del-btn" style="top:50%; transform:translateY(-50%); right:8px; background:none;" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
                   <div style="flex:1;">
@@ -1256,13 +1275,15 @@ crosshair: {                 // 十字线状态
                   </div>
                   <div style="width:90px; text-align:right; margin-right:30px;">
                       <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
-                      <div class="${col}" style="font-size:12px; font-weight:bold; background:rgba(0,0,0,0.03); padding:2px 4px; border-radius:4px; display:inline-block; margin-top:2px;">${chgRate !== '--' && chgRate > 0 ? '+' : ''}${chgRate !== '--' ? chgRate + '%' : '--'}</div>
+                      <div class="${col}" style="font-size:12px; font-weight:bold; background:rgba(0,0,0,0.03); padding:2px 4px; border-radius:4px; display:inline-block; margin-top:2px;">${rateSign}${chgRate}%</div>
                   </div>
               </div>`;
-          }).join('');
-          container.innerHTML = html;
-      } catch (e) { container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>'; }
-  },
+        }).join('');
+        container.innerHTML = html;
+    } catch (e) { 
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>'; 
+    }
+},
 
   openMarketDetail(secid, name) {
       this.marketState.currentSecid = secid;
@@ -1289,20 +1310,33 @@ crosshair: {                 // 十字线状态
     try {
         const res = await fetchJSONP(pkUrl, 'cb');
         const d = res?.data;
-        if (d) {
-            const col = d.f170 >= 0 ? 'red' : 'green';
-            this.marketState.currentPrevClose = d.f60; // 昨收价（分）
+          // 在 refreshMarketDetail 函数中，获取到 d 后
+          if (d) {
+            const prevClose = d.f60 / 100;      // 昨收（分→元）
             const price = d.f43 !== '-' ? (d.f43 / 100).toFixed(2) : '--';
-            const chgVal = d.f169 !== '-' ? ((d.f169 / 100).toFixed(2)) : '--';
-            const chgRate = d.f170 !== '-' ? d.f170.toFixed(2) : '--';
-
+            // 涨跌额（基点→元）
+            let chgValRaw = d.f169;
+            let chgVal = '--';
+            if (chgValRaw !== '-' && !isNaN(chgValRaw)) {
+                chgVal = (chgValRaw / 100).toFixed(2);
+            }
+            // 涨跌幅（基点→百分比）
+            let chgRateRaw = d.f170;
+            let chgRate = '--';
+            if (chgRateRaw !== '-' && !isNaN(chgRateRaw)) {
+                chgRate = (chgRateRaw / 100).toFixed(2);
+            }
+            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green';
+    
+            this.marketState.currentPrevClose = prevClose;
             document.getElementById('md-price').innerText = price;
             document.getElementById('md-price').className = col;
             document.getElementById('md-chg-val').innerText = (chgVal !== '--' && parseFloat(chgVal) > 0 ? '+' : '') + chgVal;
             document.getElementById('md-chg-val').className = col;
             document.getElementById('md-chg-rate').innerText = (chgRate !== '--' && parseFloat(chgRate) > 0 ? '+' : '') + chgRate + '%';
             document.getElementById('md-chg-rate').className = col;
-
+    
+            // 其他盘口字段（最高、最低等同样需要除以100）
             const formatNum = (v) => v !== '-' ? (v / 100).toFixed(2) : '--';
             const formatVol = (v) => v !== '-' ? (v / 10000).toFixed(2) + '万手' : '--';
             const formatAmt = (v) => v !== '-' ? (v / 100000000).toFixed(2) + '亿' : '--';
@@ -1574,8 +1608,7 @@ crosshair: {                 // 十字线状态
         const priceVal = data.prices[idx].toFixed(4);
         const change = priceVal - data.prevClose;
         const changeRate = (change / data.prevClose * 100).toFixed(2);
-        const infoText = `${data.xLabels[idx]}  ${priceVal}  ${change>=0?'+':''}${change.toFixed(4)}  ${changeRate}%`;
-        
+        const infoText = `${priceVal.toFixed(2)}  ${change>=0?'+':''}${change.toFixed(2)}  ${changeRate}%`;
         // 计算信息框位置
         let boxW = ctx.measureText(infoText).width + 20;
         let boxX = cx - boxW / 2;

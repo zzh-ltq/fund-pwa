@@ -825,7 +825,7 @@ const app = {
   marketRtTimer: null,
   marketRtCountdown: 60,
 
-  // 全球指数代码字典 (修复了港股市场代码 124)
+  // 全球指数代码字典 (修正港股市场代码为 116)
   marketDict: {
     'A': [
         {name: '上证指数', secid: '1.000001'}, {name: '深证成指', secid: '0.399001'},
@@ -833,8 +833,8 @@ const app = {
         {name: '北证50', secid: '0.899050'}, {name: '沪深300', secid: '1.000300'}
     ],
     'HK': [
-        {name: '恒生指数', secid: '124.HSI'}, {name: '恒生科技', secid: '124.HSTECH'},
-        {name: '国企指数', secid: '124.HSCEI'}
+        {name: '恒生指数', secid: '116.HSI'}, {name: '恒生科技', secid: '116.HSTECH'},
+        {name: '国企指数', secid: '116.HSCEI'}
     ],
     'US': [
         {name: '道琼斯', secid: '100.DJIA'}, {name: '纳斯达克', secid: '100.NDX'},
@@ -1320,9 +1320,7 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
   },
 
   addWatchedMarket(secid, name, code) {
-    // 修复：板块BK代码强制使用市场代码90
-    if (code && code.startsWith('BK')) secid = `90.${code}`;
-
+    // 移除之前的硬编码强制转换，完全信任搜索接口传来的 secid
     if (!this.data.watchedMarkets) this.data.watchedMarkets = [];
     if (this.data.watchedMarkets.some(m => m.secid === secid)) {
         this.showToast('该板块/ETF已在自选列表中', 'error');
@@ -1334,29 +1332,14 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
     }
     document.getElementById('market-search-input').value = '';
     document.getElementById('market-search-res').style.display = 'none';
-},
-
-  delWatchedMarket(e, secid) {
-      this.stopProp(e);
-      if(!confirm('确定删除该自选板块吗？')) return;
-      this.data.watchedMarkets = this.data.watchedMarkets.filter(m => m.secid !== secid);
-      this.saveData();
-      this.renderWatchedMarkets();
   },
 
- async renderWatchedMarkets() {
+  async renderWatchedMarkets() {
     const container = document.getElementById('market-watched-list');
     if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
         container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';
         return;
     }
-
-    // 修复已存储的BK代码secid
-    this.data.watchedMarkets.forEach(m => {
-        if (m.code && m.code.startsWith('BK') && !m.secid.startsWith('90.')) {
-            m.secid = `90.${m.code}`;
-        }
-    });
 
     const secids = this.data.watchedMarkets.map(m => m.secid).join(',');
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
@@ -1367,22 +1350,15 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         const dataList = res?.data?.diff || [];
 
         let html = this.data.watchedMarkets.map(item => {
-            // 使用完整secid匹配（更准确）
             const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid) || {};
 
-            // fltt=2 已是标准单位，不需要除以100
             let price = quote.f2;
             if (price === undefined || price === null || price === '-') price = '--';
             else price = typeof price === 'number' ? price.toFixed(2) : price;
 
-            let chgRate = '--';
-            if (quote.f3 !== undefined && quote.f3 !== null && quote.f3 !== '-') {
-                chgRate = parseFloat(quote.f3).toFixed(2);
-            }
-            let chgVal = '--';
-            if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
-                chgVal = parseFloat(quote.f4).toFixed(2);
-            }
+            let chgRate = '--', chgVal = '--';
+            if (quote.f3 !== undefined && quote.f3 !== null && quote.f3 !== '-') chgRate = parseFloat(quote.f3).toFixed(2);
+            if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') chgVal = parseFloat(quote.f4).toFixed(2);
 
             const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
@@ -1408,7 +1384,16 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
     } catch (e) {
         container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>';
     }
-},
+  },
+
+  delWatchedMarket(e, secid) {
+      this.stopProp(e);
+      if(!confirm('确定删除该自选板块吗？')) return;
+      this.data.watchedMarkets = this.data.watchedMarkets.filter(m => m.secid !== secid);
+      this.saveData();
+      this.renderWatchedMarkets();
+  },
+
 
   openMarketDetail(secid, name) {
       this.marketState.currentSecid = secid;
@@ -1526,54 +1511,51 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         } catch (e) { console.warn('K线数据获取失败', e); }
     }
 
-    // 3. 主力资金流向及明细
-    if (secid.startsWith('1.') || secid.startsWith('0.') || secid.startsWith('90.')) {
-        document.getElementById('md-fund-flow-area').style.display = 'block';
-        
-        // 当日明细
-        const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
-        try {
-            const fRes = await fetchJSONP(detailFlowUrl, 'cb');
-            const fd = fRes?.data;
-            if(fd) {
-                const fmtY = (v) => v && !isNaN(v) ? (parseFloat(v) / 100000000).toFixed(2) + '亿' : '--';
-                let xlIn = parseFloat(fd.f64)||0, xlOut = parseFloat(fd.f65)||0;
-                let lIn = parseFloat(fd.f70)||0, lOut = parseFloat(fd.f71)||0;
-                let mainIn = xlIn + lIn, mainOut = xlOut + lOut;
-                let mainNet = parseFloat(fd.f62) || (mainIn - mainOut);
+    // 3. 主力资金流向及明细 (增加鲁棒性解析，防止NaN)
+    document.getElementById('md-fund-flow-area').style.display = 'block';
+    const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
+    try {
+        const fRes = await fetchJSONP(detailFlowUrl, 'cb');
+        const fd = fRes?.data;
+        if(fd) {
+            const safeParse = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v) : 0;
+            const fmtY = (v) => v !== 0 ? (v / 100000000).toFixed(2) + '亿' : '--';
+            
+            let xlIn = safeParse(fd.f64), xlOut = safeParse(fd.f65);
+            let lIn = safeParse(fd.f70), lOut = safeParse(fd.f71);
+            let mainIn = xlIn + lIn, mainOut = xlOut + lOut;
+            let mainNet = safeParse(fd.f62) !== 0 ? safeParse(fd.f62) : (mainIn - mainOut);
 
-                document.getElementById('ff-main-in').innerText = fmtY(mainIn);
-                document.getElementById('ff-main-out').innerText = fmtY(mainOut);
-                document.getElementById('ff-main-net').innerText = fmtY(mainNet);
-                document.getElementById('ff-main-net').className = mainNet >= 0 ? 'red' : 'green';
+            document.getElementById('ff-main-in').innerText = fmtY(mainIn);
+            document.getElementById('ff-main-out').innerText = fmtY(mainOut);
+            document.getElementById('ff-main-net').innerText = fmtY(mainNet);
+            document.getElementById('ff-main-net').className = mainNet >= 0 ? 'red' : 'green';
 
-                document.getElementById('ff-xl-in').innerText = fmtY(fd.f64); document.getElementById('ff-xl-out').innerText = fmtY(fd.f65);
-                document.getElementById('ff-l-in').innerText = fmtY(fd.f70); document.getElementById('ff-l-out').innerText = fmtY(fd.f71);
-                document.getElementById('ff-m-in').innerText = fmtY(fd.f76); document.getElementById('ff-m-out').innerText = fmtY(fd.f77);
-                document.getElementById('ff-s-in').innerText = fmtY(fd.f82); document.getElementById('ff-s-out').innerText = fmtY(fd.f83);
-            }
-        } catch(e) { console.warn('资金明细获取失败', e); }
+            document.getElementById('ff-xl-in').innerText = fmtY(xlIn); document.getElementById('ff-xl-out').innerText = fmtY(xlOut);
+            document.getElementById('ff-l-in').innerText = fmtY(lIn); document.getElementById('ff-l-out').innerText = fmtY(lOut);
+            document.getElementById('ff-m-in').innerText = fmtY(safeParse(fd.f76)); document.getElementById('ff-m-out').innerText = fmtY(safeParse(fd.f77));
+            document.getElementById('ff-s-in').innerText = fmtY(safeParse(fd.f82)); document.getElementById('ff-s-out').innerText = fmtY(safeParse(fd.f83));
+        }
+    } catch(e) { console.warn('资金明细获取失败', e); }
 
-        // 历史趋势柱状图
-        const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
-        try {
-            const res = await fetchJSONP(ffUrl, 'cb');
-            const klines = res?.data?.klines || [];
-            if (klines.length > 0) {
-                let histHtml = '';
-                const maxAbs = Math.max(...klines.map(s => Math.abs(parseFloat(s.split(',')[1]) / 100000000)));
-                klines.forEach(str => {
-                    const arr = str.split(',');
-                    const val = parseFloat(arr[1]) / 100000000;
-                    const dateStr = arr[0].slice(5).replace('-', '/');
-                    const hPct = (Math.abs(val) / maxAbs) * 100;
-                    const c = val > 0 ? '#f43f5e' : '#10b981';
-                    histHtml += `<div class="flow-col"><div class="flow-stick" style="height:${Math.max(hPct, 2)}%; background:${c};"></div><div class="flow-date">${dateStr}</div></div>`;
-                });
-                document.getElementById('ff-history-chart').innerHTML = histHtml;
-            }
-        } catch (e) { console.warn('历史资金获取失败', e); }
-    }
+    const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
+    try {
+        const res = await fetchJSONP(ffUrl, 'cb');
+        const klines = res?.data?.klines || [];
+        if (klines.length > 0) {
+            let histHtml = '';
+            const maxAbs = Math.max(...klines.map(s => Math.abs(parseFloat(s.split(',')[1]) / 100000000)));
+            klines.forEach(str => {
+                const arr = str.split(',');
+                const val = parseFloat(arr[1]) / 100000000;
+                const dateStr = arr[0].slice(5).replace('-', '/');
+                const hPct = (Math.abs(val) / maxAbs) * 100;
+                const c = val > 0 ? '#f43f5e' : '#10b981';
+                histHtml += `<div class="flow-col"><div class="flow-stick" style="height:${Math.max(hPct, 2)}%; background:${c};"></div><div class="flow-date">${dateStr}</div></div>`;
+            });
+            document.getElementById('ff-history-chart').innerHTML = histHtml;
+        }
+    } catch (e) { console.warn('历史资金获取失败', e); }
   },
 
   drawMarketChartWithCrosshair(showCrosshair = false, crosshairIdx = null) {
@@ -1660,7 +1642,7 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         }
     }
 
-    // 绘制均线 (仅在K线模式下绘制)
+    // 绘制均线 (优化配色，模拟主流软件)
     if (data.type === 'kline') {
         const drawMALine = (maData, color) => {
             if(!maData) return;
@@ -1673,10 +1655,10 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
             }
             ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
         };
-        drawMALine(data.ma60, '#10b981'); // 绿
-        drawMALine(data.ma20, '#ec4899'); // 粉
-        drawMALine(data.ma10, '#f59e0b'); // 橙
-        drawMALine(data.ma5, '#0066ff');  // 蓝
+        drawMALine(data.ma60, '#10b981'); // 绿 (MA60)
+        drawMALine(data.ma20, '#ec4899'); // 粉/紫 (MA20)
+        drawMALine(data.ma10, '#f59e0b'); // 黄/橙 (MA10)
+        drawMALine(data.ma5, '#3b82f6');  // 蓝 (MA5)
     }
 
     // 分时图独有的均价线 (黄色)
@@ -1686,10 +1668,11 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1; ctx.stroke();
     }
 
-    // 绘制主走势线 (K线/分时共用这根主蓝色线)
+    // 绘制主走势线 (K线用深灰区分均线，分时用蓝色)
     ctx.beginPath(); ctx.moveTo(getX(0), getY(data.prices[0]));
     for (let i = 1; i < data.prices.length; i++) ctx.lineTo(getX(i), getY(data.prices[i]));
-    ctx.strokeStyle = '#0066ff'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = data.type === 'trend' ? '#0066ff' : '#1e293b'; 
+    ctx.lineWidth = 1.5; ctx.stroke();
 
     if (data.type === 'trend') {
         ctx.beginPath(); ctx.moveTo(getX(0), getY(data.prices[0]));
@@ -1704,7 +1687,6 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
     const infoDiv = document.getElementById('md-chart-info');
     const titleName = document.getElementById('md-title')?.innerText || '';
     
-    // 如果十字线未激活，默认显示最后一天的数据
     let displayIdx = (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) ? crosshairIdx : data.prices.length - 1;
 
     if (infoDiv && displayIdx >= 0 && displayIdx < data.prices.length) {
@@ -1718,8 +1700,8 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
             let m20 = data.ma20 && data.ma20[displayIdx] ? data.ma20[displayIdx].toFixed(2) : '--';
             let m60 = data.ma60 && data.ma60[displayIdx] ? data.ma60[displayIdx].toFixed(2) : '--';
             
-            infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main); margin-right:8px;">${titleName} 均线</span> `
-                + `<span style="color:#0066ff; margin-right:6px;">MA5: ${m5}</span> `
+            infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main); margin-right:8px;">${titleName}</span> `
+                + `<span style="color:#3b82f6; margin-right:6px;">MA5: ${m5}</span> `
                 + `<span style="color:#f59e0b; margin-right:6px;">MA10: ${m10}</span> `
                 + `<span style="color:#ec4899; margin-right:6px;">MA20: ${m20}</span> `
                 + `<span style="color:#10b981; margin-right:6px;">MA60: ${m60}</span>`;
@@ -1757,7 +1739,7 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         if (boxY < pad.t) boxY = cy + 15;
 
         ctx.fillStyle = 'rgba(30, 41, 59, 0.9)'; ctx.beginPath();
-        if(this.roundRect) this.roundRect(ctx, boxX, boxY, boxW, 24, 8); // 调用您的辅助圆角方法
+        if(this.roundRect) this.roundRect(ctx, boxX, boxY, boxW, 24, 8); 
         ctx.fill(); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(infoText, boxX + boxW / 2, boxY + 16);
     }
     ctx.restore();

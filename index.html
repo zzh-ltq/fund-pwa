@@ -1139,27 +1139,26 @@ crosshair: {                 // 十字线状态
         
         let html = list.map(item => {
             // 更精确的匹配：使用 secid 最后一段（如 HSI、000001）与 f12 比较
-            const secidSuffix = item.secid.split('.').pop();
-            const quote = dataList.find(d => d.f12 === secidSuffix) || {};
+            const quote = dataList.find(d => {
+    const full = `${d.f13}.${d.f12}`;
+    return full === item.secid;
+}) || {};
             
             // 价格处理（分 → 元，仅当是数字且大于1000时可能为分单位，但指数点位通常是整数，直接使用）
             let price = quote.f2;
             if (price === undefined || price === null || price === '-') price = '--';
             else price = typeof price === 'number' ? price.toFixed(2) : price;
             
-            // 涨跌幅：东财返回的是基点（0.01%），需除以100得到百分比
-            let chgRateRaw = quote.f3;
-            let chgRate = '--';
-            if (chgRateRaw !== undefined && chgRateRaw !== null && chgRateRaw !== '-') {
-                chgRate = (chgRateRaw / 100).toFixed(2);
-            }
-            
-            // 涨跌额：同样基点（0.01元?），除以100得到实际金额
-            let chgValRaw = quote.f4;
-            let chgVal = '--';
-            if (chgValRaw !== undefined && chgValRaw !== null && chgValRaw !== '-') {
-                chgVal = (chgValRaw / 100).toFixed(2);
-            }
+            // ✅ 正确写法（ulist接口已是标准单位）
+let chgRate = '--';
+if (quote.f3 !== undefined && quote.f3 !== null && quote.f3 !== '-') {
+    chgRate = parseFloat(quote.f3).toFixed(2);
+}
+
+let chgVal = '--';
+if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
+    chgVal = parseFloat(quote.f4).toFixed(2);
+}
             
             const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
@@ -1377,7 +1376,7 @@ crosshair: {                 // 十字线状态
                     xLabels: parsed.map(p => p.time),
                     prices: parsed.map(p => p.price),
                     volumes: parsed.map(p => p.volume),
-                    prevClose: this.marketState.currentPrevClose / 100,
+                    prevClose: this.marketState.currentPrevClose,
                     lastPrice: parsed[parsed.length - 1]?.price || 0,
                     timeStr: new Date().toLocaleTimeString()
                 };
@@ -1411,7 +1410,7 @@ crosshair: {                 // 十字线状态
                     xLabels: parsed.map(p => p.date),
                     prices: parsed.map(p => p.close),
                     volumes: parsed.map(p => p.volume),
-                    prevClose: this.marketState.currentPrevClose / 100,
+                    prevClose: this.marketState.currentPrevClose,
                     lastPrice: parsed[parsed.length - 1]?.close || 0,
                     timeStr: new Date().toLocaleTimeString()
                 };

@@ -825,7 +825,7 @@ const app = {
   marketRtTimer: null,
   marketRtCountdown: 60,
 
-  // 全球指数代码字典 (修正港股市场代码为 116)
+  // 全球指数代码字典 (修正港股核心指数前缀为 124)
   marketDict: {
     'A': [
         {name: '上证指数', secid: '1.000001'}, {name: '深证成指', secid: '0.399001'},
@@ -833,8 +833,8 @@ const app = {
         {name: '北证50', secid: '0.899050'}, {name: '沪深300', secid: '1.000300'}
     ],
     'HK': [
-        {name: '恒生指数', secid: '116.HSI'}, {name: '恒生科技', secid: '116.HSTECH'},
-        {name: '国企指数', secid: '116.HSCEI'}
+        {name: '恒生指数', secid: '124.HSI'}, {name: '恒生科技', secid: '124.HSTECH'},
+        {name: '国企指数', secid: '124.HSCEI'}
     ],
     'US': [
         {name: '道琼斯', secid: '100.DJIA'}, {name: '纳斯达克', secid: '100.NDX'},
@@ -1350,7 +1350,9 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         const dataList = res?.data?.diff || [];
 
         let html = this.data.watchedMarkets.map(item => {
-            const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid) || {};
+            // 【核心修复】：忽略市场前缀差异，直接提取纯代码部分进行强制匹配 (例如把 2.H30199 提取为 H30199)
+            const pureCode = item.secid.split('.').pop();
+            const quote = dataList.find(d => d.f12 === pureCode) || {};
 
             let price = quote.f2;
             if (price === undefined || price === null || price === '-') price = '--';
@@ -1511,15 +1513,28 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         } catch (e) { console.warn('K线数据获取失败', e); }
     }
 
-    // 3. 主力资金流向及明细 (增加鲁棒性解析，防止NaN)
+    // 3. 主力资金流向及明细 (修复：更安全的解析逻辑)
     document.getElementById('md-fund-flow-area').style.display = 'block';
-    const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
+    
+    // 【核心修复】：为资金流向请求强制补全BK前缀，非BK板块如果无数据则优雅显示"--"
+    let flowSecid = secid;
+    const pureCode = secid.split('.').pop();
+    if (pureCode.startsWith('BK')) flowSecid = '90.' + pureCode;
+
+    // 获取当天明细
+    const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${flowSecid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
     try {
         const fRes = await fetchJSONP(detailFlowUrl, 'cb');
         const fd = fRes?.data;
-        if(fd) {
+        
+        // 只有当接口确实返回了 f62（主力净流入）字段时，才认为是有效的资金流向数据
+        if(fd && fd.f62 !== undefined && fd.f62 !== '-') {
             const safeParse = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v) : 0;
-            const fmtY = (v) => v !== 0 ? (v / 100000000).toFixed(2) + '亿' : '--';
+            // 【核心修复】：修正单位转换逻辑，允许解析负数和0
+            const fmtY = (v) => {
+                if (v === undefined || isNaN(v)) return '--';
+                return (v / 100000000).toFixed(2) + '亿';
+            };
             
             let xlIn = safeParse(fd.f64), xlOut = safeParse(fd.f65);
             let lIn = safeParse(fd.f70), lOut = safeParse(fd.f71);
@@ -1535,10 +1550,15 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
             document.getElementById('ff-l-in').innerText = fmtY(lIn); document.getElementById('ff-l-out').innerText = fmtY(lOut);
             document.getElementById('ff-m-in').innerText = fmtY(safeParse(fd.f76)); document.getElementById('ff-m-out').innerText = fmtY(safeParse(fd.f77));
             document.getElementById('ff-s-in').innerText = fmtY(safeParse(fd.f82)); document.getElementById('ff-s-out').innerText = fmtY(safeParse(fd.f83));
+        } else {
+            // 如果接口不提供该指数的资金流向（如 H30199），则清空为 '--'
+            const ids = ['ff-main-in','ff-main-out','ff-main-net','ff-xl-in','ff-xl-out','ff-l-in','ff-l-out','ff-m-in','ff-m-out','ff-s-in','ff-s-out'];
+            ids.forEach(id => { document.getElementById(id).innerText = '--'; document.getElementById(id).className = ''; });
         }
     } catch(e) { console.warn('资金明细获取失败', e); }
 
-    const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
+    // 获取历史流向
+    const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${flowSecid}&lmt=20&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(ffUrl, 'cb');
         const klines = res?.data?.klines || [];
@@ -1554,6 +1574,8 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
                 histHtml += `<div class="flow-col"><div class="flow-stick" style="height:${Math.max(hPct, 2)}%; background:${c};"></div><div class="flow-date">${dateStr}</div></div>`;
             });
             document.getElementById('ff-history-chart').innerHTML = histHtml;
+        } else {
+             document.getElementById('ff-history-chart').innerHTML = '<div style="text-align:center; width:100%; color:#94a3b8; font-size:12px;">暂无历史资金数据</div>';
         }
     } catch (e) { console.warn('历史资金获取失败', e); }
   },

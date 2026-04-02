@@ -239,6 +239,13 @@
     .ana-badge { font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 6px;}
     .ana-desc { font-size: 12px; color: var(--text-sub); line-height: 1.5;}
 
+    /* 新增：行情资金流向详细表格样式 */
+    .flow-detail-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+    .flow-detail-table th, .flow-detail-table td { padding: 8px 4px; text-align: center; border-bottom: 1px solid #f1f5f9; }
+    .flow-detail-table th { background: #f8fafc; font-weight: 600; color: #64748b; }
+    .flow-detail-table td { font-weight: bold; }
+    .flow-summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+    
     @media (min-width: 768px) {
       .app-container { max-width: 1400px; flex-direction: row; align-items: stretch; padding: 20px; gap: 20px; }
       .tab-bar { position: relative; width: 80px; height: calc(100vh - 40px); padding: 20px 0; bottom: auto; top: auto; left: auto; flex-direction: column; justify-content: flex-start; border-radius: 16px; border-top: none; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.8); box-shadow: var(--shadow-sm); z-index: 10; }
@@ -298,6 +305,15 @@
     <div class="m-search-wrap">
       <input type="text" id="market-search-input" placeholder="🔍 搜索板块、指数、ETF添加至自选" oninput="app.searchMarket()" autocomplete="off">
       <div class="m-search-res" id="market-search-res" style="display:none;"></div>
+    </div>
+
+    <!-- 新增：行情专属实时估值控制栏 -->
+    <div class="rt-controls-mini" style="margin: 0 12px 10px;">
+        <span class="rt-auto-badge" id="mkt-rt-status">⏱️ 等待更新</span>
+        <div style="display:flex; gap:8px;">
+            <button class="rt-btn-icon" onclick="app.rtToggleMarketAuto()" id="mkt-rt-toggle">▶️ 开启</button>
+            <button class="rt-btn-icon" onclick="app.rtManualRefreshMarket()">🔄 刷新</button>
+        </div>
     </div>
     
     <div class="scroll-area" style="padding-top:0;">

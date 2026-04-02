@@ -306,7 +306,7 @@
       <input type="text" id="market-search-input" placeholder="🔍 搜索板块、指数、ETF添加至自选" oninput="app.searchMarket()" autocomplete="off">
       <div class="m-search-res" id="market-search-res" style="display:none;"></div>
     </div>
-
+    
     <!-- 新增：行情专属实时估值控制栏 -->
     <div class="rt-controls-mini" style="margin: 0 12px 10px;">
         <span class="rt-auto-badge" id="mkt-rt-status">⏱️ 等待更新</span>
@@ -315,7 +315,7 @@
             <button class="rt-btn-icon" onclick="app.rtManualRefreshMarket()">🔄 刷新</button>
         </div>
     </div>
-    
+
     <div class="scroll-area" style="padding-top:0;">
        <div style="font-size:12px; font-weight:800; color:#94a3b8; margin: 10px 0 5px 4px;">我的自选板块/ETF</div>
        <div id="market-watched-list"></div>
@@ -601,6 +601,44 @@
     </div>
   </div>
 
+  <!-- ================= 新增视图：行情页 ================= -->
+  <div id="view-market" class="page-view">
+    <div class="nav-bar">
+      <div class="nav-title">行情中心</div>
+    </div>
+    
+    <div class="market-tabs" id="market-tabs">
+      <div class="m-tab active" onclick="app.switchMarketTab('A')">A股</div>
+      <div class="m-tab" onclick="app.switchMarketTab('HK')">港股</div>
+      <div class="m-tab" onclick="app.switchMarketTab('US')">美股</div>
+      <div class="m-tab" onclick="app.switchMarketTab('ASIA')">亚太</div>
+    </div>
+    
+    <div class="idx-scroll" id="market-idx-container">
+        <!-- 指数卡片将渲染在这里 -->
+    </div>
+    
+    <div class="m-search-wrap">
+      <input type="text" id="market-search-input" placeholder="🔍 搜索板块、指数、ETF添加至自选" oninput="app.searchMarket()" autocomplete="off">
+      <div class="m-search-res" id="market-search-res" style="display:none;"></div>
+    </div>
+    
+    <!-- 新增：行情专属实时估值控制栏 -->
+    <div class="rt-controls-mini" style="margin: 0 12px 10px;">
+        <span class="rt-auto-badge" id="mkt-rt-status">⏱️ 等待更新</span>
+        <div style="display:flex; gap:8px;">
+            <button class="rt-btn-icon" onclick="app.rtToggleMarketAuto()" id="mkt-rt-toggle">▶️ 开启</button>
+            <button class="rt-btn-icon" onclick="app.rtManualRefreshMarket()">🔄 刷新</button>
+        </div>
+    </div>
+
+    <div class="scroll-area" style="padding-top:0;">
+       <div style="font-size:12px; font-weight:800; color:#94a3b8; margin: 10px 0 5px 4px;">我的自选板块/ETF</div>
+       <div id="market-watched-list"></div>
+    </div>
+  </div>
+
+
   <!-- ================= 弹窗：行情详情(分时/盘口/资金) ================= -->
   <div id="modal-market-detail" class="modal-view" onclick="app.closeOutside(event, 'market-detail')">
     <div class="modal-content" onclick="app.stopProp(event)">
@@ -620,58 +658,60 @@
             <div id="md-time" style="font-size:10px; color:#94a3b8; margin-top:8px;">--</div>
         </div>
         
-        <!-- 盘口网格（增强版） -->
-<div class="pk-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-    <div class="pk-row"><span>今开</span><span id="md-open">--</span></div>
-    <div class="pk-row"><span>最高</span><span id="md-high">--</span></div>
-    <div class="pk-row"><span>成交量</span><span id="md-vol">--</span></div>
-    <div class="pk-row"><span>昨收</span><span id="md-prev">--</span></div>
-    <div class="pk-row"><span>最低</span><span id="md-low">--</span></div>
-    <div class="pk-row"><span>成交额</span><span id="md-amt">--</span></div>
-    <div class="pk-row"><span>涨跌额</span><span id="md-chg-abs">--</span></div>
-    <div class="pk-row"><span>振幅</span><span id="md-amp">--</span></div>
-    <div class="pk-row"><span>量比</span><span id="md-volratio">--</span></div>
-</div>
+        <!-- 盘口网格 -->
+        <div class="pk-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+            <div class="pk-row"><span>今开</span><span id="md-open">--</span></div>
+            <div class="pk-row"><span>最高</span><span id="md-high">--</span></div>
+            <div class="pk-row"><span>成交量</span><span id="md-vol">--</span></div>
+            <div class="pk-row"><span>昨收</span><span id="md-prev">--</span></div>
+            <div class="pk-row"><span>最低</span><span id="md-low">--</span></div>
+            <div class="pk-row"><span>成交额</span><span id="md-amt">--</span></div>
+            <div class="pk-row"><span>涨跌额</span><span id="md-chg-abs">--</span></div>
+            <div class="pk-row"><span>振幅</span><span id="md-amp">--</span></div>
+            <div class="pk-row"><span>量比</span><span id="md-volratio">--</span></div>
+        </div>
 
-<!-- 绘图区 Tabs + 月K -->
-<div style="background:#fff; padding:10px 15px 0;">
-    <div class="detail-tabs" id="md-chart-tabs">
-        <div class="action-pill active" onclick="app.switchMarketChart('trend')">分时走势</div>
-        <div class="action-pill" onclick="app.switchMarketChart('101')">日K趋势</div>
-        <div class="action-pill" onclick="app.switchMarketChart('102')">周K趋势</div>
-        <div class="action-pill" onclick="app.switchMarketChart('103')">月K趋势</div>
-    </div>
-    <!-- 新增：鼠标悬浮实时数据浮层（仿东方财富灰色数据行） -->
-    <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
-    <!-- Canvas 图表 -->
-    <div style="position:relative; width:100%; height:220px;">
-        <canvas id="md-canvas" style="width:100%; height:100%;"></canvas>
-    </div>
-</div>
+        <!-- 绘图区 -->
+        <div style="background:#fff; padding:10px 15px 0;">
+            <div class="detail-tabs" id="md-chart-tabs">
+                <div class="action-pill active" onclick="app.switchMarketChart('trend')">分时走势</div>
+                <div class="action-pill" onclick="app.switchMarketChart('101')">日K趋势</div>
+                <div class="action-pill" onclick="app.switchMarketChart('102')">周K趋势</div>
+                <div class="action-pill" onclick="app.switchMarketChart('103')">月K趋势</div>
+            </div>
+            <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
+            <div style="position:relative; width:100%; height:220px;">
+                <canvas id="md-canvas" style="width:100%; height:100%;"></canvas>
+            </div>
+        </div>
 
-        <!-- 主力资金流向区 -->
+        <!-- 主力资金流向区 (附图3同款) -->
         <div class="flow-bar-wrap" id="md-fund-flow-area" style="display:none;">
-            <div class="flow-title"><span>今日主力资金</span><span id="ff-net" class="red">--</span></div>
-            <div style="display:flex; gap:10px; font-size:12px;">
-               <div style="flex:1; background:#fff1f2; padding:8px; border-radius:6px; color:var(--red);">
-                   <div>主力流入</div><div id="ff-in" style="font-size:15px; font-weight:900;">--</div>
-               </div>
-               <div style="flex:1; background:#ecfdf5; padding:8px; border-radius:6px; color:var(--green);">
-                   <div>主力流出</div><div id="ff-out" style="font-size:15px; font-weight:900;">--</div>
-               </div>
+            <div style="border-left: 3px solid var(--red); padding-left: 8px; margin-bottom: 12px; font-weight: 800; font-size: 14px; color: var(--text-main);">板块资金流向</div>
+            <div style="padding: 0 10px;">
+                <div class="flow-summary-row"><span>主力流入</span><span id="ff-main-in" class="red">--</span></div>
+                <div class="flow-summary-row"><span>主力流出</span><span id="ff-main-out" class="green">--</span></div>
+                <div class="flow-summary-row" style="border-bottom:1px solid #e2e8f0; padding-bottom:10px;"><span>主力净流出</span><span id="ff-main-net">--</span></div>
             </div>
+            
+            <table class="flow-detail-table">
+                <thead><tr><th>(亿元)</th><th>流入</th><th>流出</th></tr></thead>
+                <tbody>
+                    <tr><td>超大</td><td id="ff-xl-in" class="red">--</td><td id="ff-xl-out" class="green">--</td></tr>
+                    <tr><td>大单</td><td id="ff-l-in" class="red">--</td><td id="ff-l-out" class="green">--</td></tr>
+                    <tr><td>中单</td><td id="ff-m-in" class="red">--</td><td id="ff-m-out" class="green">--</td></tr>
+                    <tr><td>小单</td><td id="ff-s-in" class="red">--</td><td id="ff-s-out" class="green">--</td></tr>
+                </tbody>
+            </table>
+
             <div class="flow-title" style="margin-top:20px; font-size:13px;">历史主力资金流向</div>
-            <div class="flow-history" id="ff-history-chart">
-                <!-- 历史柱状图动态渲染 -->
-            </div>
+            <div class="flow-history" id="ff-history-chart"></div>
         </div>
         
         <div style="height:30px;"></div>
       </div>
     </div>
   </div>
-
-</div>
 
 <script>
 // 优化了 fetchJSONP, 使用jQuery开头以绕过东财接口的过滤机制
@@ -767,32 +807,25 @@ const app = {
   rtActiveGroup: '',   
   rtActiveSector: '',  
 
-  // 行情状态属性
+ // 行情状态属性
   marketState: {
       currentTab: 'A',
       searchTimer: null,
       intradayTimer: null,
       currentSecid: null,
       currentPrevClose: 0,
-    chartType: 'trend' // <--- 新增这一行：记录当前选中的是分时还是K线
+      chartType: 'trend'
   },
 
-  marketChartData: {           // 存储当前图表数据
-    type: 'trend',           // trend 或 kline
-    xLabels: [],             // 时间/日期标签数组
-    prices: [],              // 价格数组
-    volumes: [],             // 成交量数组
-    prevClose: 0,            // 昨收价
-    lastPrice: 0,            // 最新价
-    timeStr: ''              // 更新时间字符串
-},
-crosshair: {                 // 十字线状态
-    active: false,
-    x: 0, y: 0,
-    index: -1
-},
+  marketChartData: { type: 'trend', xLabels: [], prices: [], volumes: [], prevClose: 0, lastPrice: 0, timeStr: '' },
+  crosshair: { active: false, x: 0, y: 0, index: -1 },
 
-  // 全球指数代码字典 (东财 secid 格式)
+  // --- 新增：行情页面专属定时器变量 ---
+  marketRtEnabled: false,
+  marketRtTimer: null,
+  marketRtCountdown: 60,
+
+  // 全球指数代码字典 (修复了港股市场代码 124)
   marketDict: {
     'A': [
         {name: '上证指数', secid: '1.000001'}, {name: '深证成指', secid: '0.399001'},
@@ -800,8 +833,8 @@ crosshair: {                 // 十字线状态
         {name: '北证50', secid: '0.899050'}, {name: '沪深300', secid: '1.000300'}
     ],
     'HK': [
-        {name: '恒生指数', secid: '100.HSI'}, {name: '恒生科技', secid: '100.HSTECH'},
-        {name: '国企指数', secid: '100.HSCEI'}
+        {name: '恒生指数', secid: '124.HSI'}, {name: '恒生科技', secid: '124.HSTECH'},
+        {name: '国企指数', secid: '124.HSCEI'}
     ],
     'US': [
         {name: '道琼斯', secid: '100.DJIA'}, {name: '纳斯达克', secid: '100.NDX'},
@@ -811,7 +844,7 @@ crosshair: {                 // 十字线状态
         {name: '日经225', secid: '100.N225'}, {name: '韩国KOSPI', secid: '100.KS11'},
         {name: '孟买SENSEX', secid: '100.SENSEX'}
     ]
-},
+  },
 
   formatEMDate(ts, length = 10, offset = 0) {
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
@@ -1001,11 +1034,18 @@ crosshair: {                 // 十字线状态
     document.getElementById('view-' + tabId).classList.add('active');
     document.getElementById('tab-btn-' + tabId).classList.add('active');
     
-    // 如果切换到自选或板块，且开启了自动更新，则触发实时估值
+    // 自选/板块 自动更新控制
     if(tabId === 'home' || tabId === 'sector') {
         if(this.rtEnabled) { this.rtFetchAll(); this.rtStartTimer(); }
     } else {
         this.rtPauseTimer();
+    }
+
+    // 行情 自动更新控制
+    if(tabId === 'market') {
+        if(this.marketRtEnabled) this.rtStartTimerMarket();
+    } else {
+        this.rtPauseTimerMarket();
     }
 
     if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); }
@@ -1014,6 +1054,54 @@ crosshair: {                 // 十字线状态
     if(tabId === 'market') { this.renderMarketTabs(); this.renderWatchedMarkets(); }
   },
 
+  // --- 行情页面专属定时器及刷新方法 ---
+  rtToggleMarketAuto() {
+      this.marketRtEnabled = !this.marketRtEnabled;
+      const btn = document.getElementById('mkt-rt-toggle');
+      btn.innerText = this.marketRtEnabled ? '⏸️ 暂停' : '▶️ 开启';
+      if (this.marketRtEnabled) {
+          this.rtStartTimerMarket(); this.showToast('行情自动更新已开启');
+      } else {
+          this.rtPauseTimerMarket();
+          document.getElementById('mkt-rt-status').innerText = '⏸️ 已暂停';
+          this.showToast('行情自动更新已暂停');
+      }
+  },
+  rtStartTimerMarket() {
+      this.rtPauseTimerMarket();
+      if (!this.marketRtEnabled) return;
+      this.marketRtTimer = setInterval(() => {
+          if (!this.marketRtEnabled) return;
+          this.marketRtCountdown--;
+          if (this.marketRtCountdown <= 0) {
+              this.rtManualRefreshMarket();
+          } else {
+              document.getElementById('mkt-rt-status').innerText = `⏱️ ${this.marketRtCountdown}s 更新`;
+          }
+      }, 1000);
+  },
+  rtPauseTimerMarket() {
+      if (this.marketRtTimer) { clearInterval(this.marketRtTimer); this.marketRtTimer = null; }
+  },
+  rtManualRefreshMarket() {
+      this.marketRtCountdown = 60;
+      this.renderMarketTabs();
+      this.renderWatchedMarkets();
+      this.showToast('行情数据已刷新');
+  },
+
+  // 计算 MA 均线通用函数
+  calcMA(data, days) {
+      let res = [];
+      for(let i=0; i<data.length; i++){
+          if(i < days - 1) { res.push(null); continue; }
+          let sum = 0;
+          for(let j=0; j<days; j++) sum += data[i-j];
+          res.push(sum/days);
+      }
+      return res;
+  },
+  
   openModal(id) { document.getElementById('modal-' + id).classList.add('active'); },
   closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); },
 
@@ -1340,7 +1428,7 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
     if (!secid) return;
     document.getElementById('md-fund-flow-area').style.display = 'none';
 
-    // 1. 盘口数据（加fltt=2，标准单位无需除100）
+    // 1. 盘口数据
     const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f60,f104,f105,f169,f170&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(pkUrl, 'cb');
@@ -1350,9 +1438,8 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
             const curPrice = parseFloat(d.f43);
             const price = !isNaN(curPrice) ? curPrice.toFixed(2) : '--';
 
-            let chgVal = '--';
+            let chgVal = '--', chgRate = '--';
             if (d.f169 !== undefined && d.f169 !== '-' && !isNaN(d.f169)) chgVal = parseFloat(d.f169).toFixed(2);
-            let chgRate = '--';
             if (d.f170 !== undefined && d.f170 !== '-' && !isNaN(d.f170)) chgRate = parseFloat(d.f170).toFixed(2);
 
             const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green';
@@ -1373,46 +1460,28 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
                 if (n >= 10000) return (n/10000).toFixed(0)+'万';
                 return n.toFixed(0);
             };
-            const fmtAmt = (v) => {
-                if (v === undefined || v === '-' || isNaN(v)) return '--';
-                const n = parseFloat(v);
-                if (n >= 100000000) return (n/100000000).toFixed(2)+'亿';
-                if (n >= 10000) return (n/10000).toFixed(2)+'万';
-                return n.toFixed(2);
-            };
 
-            document.getElementById('md-high').innerText = fmt(d.f44);
-            document.getElementById('md-open').innerText = fmt(d.f46);
-            document.getElementById('md-low').innerText = fmt(d.f45);
-            document.getElementById('md-prev').innerText = fmt(d.f60);
-            document.getElementById('md-vol').innerText = fmtVol(d.f47);
-            document.getElementById('md-amt').innerText = fmtAmt(d.f48);
+            document.getElementById('md-high').innerText = fmt(d.f44); document.getElementById('md-open').innerText = fmt(d.f46);
+            document.getElementById('md-low').innerText = fmt(d.f45); document.getElementById('md-prev').innerText = fmt(d.f60);
+            document.getElementById('md-vol').innerText = fmtVol(d.f47); document.getElementById('md-amt').innerText = fmtVol(d.f48);
 
-            // 涨跌额
             const chgAbsEl = document.getElementById('md-chg-abs');
             if (chgAbsEl) chgAbsEl.innerHTML = `<span class="${col}">${chgVal !== '--' && parseFloat(chgVal)>0?'+':''}${chgVal}</span>`;
 
-            // 振幅 = (最高 - 最低) / 昨收 * 100
             const ampEl = document.getElementById('md-amp');
             if (ampEl) {
                 const hi = parseFloat(d.f44), lo = parseFloat(d.f45);
-                if (!isNaN(hi) && !isNaN(lo) && prevClose > 0) {
-                    ampEl.innerText = ((hi - lo) / prevClose * 100).toFixed(2) + '%';
-                } else ampEl.innerText = '--';
+                if (!isNaN(hi) && !isNaN(lo) && prevClose > 0) { ampEl.innerText = ((hi - lo) / prevClose * 100).toFixed(2) + '%'; } else ampEl.innerText = '--';
             }
-
-            // 量比
             const vrEl = document.getElementById('md-volratio');
             if (vrEl) vrEl.innerText = (d.f50 !== undefined && d.f50 !== '-' && !isNaN(d.f50)) ? parseFloat(d.f50).toFixed(2) : '--';
 
             const dTime = new Date();
             document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`;
         }
-    } catch (e) {
-        console.warn('盘口数据获取失败', e);
-    }
+    } catch (e) { console.warn('盘口数据获取失败', e); }
 
-    // 2. 走势数据
+    // 2. 走势与K线数据
     if (this.marketState.chartType === 'trend') {
         const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`;
         try {
@@ -1421,21 +1490,12 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
             if (trends.length > 0) {
                 const parsed = trends.map(str => {
                     const parts = str.split(',');
-                    return {
-                        time: parts[0],
-                        price: parseFloat(parts[1]),
-                        avgPrice: parseFloat(parts[2]),
-                        volume: parseInt(parts[5] || 0)
-                    };
+                    return { time: parts[0], price: parseFloat(parts[1]), avgPrice: parseFloat(parts[2]), volume: parseInt(parts[5] || 0) };
                 });
                 this.marketChartData = {
-                    type: 'trend',
-                    xLabels: parsed.map(p => p.time),
-                    prices: parsed.map(p => p.price),
-                    avgPrices: parsed.map(p => p.avgPrice), // 新增：存储均价线数据
-                    volumes: parsed.map(p => p.volume),
-                    prevClose: this.marketState.currentPrevClose,
-                    lastPrice: parsed[parsed.length - 1]?.price || 0,
+                    type: 'trend', xLabels: parsed.map(p => p.time), prices: parsed.map(p => p.price),
+                    avgPrices: parsed.map(p => p.avgPrice), volumes: parsed.map(p => p.volume),
+                    prevClose: this.marketState.currentPrevClose, lastPrice: parsed[parsed.length - 1]?.price || 0,
                     timeStr: new Date().toLocaleTimeString()
                 };
                 this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index);
@@ -1443,7 +1503,6 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
             }
         } catch (e) { console.warn('分时数据获取失败', e); }
     } else {
-        // K线数据（101=日K, 102=周K, 103=月K）
         const klt = parseInt(this.marketState.chartType) || 101;
         const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=60&_=${Date.now()}`;
         try {
@@ -1455,13 +1514,11 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
                     return { date: parts[0], open: parseFloat(parts[1]), close: parseFloat(parts[2]), high: parseFloat(parts[3]), low: parseFloat(parts[4]), volume: parseInt(parts[5] || 0) };
                 });
                 this.marketChartData = {
-                    type: 'kline',
-                    xLabels: parsed.map(p => p.date),
-                    prices: parsed.map(p => p.close),
-                    volumes: parsed.map(p => p.volume),
-                    prevClose: this.marketState.currentPrevClose,
-                    lastPrice: parsed[parsed.length - 1]?.close || 0,
-                    timeStr: new Date().toLocaleTimeString()
+                    type: 'kline', xLabels: parsed.map(p => p.date), prices: parsed.map(p => p.close),
+                    ma5: this.calcMA(parsed.map(p => p.close), 5), ma10: this.calcMA(parsed.map(p => p.close), 10),
+                    ma20: this.calcMA(parsed.map(p => p.close), 20), ma60: this.calcMA(parsed.map(p => p.close), 60),
+                    volumes: parsed.map(p => p.volume), prevClose: this.marketState.currentPrevClose,
+                    lastPrice: parsed[parsed.length - 1]?.close || 0, timeStr: new Date().toLocaleTimeString()
                 };
                 this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index);
                 this.bindChartEvents();
@@ -1469,38 +1526,55 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         } catch (e) { console.warn('K线数据获取失败', e); }
     }
 
-    // 3. 主力资金流向
-    const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
-    try {
-        const res = await fetchJSONP(ffUrl, 'cb');
-        const klines = res?.data?.klines || [];
-        if (klines.length > 0) {
-            document.getElementById('md-fund-flow-area').style.display = 'block';
-            const todayArr = klines[klines.length - 1].split(',');
-            const netFlow = parseFloat(todayArr[1]) / 100000000;
-            const netColor = netFlow >= 0 ? 'red' : 'green';
-            const netText = netFlow >= 0 ? '净流入' : '净流出';
-            document.getElementById('ff-net').innerHTML = `${netText} ${Math.abs(netFlow).toFixed(2)}亿`;
-            document.getElementById('ff-net').className = netColor;
-            const totalVol = parseFloat(todayArr[5]) / 100000000;
-            const inFlow = netFlow > 0 ? netFlow + totalVol * 0.2 : totalVol * 0.6;
-            const outFlow = netFlow > 0 ? totalVol * 0.8 : Math.abs(netFlow) + totalVol * 0.2;
-            document.getElementById('ff-in').innerText = inFlow.toFixed(2) + '亿';
-            document.getElementById('ff-out').innerText = outFlow.toFixed(2) + '亿';
-            let histHtml = '';
-            const maxAbs = Math.max(...klines.map(s => Math.abs(parseFloat(s.split(',')[1]) / 100000000)));
-            klines.forEach(str => {
-                const arr = str.split(',');
-                const val = parseFloat(arr[1]) / 100000000;
-                const dateStr = arr[0].slice(5).replace('-', '/');
-                const hPct = (Math.abs(val) / maxAbs) * 100;
-                const c = val > 0 ? '#f43f5e' : '#10b981';
-                histHtml += `<div class="flow-col"><div class="flow-stick" style="height:${Math.max(hPct, 2)}%; background:${c};"></div><div class="flow-date">${dateStr}</div></div>`;
-            });
-            document.getElementById('ff-history-chart').innerHTML = histHtml;
-        }
-    } catch (e) { console.warn('资金流向获取失败', e); }
-},
+    // 3. 主力资金流向及明细
+    if (secid.startsWith('1.') || secid.startsWith('0.') || secid.startsWith('90.')) {
+        document.getElementById('md-fund-flow-area').style.display = 'block';
+        
+        // 当日明细
+        const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
+        try {
+            const fRes = await fetchJSONP(detailFlowUrl, 'cb');
+            const fd = fRes?.data;
+            if(fd) {
+                const fmtY = (v) => v && !isNaN(v) ? (parseFloat(v) / 100000000).toFixed(2) + '亿' : '--';
+                let xlIn = parseFloat(fd.f64)||0, xlOut = parseFloat(fd.f65)||0;
+                let lIn = parseFloat(fd.f70)||0, lOut = parseFloat(fd.f71)||0;
+                let mainIn = xlIn + lIn, mainOut = xlOut + lOut;
+                let mainNet = parseFloat(fd.f62) || (mainIn - mainOut);
+
+                document.getElementById('ff-main-in').innerText = fmtY(mainIn);
+                document.getElementById('ff-main-out').innerText = fmtY(mainOut);
+                document.getElementById('ff-main-net').innerText = fmtY(mainNet);
+                document.getElementById('ff-main-net').className = mainNet >= 0 ? 'red' : 'green';
+
+                document.getElementById('ff-xl-in').innerText = fmtY(fd.f64); document.getElementById('ff-xl-out').innerText = fmtY(fd.f65);
+                document.getElementById('ff-l-in').innerText = fmtY(fd.f70); document.getElementById('ff-l-out').innerText = fmtY(fd.f71);
+                document.getElementById('ff-m-in').innerText = fmtY(fd.f76); document.getElementById('ff-m-out').innerText = fmtY(fd.f77);
+                document.getElementById('ff-s-in').innerText = fmtY(fd.f82); document.getElementById('ff-s-out').innerText = fmtY(fd.f83);
+            }
+        } catch(e) { console.warn('资金明细获取失败', e); }
+
+        // 历史趋势柱状图
+        const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${secid}&lmt=20&_=${Date.now()}`;
+        try {
+            const res = await fetchJSONP(ffUrl, 'cb');
+            const klines = res?.data?.klines || [];
+            if (klines.length > 0) {
+                let histHtml = '';
+                const maxAbs = Math.max(...klines.map(s => Math.abs(parseFloat(s.split(',')[1]) / 100000000)));
+                klines.forEach(str => {
+                    const arr = str.split(',');
+                    const val = parseFloat(arr[1]) / 100000000;
+                    const dateStr = arr[0].slice(5).replace('-', '/');
+                    const hPct = (Math.abs(val) / maxAbs) * 100;
+                    const c = val > 0 ? '#f43f5e' : '#10b981';
+                    histHtml += `<div class="flow-col"><div class="flow-stick" style="height:${Math.max(hPct, 2)}%; background:${c};"></div><div class="flow-date">${dateStr}</div></div>`;
+                });
+                document.getElementById('ff-history-chart').innerHTML = histHtml;
+            }
+        } catch (e) { console.warn('历史资金获取失败', e); }
+    }
+  },
 
   drawMarketChartWithCrosshair(showCrosshair = false, crosshairIdx = null) {
     const canvas = document.getElementById('md-canvas');
@@ -1508,8 +1582,7 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
     const w = rect.width, h = rect.height;
     ctx.clearRect(0, 0, w, h);
@@ -1518,18 +1591,16 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
     if (!data.prices || data.prices.length === 0) return;
 
     const pad = { l: 50, r: 50, t: 20, b: 35 };
-    const dw = w - pad.l - pad.r;
-    const dh = h - pad.t - pad.b;
+    const dw = w - pad.l - pad.r, dh = h - pad.t - pad.b;
 
-    // Y轴范围
     let yMax, yMin;
     if (data.type === 'trend') {
         const allPrices = data.avgPrices ? [...data.prices, ...data.avgPrices] : data.prices;
         const diffMax = Math.max(Math.abs(Math.max(...allPrices) - data.prevClose), Math.abs(data.prevClose - Math.min(...allPrices))) * 1.1;
-        yMax = data.prevClose + diffMax;
-        yMin = data.prevClose - diffMax;
+        yMax = data.prevClose + diffMax; yMin = data.prevClose - diffMax;
     } else {
-        const maxP = Math.max(...data.prices), minP = Math.min(...data.prices);
+        const allVals = [...data.prices, ...(data.ma5||[]), ...(data.ma10||[]), ...(data.ma20||[]), ...(data.ma60||[])].filter(v => v !== null);
+        const maxP = Math.max(...allVals), minP = Math.min(...allVals);
         const margin = (maxP - minP) * 0.1 || maxP * 0.01;
         yMax = maxP + margin; yMin = minP - margin;
     }
@@ -1582,7 +1653,6 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         for (let i = 0; i < data.volumes.length; i++) {
             let x = getX(i) - barW / 2;
             let hBar = (data.volumes[i] / maxVol) * volHeight;
-            // 涨跌着色：与前一个价格比较
             let barColor = '#cbd5e1';
             if (i > 0) barColor = data.prices[i] >= data.prices[i - 1] ? 'rgba(244,63,94,0.4)' : 'rgba(16,185,129,0.4)';
             ctx.fillStyle = barColor;
@@ -1590,78 +1660,93 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         }
     }
 
-    // 绘制均价线（分时图专有，黄色）
-    if (data.type === 'trend' && data.avgPrices && data.avgPrices.length > 0) {
-        ctx.beginPath();
-        ctx.moveTo(getX(0), getY(data.avgPrices[0]));
-        for (let i = 1; i < data.avgPrices.length; i++) {
-            ctx.lineTo(getX(i), getY(data.avgPrices[i]));
-        }
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 1;
-        ctx.stroke();
+    // 绘制均线 (仅在K线模式下绘制)
+    if (data.type === 'kline') {
+        const drawMALine = (maData, color) => {
+            if(!maData) return;
+            ctx.beginPath();
+            let started = false;
+            for(let i=0; i<maData.length; i++) {
+                if(maData[i] === null) continue;
+                let x = getX(i), y = getY(maData[i]);
+                if(!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
+        };
+        drawMALine(data.ma60, '#10b981'); // 绿
+        drawMALine(data.ma20, '#ec4899'); // 粉
+        drawMALine(data.ma10, '#f59e0b'); // 橙
+        drawMALine(data.ma5, '#0066ff');  // 蓝
     }
 
-    // 绘制主走势线（蓝色）
-    ctx.beginPath();
-    ctx.moveTo(getX(0), getY(data.prices[0]));
-    for (let i = 1; i < data.prices.length; i++) {
-        ctx.lineTo(getX(i), getY(data.prices[i]));
+    // 分时图独有的均价线 (黄色)
+    if (data.type === 'trend' && data.avgPrices && data.avgPrices.length > 0) {
+        ctx.beginPath(); ctx.moveTo(getX(0), getY(data.avgPrices[0]));
+        for (let i = 1; i < data.avgPrices.length; i++) ctx.lineTo(getX(i), getY(data.avgPrices[i]));
+        ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1; ctx.stroke();
     }
+
+    // 绘制主走势线 (K线/分时共用这根主蓝色线)
+    ctx.beginPath(); ctx.moveTo(getX(0), getY(data.prices[0]));
+    for (let i = 1; i < data.prices.length; i++) ctx.lineTo(getX(i), getY(data.prices[i]));
     ctx.strokeStyle = '#0066ff'; ctx.lineWidth = 1.5; ctx.stroke();
 
-    // 分时图面积渐变填充
     if (data.type === 'trend') {
-        ctx.beginPath();
-        ctx.moveTo(getX(0), getY(data.prices[0]));
+        ctx.beginPath(); ctx.moveTo(getX(0), getY(data.prices[0]));
         for (let i = 1; i < data.prices.length; i++) ctx.lineTo(getX(i), getY(data.prices[i]));
-        ctx.lineTo(getX(data.prices.length - 1), h - pad.b);
-        ctx.lineTo(getX(0), h - pad.b);
-        ctx.closePath();
+        ctx.lineTo(getX(data.prices.length - 1), h - pad.b); ctx.lineTo(getX(0), h - pad.b); ctx.closePath();
         const grd = ctx.createLinearGradient(0, pad.t, 0, h - pad.b);
-        grd.addColorStop(0, 'rgba(0,102,255,0.12)');
-        grd.addColorStop(1, 'rgba(0,102,255,0.01)');
+        grd.addColorStop(0, 'rgba(0,102,255,0.12)'); grd.addColorStop(1, 'rgba(0,102,255,0.01)');
         ctx.fillStyle = grd; ctx.fill();
     }
 
-    // ★ 新增：更新图表上方信息浮层（仿东方财富4项灰色数据）
+    // ★ 更新图表上方信息浮层 (支持 K线 MA 指标数据展示)
     const infoDiv = document.getElementById('md-chart-info');
     const titleName = document.getElementById('md-title')?.innerText || '';
+    
+    // 如果十字线未激活，默认显示最后一天的数据
+    let displayIdx = (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) ? crosshairIdx : data.prices.length - 1;
 
-    const idx = this.crosshair.index;
-    if (showCrosshair && idx >= 0 && idx < data.prices.length) {
-        const cx = getX(idx), cy = getY(data.prices[idx]);
-
-        // 十字线
-        ctx.beginPath();
-        ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h - pad.b);
-        ctx.moveTo(pad.l, cy); ctx.lineTo(w - pad.r, cy);
-        ctx.strokeStyle = '#94a3b8'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
-
-        // 圆点
-        ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2 * Math.PI);
-        ctx.fillStyle = '#fff'; ctx.fill();
-        ctx.strokeStyle = '#0066ff'; ctx.lineWidth = 1.5; ctx.stroke();
-
-        // 信息浮层文字
-        const priceVal = data.prices[idx];
-        const change = priceVal - data.prevClose;
-        const changeRate = data.prevClose !== 0 ? (change / data.prevClose * 100).toFixed(2) : '0.00';
-        const timeLabel = data.xLabels[idx] || '';
+    if (infoDiv && displayIdx >= 0 && displayIdx < data.prices.length) {
+        const priceVal = data.prices[displayIdx];
+        const timeLabel = data.xLabels[displayIdx] || '';
         const displayTime = data.type === 'trend' ? timeLabel.slice(11, 16) : timeLabel;
-        const vol = data.volumes[idx] || 0;
-        const volStr = vol >= 10000 ? (vol / 10000).toFixed(2) + '万' : vol.toString();
-
-        if (infoDiv) {
+        
+        if (data.type === 'kline') {
+            let m5 = data.ma5 && data.ma5[displayIdx] ? data.ma5[displayIdx].toFixed(2) : '--';
+            let m10 = data.ma10 && data.ma10[displayIdx] ? data.ma10[displayIdx].toFixed(2) : '--';
+            let m20 = data.ma20 && data.ma20[displayIdx] ? data.ma20[displayIdx].toFixed(2) : '--';
+            let m60 = data.ma60 && data.ma60[displayIdx] ? data.ma60[displayIdx].toFixed(2) : '--';
+            
+            infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main); margin-right:8px;">${titleName} 均线</span> `
+                + `<span style="color:#0066ff; margin-right:6px;">MA5: ${m5}</span> `
+                + `<span style="color:#f59e0b; margin-right:6px;">MA10: ${m10}</span> `
+                + `<span style="color:#ec4899; margin-right:6px;">MA20: ${m20}</span> `
+                + `<span style="color:#10b981; margin-right:6px;">MA60: ${m60}</span>`;
+        } else {
+            const change = priceVal - data.prevClose;
+            const changeRate = data.prevClose !== 0 ? (change / data.prevClose * 100).toFixed(2) : '0.00';
+            const vol = data.volumes[displayIdx] || 0;
+            const volStr = vol >= 10000 ? (vol / 10000).toFixed(2) + '万' : vol.toString();
             const chgColor = change >= 0 ? 'var(--red)' : 'var(--green)';
             infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main);">${titleName}</span> `
-                + `${displayTime} `
-                + `价格:<b>${priceVal.toFixed(2)}</b> `
-                + `涨幅:<b style="color:${chgColor};">${change>=0?'+':''}${changeRate}%</b> `
-                + `成交量:<b>${volStr}</b>`;
+                + `${displayTime} 价格:<b>${priceVal.toFixed(2)}</b> 涨幅:<b style="color:${chgColor};">${change>=0?'+':''}${changeRate}%</b> 成交量:<b>${volStr}</b>`;
         }
+    } else if (infoDiv) { infoDiv.innerHTML = ''; }
 
-        // 小浮窗
+    // 十字线及浮窗
+    if (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) {
+        const cx = getX(crosshairIdx), cy = getY(data.prices[crosshairIdx]);
+        ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h - pad.b); ctx.moveTo(pad.l, cy); ctx.lineTo(w - pad.r, cy);
+        ctx.strokeStyle = '#94a3b8'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+        
+        ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2 * Math.PI); ctx.fillStyle = '#fff'; ctx.fill();
+        ctx.strokeStyle = '#0066ff'; ctx.lineWidth = 1.5; ctx.stroke();
+
+        const priceVal = data.prices[crosshairIdx];
+        const change = priceVal - data.prevClose;
+        const changeRate = data.prevClose !== 0 ? (change / data.prevClose * 100).toFixed(2) : '0.00';
+        
         const infoText = `${priceVal.toFixed(2)}  ${change>=0?'+':''}${change.toFixed(2)}  ${changeRate}%`;
         ctx.font = '11px sans-serif';
         let boxW = ctx.measureText(infoText).width + 20;
@@ -1671,20 +1756,12 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         let boxY = cy - 35;
         if (boxY < pad.t) boxY = cy + 15;
 
-        ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
-        ctx.beginPath();
-        ctx.roundRect(boxX, boxY, boxW, 24, 8);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.textAlign = 'center';
-        ctx.fillText(infoText, boxX + boxW / 2, boxY + 16);
-    } else {
-        // 无十字线时清空浮层
-        if (infoDiv) infoDiv.innerHTML = '';
+        ctx.fillStyle = 'rgba(30, 41, 59, 0.9)'; ctx.beginPath();
+        if(this.roundRect) this.roundRect(ctx, boxX, boxY, boxW, 24, 8); // 调用您的辅助圆角方法
+        ctx.fill(); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(infoText, boxX + boxW / 2, boxY + 16);
     }
-
     ctx.restore();
-},
+  },
 
 // 辅助方法：canvas 圆角矩形
 roundRect(ctx, x, y, w, h, r) {

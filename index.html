@@ -781,9 +781,21 @@ const app = {
   },
 
  isSectorOrIndex(secid) {
+    if (!secid) return false;
     const pureCode = secid.split('.').pop();
-    if (pureCode.startsWith('BK')) return true;
-    if (pureCode.startsWith('H') || /^399\d{3}/.test(pureCode)) return true;
+    
+    // 扩展判断条件
+    if (pureCode.startsWith('BK')) return true; // 板块
+    if (pureCode.startsWith('H') && pureCode.length <= 6) return true; // 港股指数
+    if (/^399\d{3}/.test(pureCode)) return true; // 深市指数
+    if (/^00\d{4}/.test(pureCode)) return true; // 沪深指数
+    if (/^\d{6}/.test(pureCode)) {
+        // 可能是A股指数或板块
+        if (pureCode.startsWith('00') || pureCode.startsWith('30') || 
+            pureCode.startsWith('39') || pureCode.startsWith('60')) {
+            return true;
+        }
+    }
     return false;
 },
 
@@ -1216,13 +1228,35 @@ const app = {
     this.refreshMarketDetail();
 },
 
-  // 新增：通过新浪财经接口获取实时行情
+  // 在 renderMarketTabs() 函数中找到以下部分进行修改：
 async renderMarketTabs() {
     const list = this.marketDict[this.marketState.currentTab];
     if (!list) return;
-    // 新浪财经港股代码需要添加 'hk' 前缀，A股需要添加 'sh'/'sz' 前缀
-    const codes = list.map(item => item.code).join(',');
-
+    
+    // 修复：根据不同市场转换为新浪财经的代码格式
+    const codes = list.map(item => {
+        let code = item.code;
+        // 港股处理：新浪财经港股格式为 rt_hkHSI
+        if (this.marketState.currentTab === 'HK') {
+            code = `rt_hk${code.replace('hk', '')}`;
+        } 
+        // A股处理
+        else if (this.marketState.currentTab === 'A') {
+            if (code.startsWith('sh') || code.startsWith('sz')) {
+                code = code; // 已经是正确格式
+            } else if (code.startsWith('60') || code.startsWith('688')) {
+                code = `sh${code}`;
+            } else {
+                code = `sz${code}`;
+            }
+        }
+        // 美股处理
+        else if (this.marketState.currentTab === 'US') {
+            code = `gb_{code}`;
+        }
+        return code;
+    }).join(',');
+  
     // 新浪财经批量获取行情的接口地址
     const url = `https://hq.sinajs.cn/list=${codes}`;
     try {
@@ -1438,7 +1472,7 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
     }
   },
 
-  // 获取自选板块/ETF的行情（新浪接口 + 降级备用）
+  // 替换或修改 renderWatchedMarkets 函数中的核心匹配逻辑
 async renderWatchedMarkets() {
     const container = document.getElementById('market-watched-list');
     if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
@@ -1446,14 +1480,31 @@ async renderWatchedMarkets() {
         return;
     }
 
-    // 构建板块代码列表（新浪财经板块前缀为 b_）
+    // 修复1：统一构建新浪财经代码
     const codes = this.data.watchedMarkets.map(item => {
         let code = item.code;
-        if (code.startsWith('BK')) code = `b_${code}`;
-        return code;
+        // 板块代码转换
+        if (code.startsWith('BK')) {
+            return `b_${code}`; // 新浪财经板块前缀
+        } 
+        // 指数代码转换
+        else if (code.startsWith('H') || /^\d{6}/.test(code)) {
+            // 判断是A股、港股还是其他
+            if (code.startsWith('00') || code.startsWith('30') || code.startsWith('39')) {
+                return `sz${code}`; // 深市
+            } else if (code.startsWith('60') || code.startsWith('68')) {
+                return `sh${code}`; // 沪市
+            } else if (code.startsWith('H')) {
+                return `rt_hk${code}`; // 港股
+            }
+        }
+        return code; // 保持原样
     }).join(',');
+    
     const url = `https://hq.sinajs.cn/list=${codes}`;
-
+    
+    container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>';
+    
     try {
         const response = await fetch(url, {
             headers: { 'Referer': 'https://finance.sina.com.cn' }
@@ -1461,40 +1512,66 @@ async renderWatchedMarkets() {
         const text = await response.text();
         const results = text.split('\n').filter(line => line.trim());
         const quotes = {};
+        
+        // 修复2：更健壮的数据解析
         results.forEach(line => {
-            const [codePart, dataStr] = line.split('=');
-            if (!codePart || !dataStr) return;
-            const code = codePart.replace('var hq_str_', '').trim();
-            const data = dataStr.replace(/[";]/g, '').split(',');
-            if (data.length < 6) return;
-            quotes[code] = {
-                price: parseFloat(data[3]),
-                chgVal: parseFloat(data[4]),   // 涨跌额
-                chgRate: parseFloat(data[5]),  // 涨跌幅
-                volume: parseInt(data[8]),
-            };
+            try {
+                const [codePart, dataStr] = line.split('=');
+                if (!codePart || !dataStr) return;
+                
+                const code = codePart.replace('var hq_str_', '').trim();
+                const data = dataStr.replace(/[";]/g, '').split(',');
+                
+                if (data.length >= 6) {
+                    quotes[code] = {
+                        name: data[0] || '--',
+                        price: parseFloat(data[3]) || 0,
+                        chgVal: parseFloat(data[4]) || 0,
+                        chgRate: parseFloat(data[5]) || 0,
+                        volume: parseInt(data[8]) || 0,
+                        time: data[30] || data[1] || '--'
+                    };
+                }
+            } catch (e) {
+                console.warn('解析行情数据失败:', line.substring(0, 50));
+            }
         });
-
-        // 生成 HTML 并检查是否有有效数据（不全为 "--"）
+        
+        // 修复3：改进的HTML生成逻辑
+        let html = '';
         let hasValidData = false;
-        let html = this.data.watchedMarkets.map(item => {
-            let code = item.code;
-            if (code.startsWith('BK')) code = `b_${code}`;
-            const quote = quotes[code] || {};
-            const price = (quote.price !== undefined && !isNaN(quote.price)) ? quote.price.toFixed(2) : '--';
-            const chgVal = (quote.chgVal !== undefined && !isNaN(quote.chgVal)) ? quote.chgVal.toFixed(2) : '--';
-            const chgRate = (quote.chgRate !== undefined && !isNaN(quote.chgRate)) ? quote.chgRate.toFixed(2) : '--';
+        
+        this.data.watchedMarkets.forEach((item, index) => {
+            // 构建对应的新浪财经代码用于查找
+            let lookupCode = '';
+            if (item.code.startsWith('BK')) {
+                lookupCode = `b_${item.code}`;
+            } else if (item.code.startsWith('H')) {
+                lookupCode = `rt_hk${item.code}`;
+            } else if (/^\d{6}/.test(item.code)) {
+                if (item.code.startsWith('00') || item.code.startsWith('30') || item.code.startsWith('39')) {
+                    lookupCode = `sz${item.code}`;
+                } else if (item.code.startsWith('60') || item.code.startsWith('68')) {
+                    lookupCode = `sh${item.code}`;
+                }
+            }
             
-            // 判断是否有有效数据（只要有一个板块的 price 不是 "--" 就认为有效）
+            const quote = quotes[lookupCode] || {};
+            const price = (quote.price !== undefined && quote.price !== 0) ? quote.price.toFixed(2) : '--';
+            const chgVal = (quote.chgVal !== undefined) ? quote.chgVal.toFixed(2) : '--';
+            const chgRate = (quote.chgRate !== undefined) ? quote.chgRate.toFixed(2) : '--';
+            
             if (price !== '--') hasValidData = true;
             
-            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
+            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 
+                       (chgRate !== '--' && parseFloat(chgRate) < 0) ? 'green' : '';
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
             const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : '';
             
-            return `
+            html += `
             <div class="list-item" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
-                <div class="c-del-btn" style="top:50%; transform:translateY(-50%); right:8px; background:none;" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
+                <div class="c-del-btn" style="top:50%; transform:translateY(-50%); right:8px; background:none;" 
+                     onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
                 <div style="flex:1;">
                     <div style="font-weight:800; font-size:15px;">${item.name}</div>
                     <div style="font-size:11px; color:#94a3b8; margin-top:2px;">${item.code}</div>
@@ -1503,22 +1580,26 @@ async renderWatchedMarkets() {
                     <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
                     <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:2px;">
                         <span class="${col}" style="font-size:11px; font-weight:bold;">${valSign}${chgVal}</span>
-                        <span class="${col}" style="font-size:11px; font-weight:bold; background:rgba(0,0,0,0.03); padding:1px 4px; border-radius:4px;">${rateSign}${chgRate}%</span>
+                        <span class="${col}" style="font-size:11px; font-weight:bold; background:rgba(0,0,0,0.03); padding:1px 4px; border-radius:4px;">
+                            ${rateSign}${chgRate}%
+                        </span>
                     </div>
                 </div>
             </div>`;
-        }).join('');
-
-        // 如果新浪接口没有返回任何有效数据（全为 "--"），则降级使用旧接口
+        });
+        
         if (!hasValidData) {
-            console.warn('新浪财经板块接口无数据，降级使用东方财富接口');
-            this.old_renderWatchedMarkets();
+            // 降级到旧接口
+            console.warn('新浪接口无有效数据，使用东方财富接口');
+            await this.old_renderWatchedMarkets();
         } else {
             container.innerHTML = html;
         }
+        
     } catch (e) {
-        console.error('新浪财经接口请求失败，降级使用东方财富接口', e);
-        this.old_renderWatchedMarkets();
+        console.error('行情数据获取失败，使用备用接口:', e);
+        // 降级到东方财富接口
+        await this.old_renderWatchedMarkets();
     }
 },
 
@@ -1647,66 +1728,75 @@ async renderWatchedMarkets() {
         } catch (e) { console.warn('K线数据获取失败', e); }
     }
 
-    // 3. 主力资金流向及明细（使用板块专用接口）
+    // 3. 主力资金流向及明细
 const flowArea = document.getElementById('md-fund-flow-area');
 if (!this.isSectorOrIndex(secid)) {
     flowArea.style.display = 'none';
 } else {
     flowArea.style.display = 'block';
+    
+    // 修复：构建正确的板块资金流向 secid
     let flowSecid = secid;
     const pureCode = secid.split('.').pop();
-    if (pureCode.startsWith('BK') || pureCode.startsWith('H') || /^399\d{3}/.test(pureCode)) {
-        flowSecid = '90.' + pureCode;
+    
+    // 东方财富板块资金流向接口格式
+    if (pureCode.startsWith('BK')) {
+        flowSecid = `90.${pureCode}`; // 板块格式
+    } else if (pureCode.startsWith('H')) {
+        flowSecid = `100.${pureCode}`; // 港股指数格式
+    } else if (/^399\d{3}/.test(pureCode) || /^00\d{4}/.test(pureCode)) {
+        flowSecid = `0.${pureCode}`; // A股指数格式
     }
     
-    // 使用板块资金流向专用接口
-    const quoteUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/quote/get?secid=${flowSecid}&_=${Date.now()}`;
+    // 使用正确的资金流向接口
+    const quoteUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/quote/get?secid=${flowSecid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63&_=${Date.now()}`;
+    
     try {
         const quoteRes = await fetchJSONP(quoteUrl, 'cb');
         const fd = quoteRes?.data;
         
-        if (fd && fd.f62 !== undefined && fd.f62 !== '-') {
+        if (fd) {
             const safeParse = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v) : 0;
             const fmtY = (v) => {
                 if (v === undefined || isNaN(v)) return '--';
-                return (v / 100000000).toFixed(2) + '亿';
+                const val = Math.abs(v);
+                if (val >= 100000000) return (val / 100000000).toFixed(2) + '亿';
+                if (val >= 10000) return (val / 10000).toFixed(2) + '万';
+                return val.toFixed(2);
             };
             
-            // 主力净流入 f62
-            let mainNet = safeParse(fd.f62);
-            // 超大单净流入 f66? 实际接口中 f64=超大单流入, f65=超大单流出
-            let xlIn = safeParse(fd.f64), xlOut = safeParse(fd.f65);
-            // 大单流入 f70, 流出 f71
-            let lIn = safeParse(fd.f70), lOut = safeParse(fd.f71);
-            // 中单 f72? 实际 f72=中单流入, f73=中单流出; 小单 f74=小单流入, f75=小单流出
-            let mIn = safeParse(fd.f72), mOut = safeParse(fd.f73);
-            let sIn = safeParse(fd.f74), sOut = safeParse(fd.f75);
-            
-            // 主力流入 = 超大单流入 + 大单流入
-            let mainIn = xlIn + lIn;
-            let mainOut = xlOut + lOut;
+            // 主力资金净流入
+            const mainNet = safeParse(fd.f62 || fd.f184);
+            const mainIn = safeParse(fd.f64 || 0) + safeParse(fd.f70 || 0);
+            const mainOut = safeParse(fd.f65 || 0) + safeParse(fd.f71 || 0);
             
             document.getElementById('ff-main-in').innerText = fmtY(mainIn);
             document.getElementById('ff-main-out').innerText = fmtY(mainOut);
-            document.getElementById('ff-main-net').innerText = fmtY(mainNet);
+            document.getElementById('ff-main-net').innerText = (mainNet >= 0 ? '+' : '') + fmtY(mainNet);
             document.getElementById('ff-main-net').className = mainNet >= 0 ? 'red' : 'green';
             
-            document.getElementById('ff-xl-in').innerText = fmtY(xlIn);
-            document.getElementById('ff-xl-out').innerText = fmtY(xlOut);
-            document.getElementById('ff-l-in').innerText = fmtY(lIn);
-            document.getElementById('ff-l-out').innerText = fmtY(lOut);
-            document.getElementById('ff-m-in').innerText = fmtY(mIn);
-            document.getElementById('ff-m-out').innerText = fmtY(mOut);
-            document.getElementById('ff-s-in').innerText = fmtY(sIn);
-            document.getElementById('ff-s-out').innerText = fmtY(sOut);
+            // 各类型资金流向
+            const setFlowData = (inId, outId, inVal, outVal) => {
+                document.getElementById(inId).innerText = fmtY(inVal);
+                document.getElementById(outId).innerText = fmtY(outVal);
+            };
+            
+            setFlowData('ff-xl-in', 'ff-xl-out', safeParse(fd.f64), safeParse(fd.f65));
+            setFlowData('ff-l-in', 'ff-l-out', safeParse(fd.f70), safeParse(fd.f71));
+            setFlowData('ff-m-in', 'ff-m-out', safeParse(fd.f72), safeParse(fd.f73));
+            setFlowData('ff-s-in', 'ff-s-out', safeParse(fd.f74), safeParse(fd.f75));
         } else {
-            // 无数据时清空
-            const ids = ['ff-main-in','ff-main-out','ff-main-net','ff-xl-in','ff-xl-out','ff-l-in','ff-l-out','ff-m-in','ff-m-out','ff-s-in','ff-s-out'];
-            ids.forEach(id => { document.getElementById(id).innerText = '--'; document.getElementById(id).className = ''; });
+            // 无数据时显示提示
+            document.getElementById('ff-main-net').innerText = '--';
+            document.getElementById('ff-main-net').className = '';
         }
-    } catch(e) { console.warn('板块资金流向获取失败', e); }
+    } catch(e) { 
+        console.warn('资金流向获取失败:', e);
+        // 显示错误信息
+        document.getElementById('ff-main-net').innerText = '获取失败';
+    }
     
-    // 历史资金流向（沿用原接口）
+    // 历史资金流向（保持不变）
     const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${flowSecid}&lmt=20&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(ffUrl, 'cb');

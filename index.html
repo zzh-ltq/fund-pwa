@@ -780,12 +780,9 @@ const app = {
       chartType: 'trend'
   },
 
-  // 判断是否为板块或行业指数（可获取资金流向）
-isSectorOrIndex(secid) {
+ isSectorOrIndex(secid) {
     const pureCode = secid.split('.').pop();
-    // 板块代码：以 BK 开头（如 BK0963）
     if (pureCode.startsWith('BK')) return true;
-    // 行业指数：以 H 开头（如 H30199）或 399 开头（深证行业）
     if (pureCode.startsWith('H') || /^399\d{3}/.test(pureCode)) return true;
     return false;
 },
@@ -1025,7 +1022,7 @@ isSectorOrIndex(secid) {
     if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); }
     if(tabId === 'rank') this.renderRank();
     if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
-    if(tabId === 'market') { this.renderMarketTabs(); this.renderWatchedMarkets(); }
+    if(tabId === 'market') { this.(); this.renderWatchedMarkets(); }
   },
 
   // --- 行情页面专属定时器及刷新方法 ---
@@ -1059,7 +1056,7 @@ isSectorOrIndex(secid) {
   },
   rtManualRefreshMarket() {
       this.marketRtCountdown = 60;
-      this.renderMarketTabs();
+      this.();
       this.renderWatchedMarkets();
       this.showToast('行情数据已刷新');
   },
@@ -1201,7 +1198,7 @@ isSectorOrIndex(secid) {
       this.marketState.currentTab = tab;
       document.querySelectorAll('#market-tabs .m-tab').forEach(el => el.classList.remove('active'));
       event.currentTarget.classList.add('active');
-      this.renderMarketTabs();
+      this.();
   },
 
   switchMarketChart(type) {
@@ -1223,10 +1220,14 @@ isSectorOrIndex(secid) {
         
         let html = list.map(item => {
             // 更精确的匹配：使用 secid 最后一段（如 HSI、000001）与 f12 比较
-            const quote = dataList.find(d => {
-    const full = `${d.f13}.${d.f12}`;
-    return full === item.secid;
-}) || {};
+           // 修改为：
+let quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
+if (!quote) {
+    // 降级匹配：仅用 f12 与 secid 的点号后面部分比较
+    const codePart = item.secid.split('.').pop();
+    quote = dataList.find(d => d.f12 === codePart);
+}
+quote = quote || {};
             
             // 价格处理（分 → 元，仅当是数字且大于1000时可能为分单位，但指数点位通常是整数，直接使用）
             let price = quote.f2;
@@ -1487,30 +1488,24 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         } catch (e) { console.warn('K线数据获取失败', e); }
     }
 
-    // 3. 主力资金流向及明细（修复：板块/行业指数正确获取，非板块隐藏）
+    // 3. 主力资金流向及明细（使用板块专用接口）
 const flowArea = document.getElementById('md-fund-flow-area');
 if (!this.isSectorOrIndex(secid)) {
-    // 非板块/行业指数，隐藏资金流向区域
     flowArea.style.display = 'none';
 } else {
     flowArea.style.display = 'block';
     let flowSecid = secid;
     const pureCode = secid.split('.').pop();
-    // 板块代码统一转换为 90. 前缀
-    if (pureCode.startsWith('BK')) {
-        flowSecid = '90.' + pureCode;
-    } else if (pureCode.startsWith('H') || /^399\d{3}/.test(pureCode)) {
-        // 行业指数（如 H30199）使用 90. 前缀 + 原代码
+    if (pureCode.startsWith('BK') || pureCode.startsWith('H') || /^399\d{3}/.test(pureCode)) {
         flowSecid = '90.' + pureCode;
     }
     
-    // 获取当天明细
-    const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${flowSecid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
+    // 使用板块资金流向专用接口
+    const quoteUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/quote/get?secid=${flowSecid}&_=${Date.now()}`;
     try {
-        const fRes = await fetchJSONP(detailFlowUrl, 'cb');
-        const fd = fRes?.data;
+        const quoteRes = await fetchJSONP(quoteUrl, 'cb');
+        const fd = quoteRes?.data;
         
-        // 只有当接口确实返回了 f62（主力净流入）字段时，才认为是有效的资金流向数据
         if (fd && fd.f62 !== undefined && fd.f62 !== '-') {
             const safeParse = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v) : 0;
             const fmtY = (v) => {
@@ -1518,10 +1513,19 @@ if (!this.isSectorOrIndex(secid)) {
                 return (v / 100000000).toFixed(2) + '亿';
             };
             
+            // 主力净流入 f62
+            let mainNet = safeParse(fd.f62);
+            // 超大单净流入 f66? 实际接口中 f64=超大单流入, f65=超大单流出
             let xlIn = safeParse(fd.f64), xlOut = safeParse(fd.f65);
+            // 大单流入 f70, 流出 f71
             let lIn = safeParse(fd.f70), lOut = safeParse(fd.f71);
-            let mainIn = xlIn + lIn, mainOut = xlOut + lOut;
-            let mainNet = safeParse(fd.f62) !== 0 ? safeParse(fd.f62) : (mainIn - mainOut);
+            // 中单 f72? 实际 f72=中单流入, f73=中单流出; 小单 f74=小单流入, f75=小单流出
+            let mIn = safeParse(fd.f72), mOut = safeParse(fd.f73);
+            let sIn = safeParse(fd.f74), sOut = safeParse(fd.f75);
+            
+            // 主力流入 = 超大单流入 + 大单流入
+            let mainIn = xlIn + lIn;
+            let mainOut = xlOut + lOut;
             
             document.getElementById('ff-main-in').innerText = fmtY(mainIn);
             document.getElementById('ff-main-out').innerText = fmtY(mainOut);
@@ -1532,18 +1536,18 @@ if (!this.isSectorOrIndex(secid)) {
             document.getElementById('ff-xl-out').innerText = fmtY(xlOut);
             document.getElementById('ff-l-in').innerText = fmtY(lIn);
             document.getElementById('ff-l-out').innerText = fmtY(lOut);
-            document.getElementById('ff-m-in').innerText = fmtY(safeParse(fd.f76));
-            document.getElementById('ff-m-out').innerText = fmtY(safeParse(fd.f77));
-            document.getElementById('ff-s-in').innerText = fmtY(safeParse(fd.f82));
-            document.getElementById('ff-s-out').innerText = fmtY(safeParse(fd.f83));
+            document.getElementById('ff-m-in').innerText = fmtY(mIn);
+            document.getElementById('ff-m-out').innerText = fmtY(mOut);
+            document.getElementById('ff-s-in').innerText = fmtY(sIn);
+            document.getElementById('ff-s-out').innerText = fmtY(sOut);
         } else {
-            // 接口无数据时清空显示
+            // 无数据时清空
             const ids = ['ff-main-in','ff-main-out','ff-main-net','ff-xl-in','ff-xl-out','ff-l-in','ff-l-out','ff-m-in','ff-m-out','ff-s-in','ff-s-out'];
             ids.forEach(id => { document.getElementById(id).innerText = '--'; document.getElementById(id).className = ''; });
         }
-    } catch(e) { console.warn('资金明细获取失败', e); }
+    } catch(e) { console.warn('板块资金流向获取失败', e); }
     
-    // 获取历史流向（仅当为板块时）
+    // 历史资金流向（沿用原接口）
     const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${flowSecid}&lmt=20&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(ffUrl, 'cb');

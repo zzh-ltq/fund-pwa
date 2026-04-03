@@ -797,25 +797,30 @@ const app = {
 
   // 全球指数代码字典 (修正港股核心指数前缀为 124)
   marketDict: {
-    'A': [
-        {name: '上证指数', secid: '1.000001'}, {name: '深证成指', secid: '0.399001'},
-        {name: '创业板指', secid: '0.399006'}, {name: '科创50', secid: '1.000688'},
-        {name: '北证50', secid: '0.899050'}, {name: '沪深300', secid: '1.000300'}
-    ],
-    'HK': [
-    {name: '恒生指数', secid: '100.HSI'},
-    {name: '恒生科技', secid: '100.HSTECH'},
-    {name: '国企指数', secid: '100.HSCEI'}
-],
-    'US': [
-        {name: '道琼斯', secid: '100.DJIA'}, {name: '纳斯达克', secid: '100.NDX'},
-        {name: '标普500', secid: '100.SPX'}
-    ],
-    'ASIA': [
-        {name: '日经225', secid: '100.N225'}, {name: '韩国KOSPI', secid: '100.KS11'},
-        {name: '孟买SENSEX', secid: '100.SENSEX'}
-    ]
-  },
+  'A': [
+    { name: '上证指数', secid: '1.000001', code: 'sh000001' },
+    { name: '深证成指', secid: '0.399001', code: 'sz399001' },
+    { name: '创业板指', secid: '0.399006', code: 'sz399006' },
+    { name: '科创50',   secid: '1.000688', code: 'sh000688' },
+    { name: '北证50',   secid: '0.899050', code: 'sz899050' },
+    { name: '沪深300',  secid: '1.000300', code: 'sh000300' }
+  ],
+  'HK': [
+    { name: '恒生指数', secid: '100.HSI', code: 'hkHSI' },
+    { name: '恒生科技', secid: '100.HSTECH', code: 'hkHSTECH' },
+    { name: '国企指数', secid: '100.HSCEI', code: 'hkHSCEI' }
+  ],
+  'US': [
+    { name: '道琼斯',   secid: '100.DJIA', code: 'gb_$DJI' },
+    { name: '纳斯达克', secid: '100.NDX',  code: 'gb_$IXIC' },
+    { name: '标普500',  secid: '100.SPX',  code: 'gb_$INX' }
+  ],
+  'ASIA': [
+    { name: '日经225',    secid: '100.N225',  code: 'nf_225' },
+    { name: '韩国KOSPI',  secid: '100.KS11',  code: 'nf_KOSPI' },
+    { name: '孟买SENSEX', secid: '100.SENSEX', code: 'nf_SENSEX' }
+  ]
+},
 
   formatEMDate(ts, length = 10, offset = 0) {
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length);
@@ -1023,6 +1028,7 @@ const app = {
     if(tabId === 'rank') this.renderRank();
     if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
     if(tabId === 'market') { this.renderMarketTabs(); this.renderWatchedMarkets(); }
+   
   },
 
   // --- 行情页面专属定时器及刷新方法 ---
@@ -1215,17 +1221,7 @@ async renderMarketTabs() {
     const list = this.marketDict[this.marketState.currentTab];
     if (!list) return;
     // 新浪财经港股代码需要添加 'hk' 前缀，A股需要添加 'sh'/'sz' 前缀
-    const codes = list.map(item => {
-        let code = item.code;
-        if (this.marketState.currentTab === 'HK') {
-            code = `hk${code}`;
-        } else if (this.marketState.currentTab === 'A') {
-            // 根据代码前缀判断市场，沪市(sh)，深市(sz)
-            if (code.startsWith('60') || code.startsWith('688')) code = `sh${code}`;
-            else code = `sz${code}`;
-        }
-        return code;
-    }).join(',');
+    const codes = list.map(item => item.code).join(',');
 
     // 新浪财经批量获取行情的接口地址
     const url = `https://hq.sinajs.cn/list=${codes}`;
@@ -1387,58 +1383,7 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
   },
 
 
-  // 获取自选板块/ETF的行情
-async renderWatchedMarkets() {
-    const container = document.getElementById('market-watched-list');
-    if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';
-        return;
-    }
-
-    // 构建板块代码列表
-    const codes = this.data.watchedMarkets.map(item => {
-        let code = item.code;
-        // 板块代码通常需要特殊处理，例如新浪财经板块前缀为 'b_'
-        if (code.startsWith('BK')) code = `b_${code}`;
-        return code;
-    }).join(',');
-    const url = `https://hq.sinajs.cn/list=${codes}`;
-    try {
-        const response = await fetch(url, { headers: { 'Referer': 'https://finance.sina.com.cn' } });
-        const text = await response.text();
-        const results = text.split('\n').filter(line => line.trim());
-        const quotes = {};
-        results.forEach(line => {
-            const [codePart, dataStr] = line.split('=');
-            if (!codePart || !dataStr) return;
-            const code = codePart.replace('var hq_str_', '').trim();
-            const data = dataStr.replace(/[";]/g, '').split(',');
-            if (data.length < 6) return;
-            quotes[code] = {
-                price: parseFloat(data[3]),
-                chgVal: parseFloat(data[4]),  // 涨跌额
-                chgRate: parseFloat(data[5]), // 涨跌幅
-                volume: parseInt(data[8]),
-            };
-        });
-
-        let html = this.data.watchedMarkets.map(item => {
-            let code = item.code;
-            if (code.startsWith('BK')) code = `b_${code}`;
-            const quote = quotes[code] || {};
-            const price = quote.price !== undefined ? quote.price.toFixed(2) : '--';
-            const chgVal = quote.chgVal !== undefined ? quote.chgVal.toFixed(2) : '--';
-            const chgRate = quote.chgRate !== undefined ? quote.chgRate.toFixed(2) : '--';
-            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
-            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
-            const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : '';
-            return `<div class="list-item" ...>...</div>`; // 保持原有HTML结构
-        }).join('');
-        container.innerHTML = html;
-    } catch (e) {
-        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>';
-    }
-},
+ 
   async old_renderWatchedMarkets() {
     const container = document.getElementById('market-watched-list');
     if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
@@ -1492,6 +1437,90 @@ async renderWatchedMarkets() {
         container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>';
     }
   },
+
+  // 获取自选板块/ETF的行情（新浪接口 + 降级备用）
+async renderWatchedMarkets() {
+    const container = document.getElementById('market-watched-list');
+    if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';
+        return;
+    }
+
+    // 构建板块代码列表（新浪财经板块前缀为 b_）
+    const codes = this.data.watchedMarkets.map(item => {
+        let code = item.code;
+        if (code.startsWith('BK')) code = `b_${code}`;
+        return code;
+    }).join(',');
+    const url = `https://hq.sinajs.cn/list=${codes}`;
+
+    try {
+        const response = await fetch(url, {
+            headers: { 'Referer': 'https://finance.sina.com.cn' }
+        });
+        const text = await response.text();
+        const results = text.split('\n').filter(line => line.trim());
+        const quotes = {};
+        results.forEach(line => {
+            const [codePart, dataStr] = line.split('=');
+            if (!codePart || !dataStr) return;
+            const code = codePart.replace('var hq_str_', '').trim();
+            const data = dataStr.replace(/[";]/g, '').split(',');
+            if (data.length < 6) return;
+            quotes[code] = {
+                price: parseFloat(data[3]),
+                chgVal: parseFloat(data[4]),   // 涨跌额
+                chgRate: parseFloat(data[5]),  // 涨跌幅
+                volume: parseInt(data[8]),
+            };
+        });
+
+        // 生成 HTML 并检查是否有有效数据（不全为 "--"）
+        let hasValidData = false;
+        let html = this.data.watchedMarkets.map(item => {
+            let code = item.code;
+            if (code.startsWith('BK')) code = `b_${code}`;
+            const quote = quotes[code] || {};
+            const price = (quote.price !== undefined && !isNaN(quote.price)) ? quote.price.toFixed(2) : '--';
+            const chgVal = (quote.chgVal !== undefined && !isNaN(quote.chgVal)) ? quote.chgVal.toFixed(2) : '--';
+            const chgRate = (quote.chgRate !== undefined && !isNaN(quote.chgRate)) ? quote.chgRate.toFixed(2) : '--';
+            
+            // 判断是否有有效数据（只要有一个板块的 price 不是 "--" 就认为有效）
+            if (price !== '--') hasValidData = true;
+            
+            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
+            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
+            const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : '';
+            
+            return `
+            <div class="list-item" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
+                <div class="c-del-btn" style="top:50%; transform:translateY(-50%); right:8px; background:none;" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
+                <div style="flex:1;">
+                    <div style="font-weight:800; font-size:15px;">${item.name}</div>
+                    <div style="font-size:11px; color:#94a3b8; margin-top:2px;">${item.code}</div>
+                </div>
+                <div style="width:110px; text-align:right; margin-right:30px;">
+                    <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
+                    <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:2px;">
+                        <span class="${col}" style="font-size:11px; font-weight:bold;">${valSign}${chgVal}</span>
+                        <span class="${col}" style="font-size:11px; font-weight:bold; background:rgba(0,0,0,0.03); padding:1px 4px; border-radius:4px;">${rateSign}${chgRate}%</span>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        // 如果新浪接口没有返回任何有效数据（全为 "--"），则降级使用旧接口
+        if (!hasValidData) {
+            console.warn('新浪财经板块接口无数据，降级使用东方财富接口');
+            this.old_renderWatchedMarkets();
+        } else {
+            container.innerHTML = html;
+        }
+    } catch (e) {
+        console.error('新浪财经接口请求失败，降级使用东方财富接口', e);
+        this.old_renderWatchedMarkets();
+    }
+},
 
   delWatchedMarket(e, secid) {
       this.stopProp(e);

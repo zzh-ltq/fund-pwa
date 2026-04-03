@@ -571,10 +571,10 @@
     </div>
     
     <div class="market-tabs" id="market-tabs">
-      <div class="m-tab active" onclick="app.switchMarketTab('A')">A股</div>
-      <div class="m-tab" onclick="app.switchMarketTab('HK')">港股</div>
-      <div class="m-tab" onclick="app.switchMarketTab('US')">美股</div>
-      <div class="m-tab" onclick="app.switchMarketTab('ASIA')">亚太</div>
+      <div class="m-tab active" onclick="app.switchMarketTab('A', event)">A股</div>
+<div class="m-tab" onclick="app.switchMarketTab('HK', event)">港股</div>
+<div class="m-tab" onclick="app.switchMarketTab('US', event)">美股</div>
+<div class="m-tab" onclick="app.switchMarketTab('ASIA', event)">亚太</div>
     </div>
     
     <div class="idx-scroll" id="market-idx-container">
@@ -637,10 +637,10 @@
         <!-- 绘图区 -->
         <div style="background:#fff; padding:10px 15px 0;">
             <div class="detail-tabs" id="md-chart-tabs">
-                <div class="action-pill active" onclick="app.switchMarketChart('trend')">分时走势</div>
-                <div class="action-pill" onclick="app.switchMarketChart('101')">日K趋势</div>
-                <div class="action-pill" onclick="app.switchMarketChart('102')">周K趋势</div>
-                <div class="action-pill" onclick="app.switchMarketChart('103')">月K趋势</div>
+                <div class="action-pill active" onclick="app.switchMarketChart('trend', event)">分时走势</div>
+                <div class="action-pill" onclick="app.switchMarketChart('101', event)">日K趋势</div>
+                <div class="action-pill" onclick="app.switchMarketChart('102', event)">周K趋势</div>
+                <div class="action-pill" onclick="app.switchMarketChart('103', event)">月K趋势</div>
             </div>
             <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
             <div style="position:relative; width:100%; height:220px;">
@@ -1022,7 +1022,7 @@ const app = {
     if(tabId === 'home') { this.renderHomeGroups(); this.renderHome(); }
     if(tabId === 'rank') this.renderRank();
     if(tabId === 'sector') { this.sectorSearchKeyword = ''; if(document.getElementById('search-sector-input')) document.getElementById('search-sector-input').value=''; this.renderSector(); }
-    if(tabId === 'market') { this.(); this.renderWatchedMarkets(); }
+    if(tabId === 'market') { this.renderMarketTabs(); this.renderWatchedMarkets(); }
   },
 
   // --- 行情页面专属定时器及刷新方法 ---
@@ -1055,11 +1055,11 @@ const app = {
       if (this.marketRtTimer) { clearInterval(this.marketRtTimer); this.marketRtTimer = null; }
   },
   rtManualRefreshMarket() {
-      this.marketRtCountdown = 60;
-      this.();
-      this.renderWatchedMarkets();
-      this.showToast('行情数据已刷新');
-  },
+    this.marketRtCountdown = 60;
+    this.renderMarketTabs();   // 刷新指数卡片
+    this.renderWatchedMarkets();
+    this.showToast('行情数据已刷新');
+},
 
   // 计算 MA 均线通用函数
   calcMA(data, days) {
@@ -1194,18 +1194,19 @@ const app = {
   },
 
  // ==================== 全新行情核心模块 (优化修复版) ====================
-  switchMarketTab(tab) {
-      this.marketState.currentTab = tab;
-      document.querySelectorAll('#market-tabs .m-tab').forEach(el => el.classList.remove('active'));
-      event.currentTarget.classList.add('active');
-      this.();
-  },
+  switchMarketTab(tab, event) {
+    this.marketState.currentTab = tab;
+    document.querySelectorAll('#market-tabs .m-tab').forEach(el => el.classList.remove('active'));
+    if (event && event.currentTarget) event.currentTarget.classList.add('active');
+    // 删除 this.();
+    this.renderMarketTabs();  // 补充刷新指数列表
+},
 
-  switchMarketChart(type) {
+  switchMarketChart(type, event) {
     this.marketState.chartType = type;
     document.querySelectorAll('#md-chart-tabs .action-pill').forEach(el => el.classList.remove('active'));
-    event.currentTarget.classList.add('active');
-    this.crosshair = { active: false, x: 0, y: 0, index: -1 }; // 重置十字线
+    if (event && event.currentTarget) event.currentTarget.classList.add('active');
+    this.crosshair = { active: false, x: 0, y: 0, index: -1 };
     this.refreshMarketDetail();
 },
 

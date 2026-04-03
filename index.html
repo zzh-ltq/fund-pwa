@@ -285,43 +285,6 @@
     <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
   </div>
 
-  <!-- ================= 新增视图：行情页 ================= -->
-  <div id="view-market" class="page-view">
-    <div class="nav-bar">
-      <div class="nav-title">行情中心</div>
-    </div>
-    
-    <div class="market-tabs" id="market-tabs">
-      <div class="m-tab active" onclick="app.switchMarketTab('A')">A股</div>
-      <div class="m-tab" onclick="app.switchMarketTab('HK')">港股</div>
-      <div class="m-tab" onclick="app.switchMarketTab('US')">美股</div>
-      <div class="m-tab" onclick="app.switchMarketTab('ASIA')">亚太</div>
-    </div>
-    
-    <div class="idx-scroll" id="market-idx-container">
-        <!-- 指数卡片将渲染在这里 -->
-    </div>
-    
-    <div class="m-search-wrap">
-      <input type="text" id="market-search-input" placeholder="🔍 搜索板块、指数、ETF添加至自选" oninput="app.searchMarket()" autocomplete="off">
-      <div class="m-search-res" id="market-search-res" style="display:none;"></div>
-    </div>
-    
-    <!-- 新增：行情专属实时估值控制栏 -->
-    <div class="rt-controls-mini" style="margin: 0 12px 10px;">
-        <span class="rt-auto-badge" id="mkt-rt-status">⏱️ 等待更新</span>
-        <div style="display:flex; gap:8px;">
-            <button class="rt-btn-icon" onclick="app.rtToggleMarketAuto()" id="mkt-rt-toggle">▶️ 开启</button>
-            <button class="rt-btn-icon" onclick="app.rtManualRefreshMarket()">🔄 刷新</button>
-        </div>
-    </div>
-
-    <div class="scroll-area" style="padding-top:0;">
-       <div style="font-size:12px; font-weight:800; color:#94a3b8; margin: 10px 0 5px 4px;">我的自选板块/ETF</div>
-       <div id="market-watched-list"></div>
-    </div>
-  </div>
-
   <!-- ================= 视图1：自选首页 ================= -->
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
@@ -817,6 +780,16 @@ const app = {
       chartType: 'trend'
   },
 
+  // 判断是否为板块或行业指数（可获取资金流向）
+isSectorOrIndex(secid) {
+    const pureCode = secid.split('.').pop();
+    // 板块代码：以 BK 开头（如 BK0963）
+    if (pureCode.startsWith('BK')) return true;
+    // 行业指数：以 H 开头（如 H30199）或 399 开头（深证行业）
+    if (pureCode.startsWith('H') || /^399\d{3}/.test(pureCode)) return true;
+    return false;
+},
+
   marketChartData: { type: 'trend', xLabels: [], prices: [], volumes: [], prevClose: 0, lastPrice: 0, timeStr: '' },
   crosshair: { active: false, x: 0, y: 0, index: -1 },
 
@@ -833,9 +806,10 @@ const app = {
         {name: '北证50', secid: '0.899050'}, {name: '沪深300', secid: '1.000300'}
     ],
     'HK': [
-        {name: '恒生指数', secid: '124.HSI'}, {name: '恒生科技', secid: '124.HSTECH'},
-        {name: '国企指数', secid: '124.HSCEI'}
-    ],
+    {name: '恒生指数', secid: '100.HSI'},
+    {name: '恒生科技', secid: '100.HSTECH'},
+    {name: '国企指数', secid: '100.HSCEI'}
+],
     'US': [
         {name: '道琼斯', secid: '100.DJIA'}, {name: '纳斯达克', secid: '100.NDX'},
         {name: '标普500', secid: '100.SPX'}
@@ -1513,14 +1487,23 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         } catch (e) { console.warn('K线数据获取失败', e); }
     }
 
-    // 3. 主力资金流向及明细 (修复：更安全的解析逻辑)
-    document.getElementById('md-fund-flow-area').style.display = 'block';
-    
-    // 【核心修复】：为资金流向请求强制补全BK前缀，非BK板块如果无数据则优雅显示"--"
+    // 3. 主力资金流向及明细（修复：板块/行业指数正确获取，非板块隐藏）
+const flowArea = document.getElementById('md-fund-flow-area');
+if (!this.isSectorOrIndex(secid)) {
+    // 非板块/行业指数，隐藏资金流向区域
+    flowArea.style.display = 'none';
+} else {
+    flowArea.style.display = 'block';
     let flowSecid = secid;
     const pureCode = secid.split('.').pop();
-    if (pureCode.startsWith('BK')) flowSecid = '90.' + pureCode;
-
+    // 板块代码统一转换为 90. 前缀
+    if (pureCode.startsWith('BK')) {
+        flowSecid = '90.' + pureCode;
+    } else if (pureCode.startsWith('H') || /^399\d{3}/.test(pureCode)) {
+        // 行业指数（如 H30199）使用 90. 前缀 + 原代码
+        flowSecid = '90.' + pureCode;
+    }
+    
     // 获取当天明细
     const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${flowSecid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
     try {
@@ -1528,9 +1511,8 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
         const fd = fRes?.data;
         
         // 只有当接口确实返回了 f62（主力净流入）字段时，才认为是有效的资金流向数据
-        if(fd && fd.f62 !== undefined && fd.f62 !== '-') {
+        if (fd && fd.f62 !== undefined && fd.f62 !== '-') {
             const safeParse = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v) : 0;
-            // 【核心修复】：修正单位转换逻辑，允许解析负数和0
             const fmtY = (v) => {
                 if (v === undefined || isNaN(v)) return '--';
                 return (v / 100000000).toFixed(2) + '亿';
@@ -1540,24 +1522,28 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
             let lIn = safeParse(fd.f70), lOut = safeParse(fd.f71);
             let mainIn = xlIn + lIn, mainOut = xlOut + lOut;
             let mainNet = safeParse(fd.f62) !== 0 ? safeParse(fd.f62) : (mainIn - mainOut);
-
+            
             document.getElementById('ff-main-in').innerText = fmtY(mainIn);
             document.getElementById('ff-main-out').innerText = fmtY(mainOut);
             document.getElementById('ff-main-net').innerText = fmtY(mainNet);
             document.getElementById('ff-main-net').className = mainNet >= 0 ? 'red' : 'green';
-
-            document.getElementById('ff-xl-in').innerText = fmtY(xlIn); document.getElementById('ff-xl-out').innerText = fmtY(xlOut);
-            document.getElementById('ff-l-in').innerText = fmtY(lIn); document.getElementById('ff-l-out').innerText = fmtY(lOut);
-            document.getElementById('ff-m-in').innerText = fmtY(safeParse(fd.f76)); document.getElementById('ff-m-out').innerText = fmtY(safeParse(fd.f77));
-            document.getElementById('ff-s-in').innerText = fmtY(safeParse(fd.f82)); document.getElementById('ff-s-out').innerText = fmtY(safeParse(fd.f83));
+            
+            document.getElementById('ff-xl-in').innerText = fmtY(xlIn);
+            document.getElementById('ff-xl-out').innerText = fmtY(xlOut);
+            document.getElementById('ff-l-in').innerText = fmtY(lIn);
+            document.getElementById('ff-l-out').innerText = fmtY(lOut);
+            document.getElementById('ff-m-in').innerText = fmtY(safeParse(fd.f76));
+            document.getElementById('ff-m-out').innerText = fmtY(safeParse(fd.f77));
+            document.getElementById('ff-s-in').innerText = fmtY(safeParse(fd.f82));
+            document.getElementById('ff-s-out').innerText = fmtY(safeParse(fd.f83));
         } else {
-            // 如果接口不提供该指数的资金流向（如 H30199），则清空为 '--'
+            // 接口无数据时清空显示
             const ids = ['ff-main-in','ff-main-out','ff-main-net','ff-xl-in','ff-xl-out','ff-l-in','ff-l-out','ff-m-in','ff-m-out','ff-s-in','ff-s-out'];
             ids.forEach(id => { document.getElementById(id).innerText = '--'; document.getElementById(id).className = ''; });
         }
     } catch(e) { console.warn('资金明细获取失败', e); }
-
-    // 获取历史流向
+    
+    // 获取历史流向（仅当为板块时）
     const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${flowSecid}&lmt=20&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(ffUrl, 'cb');
@@ -1575,10 +1561,10 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
             });
             document.getElementById('ff-history-chart').innerHTML = histHtml;
         } else {
-             document.getElementById('ff-history-chart').innerHTML = '<div style="text-align:center; width:100%; color:#94a3b8; font-size:12px;">暂无历史资金数据</div>';
+            document.getElementById('ff-history-chart').innerHTML = '<div style="text-align:center; width:100%; color:#94a3b8; font-size:12px;">暂无历史资金数据</div>';
         }
     } catch (e) { console.warn('历史资金获取失败', e); }
-  },
+},
 
   drawMarketChartWithCrosshair(showCrosshair = false, crosshairIdx = null) {
     const canvas = document.getElementById('md-canvas');

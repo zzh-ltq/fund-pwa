@@ -1221,13 +1221,13 @@ const app = {
         let html = list.map(item => {
             // 更精确的匹配：使用 secid 最后一段（如 HSI、000001）与 f12 比较
            // 修改为：
-let quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
-if (!quote) {
-    // 降级匹配：仅用 f12 与 secid 的点号后面部分比较
-    const codePart = item.secid.split('.').pop();
-    quote = dataList.find(d => d.f12 === codePart);
-}
-quote = quote || {};
+        let quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
+        if (!quote) {
+            // 降级匹配：仅用 f12 与 secid 的点号后面部分比较
+            const codePart = item.secid.split('.').pop();
+            quote = dataList.find(d => d.f12 === codePart);
+        }
+        quote = quote || {};
             
             // 价格处理（分 → 元，仅当是数字且大于1000时可能为分单位，但指数点位通常是整数，直接使用）
             let price = quote.f2;

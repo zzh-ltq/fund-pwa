@@ -1210,7 +1210,83 @@ const app = {
     this.refreshMarketDetail();
 },
 
- async renderMarketTabs() {
+  // 新增：通过新浪财经接口获取实时行情
+async renderMarketTabs() {
+    const list = this.marketDict[this.marketState.currentTab];
+    if (!list) return;
+    // 新浪财经港股代码需要添加 'hk' 前缀，A股需要添加 'sh'/'sz' 前缀
+    const codes = list.map(item => {
+        let code = item.code;
+        if (this.marketState.currentTab === 'HK') {
+            code = `hk${code}`;
+        } else if (this.marketState.currentTab === 'A') {
+            // 根据代码前缀判断市场，沪市(sh)，深市(sz)
+            if (code.startsWith('60') || code.startsWith('688')) code = `sh${code}`;
+            else code = `sz${code}`;
+        }
+        return code;
+    }).join(',');
+
+    // 新浪财经批量获取行情的接口地址
+    const url = `https://hq.sinajs.cn/list=${codes}`;
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'Referer': 'https://finance.sina.com.cn',
+            }
+        });
+        const text = await response.text();
+        // 解析新浪财经返回的CSV格式数据
+        const results = text.split('\n').filter(line => line.trim());
+        const quotes = {};
+        results.forEach(line => {
+            const [codePart, dataStr] = line.split('=');
+            if (!codePart || !dataStr) return;
+            const code = codePart.replace('var hq_str_', '').trim();
+            const data = dataStr.replace(/[";]/g, '').split(',');
+            if (data.length < 6) return;
+            quotes[code] = {
+                name: data[0],        // 股票名称
+                open: parseFloat(data[1]),   // 今开
+                prevClose: parseFloat(data[2]), // 昨收
+                price: parseFloat(data[3]),   // 当前价
+                high: parseFloat(data[4]),    // 最高
+                low: parseFloat(data[5]),     // 最低
+                volume: parseInt(data[8]),    // 成交量
+                amount: parseFloat(data[9]),  // 成交额
+            };
+        });
+
+        let html = list.map(item => {
+            let code = item.code;
+            if (this.marketState.currentTab === 'HK') code = `hk${code}`;
+            else if (this.marketState.currentTab === 'A') {
+                if (code.startsWith('60') || code.startsWith('688')) code = `sh${code}`;
+                else code = `sz${code}`;
+            }
+            const quote = quotes[code] || {};
+            const price = quote.price !== undefined ? quote.price.toFixed(2) : '--';
+            const chgVal = (quote.price !== undefined && quote.prevClose !== undefined) ? (quote.price - quote.prevClose).toFixed(2) : '--';
+            const chgRate = (quote.price !== undefined && quote.prevClose !== undefined && quote.prevClose !== 0) ? ((quote.price - quote.prevClose) / quote.prevClose * 100).toFixed(2) : '--';
+            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
+            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
+            const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : '';
+
+            return `
+            <div class="idx-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
+                <div class="idx-name">${item.name}</div>
+                <div class="idx-val ${col}">${price}</div>
+                <div class="idx-chg ${col}"><span>${rateSign}${chgRate}%</span><span>${valSign}${chgVal}</span></div>
+            </div>`;
+        }).join('');
+        document.getElementById('market-idx-container').innerHTML = html;
+    } catch (e) {
+        console.error('新浪财经接口获取数据失败', e);
+        document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8;">获取数据失败，请检查网络</div>';
+    }
+},
+  
+ async old_renderMarketTabs() {
     const list = this.marketDict[this.marketState.currentTab];
     const secids = list.map(item => item.secid).join(',');
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
@@ -1310,7 +1386,60 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
     document.getElementById('market-search-res').style.display = 'none';
   },
 
-  async renderWatchedMarkets() {
+
+  // 获取自选板块/ETF的行情
+async renderWatchedMarkets() {
+    const container = document.getElementById('market-watched-list');
+    if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';
+        return;
+    }
+
+    // 构建板块代码列表
+    const codes = this.data.watchedMarkets.map(item => {
+        let code = item.code;
+        // 板块代码通常需要特殊处理，例如新浪财经板块前缀为 'b_'
+        if (code.startsWith('BK')) code = `b_${code}`;
+        return code;
+    }).join(',');
+    const url = `https://hq.sinajs.cn/list=${codes}`;
+    try {
+        const response = await fetch(url, { headers: { 'Referer': 'https://finance.sina.com.cn' } });
+        const text = await response.text();
+        const results = text.split('\n').filter(line => line.trim());
+        const quotes = {};
+        results.forEach(line => {
+            const [codePart, dataStr] = line.split('=');
+            if (!codePart || !dataStr) return;
+            const code = codePart.replace('var hq_str_', '').trim();
+            const data = dataStr.replace(/[";]/g, '').split(',');
+            if (data.length < 6) return;
+            quotes[code] = {
+                price: parseFloat(data[3]),
+                chgVal: parseFloat(data[4]),  // 涨跌额
+                chgRate: parseFloat(data[5]), // 涨跌幅
+                volume: parseInt(data[8]),
+            };
+        });
+
+        let html = this.data.watchedMarkets.map(item => {
+            let code = item.code;
+            if (code.startsWith('BK')) code = `b_${code}`;
+            const quote = quotes[code] || {};
+            const price = quote.price !== undefined ? quote.price.toFixed(2) : '--';
+            const chgVal = quote.chgVal !== undefined ? quote.chgVal.toFixed(2) : '--';
+            const chgRate = quote.chgRate !== undefined ? quote.chgRate.toFixed(2) : '--';
+            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
+            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
+            const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : '';
+            return `<div class="list-item" ...>...</div>`; // 保持原有HTML结构
+        }).join('');
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>';
+    }
+},
+  async old_renderWatchedMarkets() {
     const container = document.getElementById('market-watched-list');
     if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
         container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';

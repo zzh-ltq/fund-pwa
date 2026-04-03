@@ -1564,7 +1564,8 @@ if (!this.isSectorOrIndex(secid)) {
             document.getElementById('ff-history-chart').innerHTML = '<div style="text-align:center; width:100%; color:#94a3b8; font-size:12px;">暂无历史资金数据</div>';
         }
     } catch (e) { console.warn('历史资金获取失败', e); }
-},
+}
+   },
 
   drawMarketChartWithCrosshair(showCrosshair = false, crosshairIdx = null) {
     const canvas = document.getElementById('md-canvas');

@@ -933,6 +933,8 @@ const app = {
     
     // 最后加这一行
   this.renderTopIndices('HK');
+    // 初始化加载A股指数
+this.renderTopIndices('A');
   },
 
   bindChartEvents() {
@@ -1347,7 +1349,7 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
   },
 
 
-  // 顶部指数卡片渲染（恒生指数、国企、恒生科技等）
+  // 渲染顶部指数卡片（修复点击事件+数据正确性）
 async renderTopIndices(market) {
   const container = document.getElementById('top-indices');
   const list = this.marketDict[market] || [];
@@ -1359,9 +1361,10 @@ async renderTopIndices(market) {
   const secids = list.map(item => item.secid).join(',');
   const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
 
-  container.innerHTML = list.map(() => `
-    <div class="top-index-card">
-      <div class="ti-name">--</div>
+  // 骨架屏（保留点击事件）
+  container.innerHTML = list.map(item => `
+    <div class="top-index-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
+      <div class="ti-name">${item.name}</div>
       <div class="ti-price">--</div>
       <div class="ti-chg">--% --</div>
     </div>
@@ -1375,20 +1378,20 @@ async renderTopIndices(market) {
     list.forEach(item => {
       const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid) || {};
 
-      let price = quote.f2;
-      if (price === undefined || price === '-' || price === null) price = '--';
-      else price = Number(price).toFixed(2);
-
+      let price = quote.f2 ?? '--';
+      price = isNaN(Number(price)) ? '--' : Number(price).toFixed(2);
+      
       let chgRate = '--', chgVal = '--';
-      if (quote.f3 !== undefined && quote.f3 !== '-') chgRate = Number(quote.f3).toFixed(2);
-      if (quote.f4 !== undefined && quote.f4 !== '-') chgVal = Number(quote.f4).toFixed(2);
+      if (quote.f3 !== undefined && quote.f3 !== '-' && !isNaN(quote.f3)) chgRate = Number(quote.f3).toFixed(2);
+      if (quote.f4 !== undefined && quote.f4 !== '-' && !isNaN(quote.f4)) chgVal = Number(quote.f4).toFixed(2);
 
       const col = (chgRate !== '--' && Number(chgRate) >= 0) ? 'red' : 'green';
       const rateSign = Number(chgRate) > 0 ? '+' : '';
       const valSign = Number(chgVal) > 0 ? '+' : '';
 
+      // ✅ 绑定点击事件，传入正确secid
       html += `
-      <div class="top-index-card">
+      <div class="top-index-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
         <div class="ti-name">${item.name}</div>
         <div class="ti-price ${col}">${price}</div>
         <div class="ti-chg ${col}">${rateSign}${chgRate}% ${valSign}${chgVal}</div>
@@ -1398,23 +1401,36 @@ async renderTopIndices(market) {
     container.innerHTML = html;
   } catch (e) {
     console.warn('获取指数数据失败', e);
+    // 加载失败也保留点击事件
+    container.innerHTML = list.map(item => `
+      <div class="top-index-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
+        <div class="ti-name">${item.name}</div>
+        <div class="ti-price">--</div>
+        <div class="ti-chg">--% --</div>
+      </div>
+    `).join('');
   }
 },
   
-  async renderWatchedMarkets() {
+  // 渲染自选板块/ETF（修复非BK显示+点击事件+删除按钮冲突）
+async renderWatchedMarkets() {
   const container = document.getElementById('market-watched-list');
   if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
     container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';
     return;
   }
 
-  // ✅ 修复1: 智能生成请求secid
+  // ✅ 核心修复：智能生成符合东方财富规则的secid（f13.f12）
   const secids = this.data.watchedMarkets.map(item => {
     const code = item.code;
-    if (code.startsWith('BK')) return `90.${code}`; // 板块
-    if (code.startsWith('H')) return `100.${code}`; // 港股指数
-    if (/^\d{6}$/.test(code)) return `1.${code}`; // A股
-    return item.secid; // 其他保持原样
+    // 1. 板块：BK开头 → 90.BKxxxx
+    if (code.startsWith('BK')) return `90.${code}`;
+    // 2. A股指数/ETF：H开头 或 6位数字 → 1.xxxx（上海市场，A股统一用1.，深圳可后续优化为0.）
+    if (code.startsWith('H') || /^\d{6}$/.test(code)) return `1.${code}`;
+    // 3. 港股/美股：已带100.前缀的直接使用
+    if (item.secid.startsWith('100.')) return item.secid;
+    // 4. 其他情况：保留原secid
+    return item.secid;
   }).join(',');
 
   const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
@@ -1426,31 +1442,37 @@ async renderTopIndices(market) {
 
     let html = '';
     this.data.watchedMarkets.forEach(item => {
-      // 生成用于查找的目标secid
+      // ✅ 生成匹配用的目标secid（和请求secid完全一致）
       let targetSecid = item.secid;
-      if (item.code.startsWith('BK')) targetSecid = `90.${item.code}`;
-      else if (item.code.startsWith('H')) targetSecid = `100.${item.code}`;
-      else if (/^\d{6}$/.test(item.code)) targetSecid = `1.${item.code}`;
+      const code = item.code;
+      if (code.startsWith('BK')) targetSecid = `90.${code}`;
+      else if (code.startsWith('H') || /^\d{6}$/.test(code)) targetSecid = `1.${code}`;
+      else if (item.secid.startsWith('100.')) targetSecid = item.secid;
 
+      // 匹配行情数据
       const quote = dataList.find(d => `${d.f13}.${d.f12}` === targetSecid) || {};
 
-      let price = quote.f2 || '--';
-      price = isNaN(price) ? '--' : Number(price).toFixed(2);
+      // 处理价格
+      let price = quote.f2 ?? '--';
+      price = isNaN(Number(price)) ? '--' : Number(price).toFixed(2);
       
+      // 处理涨跌幅
       let chgRate = '--', chgVal = '--';
-      if (quote.f3 !== undefined && quote.f3 !== '-') chgRate = Number(quote.f3).toFixed(2);
-      if (quote.f4 !== undefined && quote.f4 !== '-') chgVal = Number(quote.f4).toFixed(2);
+      if (quote.f3 !== undefined && quote.f3 !== '-' && !isNaN(quote.f3)) chgRate = Number(quote.f3).toFixed(2);
+      if (quote.f4 !== undefined && quote.f4 !== '-' && !isNaN(quote.f4)) chgVal = Number(quote.f4).toFixed(2);
 
+      // 涨跌颜色
       const col = (chgRate !== '--' && Number(chgRate) >= 0) ? 'red' : 'green';
       const rateSign = Number(chgRate) > 0 ? '+' : '';
       const valSign = Number(chgVal) > 0 ? '+' : '';
 
-      // 传入详情页时，自动补全BK代码的90.前缀
-      const detailSecid = item.code.startsWith('BK') ? `90.${item.code}` : item.secid;
+      // ✅ 详情页secid直接用处理好的targetSecid
+      const detailSecid = targetSecid;
       
+      // ✅ 给删除按钮加stopPropagation，防止触发卡片点击
       html += `
       <div class="list-item" onclick="app.openMarketDetail('${detailSecid}', '${item.name}')">
-        <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
+        <div class="c-del-btn" onclick="event.stopPropagation(); app.delWatchedMarket(event, '${item.secid}')">✕</div>
         <div style="flex:1;">
           <div style="font-weight:800; font-size:15px;">${item.name}</div>
           <div style="font-size:11px; color:#94a3b8; margin-top:2px;">${item.code}</div>
@@ -1481,14 +1503,33 @@ async renderTopIndices(market) {
   },
 
 
-  openMarketDetail(secid, name) {
-  // ✅ 修复2: 进入详情页前，强制将BK代码补全为90.格式
-  const code = secid.split('.').pop() || secid;
-  const realSecid = code.startsWith('BK') ? `90.${code}` : secid;
+  // 打开市场详情页（全类型secid兼容）
+openMarketDetail(secid, name) {
+  // ✅ 兜底校验：确保secid格式正确
+  const codePart = secid.split('.').pop() || secid;
+  let realSecid = secid;
 
+  // 1. BK板块强制补全90.前缀（资金流向依赖）
+  if (codePart.startsWith('BK') && !secid.startsWith('90.')) {
+    realSecid = `90.${codePart}`;
+  }
+  // 2. A股指数/ETF强制补全1.前缀
+  if ((codePart.startsWith('H') || /^\d{6}$/.test(codePart)) && !secid.startsWith('1.')) {
+    realSecid = `1.${codePart}`;
+  }
+
+  // 设置当前行情状态
   this.marketState.currentSecid = realSecid;
   document.getElementById('market-detail-title').innerText = name;
-  document.getElementById('market-detail').style.display = 'block';
+  
+  // 显示详情页（兼容DOM不存在的情况）
+  const detailEl = document.getElementById('market-detail');
+  if (detailEl) {
+    detailEl.style.display = 'block';
+    detailEl.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  // 刷新详情数据
   this.refreshMarketDetail();
 },
 
@@ -1584,41 +1625,48 @@ async renderTopIndices(market) {
           }
       } catch (e) { console.warn('K线数据获取失败', e); }
   }
- // 3. 主力资金流向（✅ 修复BK板块secid，解决0.00亿问题）
+ // 3. 主力资金流向（修复BK板块secid，彻底解决0.00亿）
 const isBK = secid.split('.').pop().startsWith('BK');
 if (!isBK) {
     document.getElementById('md-fund-flow-area').style.display = 'none';
     return;
 }
 document.getElementById('md-fund-flow-area').style.display = 'block';
-// ✅ 修复：BK板块正确secid格式（90.BKxxxx）
+
+// ✅ 确保BK板块secid为90.开头
 const flowSecid = secid.startsWith('90.') ? secid : `90.${secid.split('.').pop()}`;
-// 获取当天明细
 const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${flowSecid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
+
 try {
     const fRes = await fetchJSONP(detailFlowUrl, 'cb');
     const fd = fRes?.data;
-    if(fd && fd.f62 !== undefined && fd.f62 !== '-') {
+    if(fd && fd.f62 !== undefined && fd.f62 !== '-' && !isNaN(fd.f62)) {
         const safeParse = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v) : 0;
         const fmtY = (v) => {
             if (v === undefined || isNaN(v)) return '--';
             return (v / 100000000).toFixed(2) + '亿';
         };
+
         let xlIn = safeParse(fd.f64), xlOut = safeParse(fd.f65);
         let lIn = safeParse(fd.f70), lOut = safeParse(fd.f71);
         let mainIn = xlIn + lIn, mainOut = xlOut + lOut;
         let mainNet = safeParse(fd.f62) !== 0 ? safeParse(fd.f62) : (mainIn - mainOut);
+
         document.getElementById('ff-main-in').innerText = fmtY(mainIn);
         document.getElementById('ff-main-out').innerText = fmtY(mainOut);
         document.getElementById('ff-main-net').innerText = fmtY(mainNet);
         document.getElementById('ff-main-net').className = mainNet >= 0 ? 'red' : 'green';
+
         document.getElementById('ff-xl-in').innerText = fmtY(xlIn); document.getElementById('ff-xl-out').innerText = fmtY(xlOut);
         document.getElementById('ff-l-in').innerText = fmtY(lIn); document.getElementById('ff-l-out').innerText = fmtY(lOut);
         document.getElementById('ff-m-in').innerText = fmtY(safeParse(fd.f76)); document.getElementById('ff-m-out').innerText = fmtY(safeParse(fd.f77));
         document.getElementById('ff-s-in').innerText = fmtY(safeParse(fd.f82)); document.getElementById('ff-s-out').innerText = fmtY(safeParse(fd.f83));
     } else {
         const ids = ['ff-main-in','ff-main-out','ff-main-net','ff-xl-in','ff-xl-out','ff-l-in','ff-l-out','ff-m-in','ff-m-out','ff-s-in','ff-s-out'];
-        ids.forEach(id => { document.getElementById(id).innerText = '--'; document.getElementById(id).className = ''; });
+        ids.forEach(id => { 
+            const el = document.getElementById(id);
+            if(el) { el.innerText = '--'; el.className = ''; }
+        });
     }
 } catch(e) { console.warn('资金明细获取失败', e); }
   // 获取历史流向

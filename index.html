@@ -1404,55 +1404,71 @@ async renderTopIndices(market) {
   async renderWatchedMarkets() {
   const container = document.getElementById('market-watched-list');
   if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
-      container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';
-      return;
+    container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';
+    return;
   }
-  // ✅ 修复：BK板块自动补全90.前缀，生成正确secid
-  const secids = this.data.watchedMarkets.map(m => {
-      if (m.code.startsWith('BK') && !m.secid.startsWith('90.')) {
-          return `90.${m.code}`;
-      }
-      return m.secid;
+
+  // ✅ 修复1: 智能生成请求secid
+  const secids = this.data.watchedMarkets.map(item => {
+    const code = item.code;
+    if (code.startsWith('BK')) return `90.${code}`; // 板块
+    if (code.startsWith('H')) return `100.${code}`; // 港股指数
+    if (/^\d{6}$/.test(code)) return `1.${code}`; // A股
+    return item.secid; // 其他保持原样
   }).join(',');
+
   const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
   container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>';
+
   try {
-      const res = await fetchJSONP(url, 'cb');
-      const dataList = res?.data?.diff || [];
-      let html = this.data.watchedMarkets.map(item => {
-          // ✅ 修复：兼容BK板块90.前缀的完整secid匹配
-          const targetSecid = item.code.startsWith('BK') ? `90.${item.code}` : item.secid;
-          const quote = dataList.find(d => `${d.f13}.${d.f12}` === targetSecid) || {};
-          let price = quote.f2;
-          if (price === undefined || price === null || price === '-') price = '--';
-          else price = typeof price === 'number' ? price.toFixed(2) : price;
-          let chgRate = '--', chgVal = '--';
-          if (quote.f3 !== undefined && quote.f3 !== null && quote.f3 !== '-') chgRate = parseFloat(quote.f3).toFixed(2);
-          if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') chgVal = parseFloat(quote.f4).toFixed(2);
-          const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
-          const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
-          const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : '';
-          // ✅ 修复：删除多余删除按钮，仅保留一个
-          return `
-          <div class="list-item" onclick="app.openMarketDetail('${targetSecid}', '${item.name}')">
-              <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
-              <div style="flex:1;">
-                  <div style="font-weight:800; font-size:15px;">${item.name}</div>
-                  <div style="font-size:11px; color:#94a3b8; margin-top:2px;">${item.code}</div>
-              </div>
-              <div style="width:110px; text-align:right; margin-right:30px;">
-                  <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
-                  <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:2px;">
-                      <span class="${col}" style="font-size:11px; font-weight:bold;">${valSign}${chgVal}</span>
-                      <span class="${col}" style="font-size:11px; font-weight:bold; background:rgba(0,0,0,0.03); padding:1px 4px; border-radius:4px;">${rateSign}${chgRate}%</span>
-                  </div>
-              </div>
-          </div>`;
-      }).join('');
-      container.innerHTML = html;
+    const res = await fetchJSONP(url, 'cb');
+    const dataList = res?.data?.diff || [];
+
+    let html = '';
+    this.data.watchedMarkets.forEach(item => {
+      // 生成用于查找的目标secid
+      let targetSecid = item.secid;
+      if (item.code.startsWith('BK')) targetSecid = `90.${item.code}`;
+      else if (item.code.startsWith('H')) targetSecid = `100.${item.code}`;
+      else if (/^\d{6}$/.test(item.code)) targetSecid = `1.${item.code}`;
+
+      const quote = dataList.find(d => `${d.f13}.${d.f12}` === targetSecid) || {};
+
+      let price = quote.f2 || '--';
+      price = isNaN(price) ? '--' : Number(price).toFixed(2);
+      
+      let chgRate = '--', chgVal = '--';
+      if (quote.f3 !== undefined && quote.f3 !== '-') chgRate = Number(quote.f3).toFixed(2);
+      if (quote.f4 !== undefined && quote.f4 !== '-') chgVal = Number(quote.f4).toFixed(2);
+
+      const col = (chgRate !== '--' && Number(chgRate) >= 0) ? 'red' : 'green';
+      const rateSign = Number(chgRate) > 0 ? '+' : '';
+      const valSign = Number(chgVal) > 0 ? '+' : '';
+
+      // 传入详情页时，自动补全BK代码的90.前缀
+      const detailSecid = item.code.startsWith('BK') ? `90.${item.code}` : item.secid;
+      
+      html += `
+      <div class="list-item" onclick="app.openMarketDetail('${detailSecid}', '${item.name}')">
+        <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
+        <div style="flex:1;">
+          <div style="font-weight:800; font-size:15px;">${item.name}</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">${item.code}</div>
+        </div>
+        <div style="width:110px; text-align:right; margin-right:30px;">
+          <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
+          <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:2px;">
+            <span class="${col}" style="font-size:11px; font-weight:bold;">${valSign}${chgVal}</span>
+            <span class="${col}" style="font-size:11px; font-weight:bold; background:rgba(0,0,0,0.03); padding:1px 4px; border-radius:4px;">${rateSign}${chgRate}%</span>
+          </div>
+        </div>
+      </div>`;
+    });
+
+    container.innerHTML = html;
   } catch (e) {
-      console.error('自选板块渲染失败', e);
-      container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>';
+    console.error('自选板块渲染失败', e);
+    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>';
   }
 },
 
@@ -1466,17 +1482,15 @@ async renderTopIndices(market) {
 
 
   openMarketDetail(secid, name) {
-      this.marketState.currentSecid = secid;
-    this.marketState.chartType = 'trend'; // 默认分时
-    this.crosshair = { active: false, x: 0, y: 0, index: -1 };
-      // 每次打开默认重置为分时图
-      this.switchMarketChart('trend');
-      document.getElementById('md-title').innerText = name;
-      this.openModal('market-detail');
-      
-      this.refreshMarketDetail();
-      this.startIntradayTimer();
-  },
+  // ✅ 修复2: 进入详情页前，强制将BK代码补全为90.格式
+  const code = secid.split('.').pop() || secid;
+  const realSecid = code.startsWith('BK') ? `90.${code}` : secid;
+
+  this.marketState.currentSecid = realSecid;
+  document.getElementById('market-detail-title').innerText = name;
+  document.getElementById('market-detail').style.display = 'block';
+  this.refreshMarketDetail();
+},
 
  async refreshMarketDetail() {
   const secid = this.marketState.currentSecid;

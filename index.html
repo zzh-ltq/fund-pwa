@@ -680,6 +680,7 @@
                 <div class="action-pill" onclick="app.switchMarketChart('103')">月K趋势</div>
             </div>
             <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
+            <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
             <div style="position:relative; width:100%; height:220px;">
                 <canvas id="md-canvas" style="width:100%; height:100%;"></canvas>
             </div>
@@ -831,9 +832,10 @@ const app = {
       {name: '创业板指', secid: '0.399006'}, {name: '科创50', secid: '1.000688'},
       {name: '北证50', secid: '0.899050'}, {name: '沪深300', secid: '1.000300'}
   ],
-  // ✅ 修复：港股指数secid前缀124→100（东方财富标准前缀）
+  // ✅ 修复：恒生科技指数正确secid
   'HK': [
-      {name: '恒生指数', secid: '100.HSI'}, {name: '恒生科技', secid: '100.HSTECH'},
+      {name: '恒生指数', secid: '100.HSI'}, 
+      {name: '恒生科技', secid: '100.HSTECH'}, // 标准代码，部分接口兼容HSITEC
       {name: '国企指数', secid: '100.HSCEI'}
   ],
   'US': [
@@ -927,41 +929,50 @@ const app = {
             if(needsRefresh) this.refreshAll(true); 
         }
     }, 500);
+    
+    // 最后加这一行
+  this.renderTopIndices('HK');
   },
 
   bindChartEvents() {
-    const canvas = document.getElementById('md-canvas');
-    if (!canvas) return;
-    
-    const getIndexFromEvent = (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        let x = clientX - rect.left - 50; // 左边距补偿
-        const dw = rect.width - 100;
-        if (x < 0) x = 0;
-        if (x > dw) x = dw;
-        let idx = Math.round((x / dw) * (this.marketChartData.prices.length - 1));
-        return Math.min(Math.max(idx, 0), this.marketChartData.prices.length - 1);
-    };
-    
-    const onMove = (e) => {
-        e.preventDefault();
-        if (!this.marketChartData.prices.length) return;
-        const idx = getIndexFromEvent(e);
-        this.crosshair.active = true;
-        this.crosshair.index = idx;
-        this.drawMarketChartWithCrosshair(true, idx);
-    };
-    
-    const onEnd = () => {
-        this.crosshair.active = false;
-        this.drawMarketChartWithCrosshair(false);
-    };
-    
-    canvas.addEventListener('mousemove', onMove);
-    canvas.addEventListener('mouseleave', onEnd);
-    canvas.addEventListener('touchmove', onMove, { passive: false });
-    canvas.addEventListener('touchend', onEnd);
+  const canvas = document.getElementById('md-canvas');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const data = this.marketChartData;
+  if (!data || !data.prices || data.prices.length === 0) return;
+  const pad = { l: 50, r: 50 };
+  const dw = rect.width - pad.l - pad.r;
+  const getIdx = (clientX) => {
+      const x = clientX - rect.left;
+      if (x < pad.l) return 0;
+      if (x > rect.width - pad.r) return data.prices.length - 1;
+      return Math.round((x - pad.l) / dw * (data.prices.length - 1));
+  };
+  // 鼠标移动事件
+  canvas.onmousemove = (e) => {
+      const idx = getIdx(e.clientX);
+      this.crosshair.active = true;
+      this.crosshair.index = idx;
+      this.drawMarketChartWithCrosshair(true, idx); // ✅ 实时重绘，更新时间
+  };
+  // 鼠标离开事件
+  canvas.onmouseleave = () => {
+      this.crosshair.active = false;
+      this.drawMarketChartWithCrosshair(false, null);
+  };
+  // 移动端触摸事件（适配手机滑动）
+  canvas.ontouchmove = (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const idx = getIdx(touch.clientX);
+      this.crosshair.active = true;
+      this.crosshair.index = idx;
+      this.drawMarketChartWithCrosshair(true, idx); // ✅ 实时重绘，更新时间
+  };
+  canvas.ontouchend = () => {
+      this.crosshair.active = false;
+      this.drawMarketChartWithCrosshair(false, null);
+  };
 },
   async saveData() {
     try {
@@ -1334,21 +1345,83 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
     document.getElementById('market-search-res').style.display = 'none';
   },
 
+
+  // 顶部指数卡片渲染（恒生指数、国企、恒生科技等）
+async renderTopIndices(market) {
+  const container = document.getElementById('top-indices');
+  const list = this.marketDict[market] || [];
+  if (list.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const secids = list.map(item => item.secid).join(',');
+  const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
+
+  container.innerHTML = list.map(() => `
+    <div class="top-index-card">
+      <div class="ti-name">--</div>
+      <div class="ti-price">--</div>
+      <div class="ti-chg">--% --</div>
+    </div>
+  `).join('');
+
+  try {
+    const res = await fetchJSONP(url, 'cb');
+    const dataList = res?.data?.diff || [];
+
+    let html = '';
+    list.forEach(item => {
+      const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid) || {};
+
+      let price = quote.f2;
+      if (price === undefined || price === '-' || price === null) price = '--';
+      else price = Number(price).toFixed(2);
+
+      let chgRate = '--', chgVal = '--';
+      if (quote.f3 !== undefined && quote.f3 !== '-') chgRate = Number(quote.f3).toFixed(2);
+      if (quote.f4 !== undefined && quote.f4 !== '-') chgVal = Number(quote.f4).toFixed(2);
+
+      const col = (chgRate !== '--' && Number(chgRate) >= 0) ? 'red' : 'green';
+      const rateSign = Number(chgRate) > 0 ? '+' : '';
+      const valSign = Number(chgVal) > 0 ? '+' : '';
+
+      html += `
+      <div class="top-index-card">
+        <div class="ti-name">${item.name}</div>
+        <div class="ti-price ${col}">${price}</div>
+        <div class="ti-chg ${col}">${rateSign}${chgRate}% ${valSign}${chgVal}</div>
+      </div>`;
+    });
+
+    container.innerHTML = html;
+  } catch (e) {
+    console.warn('获取指数数据失败', e);
+  }
+},
+  
   async renderWatchedMarkets() {
   const container = document.getElementById('market-watched-list');
   if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
       container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';
       return;
   }
-  const secids = this.data.watchedMarkets.map(m => m.secid).join(',');
+  // ✅ 修复：BK板块自动补全90.前缀，生成正确secid
+  const secids = this.data.watchedMarkets.map(m => {
+      if (m.code.startsWith('BK') && !m.secid.startsWith('90.')) {
+          return `90.${m.code}`;
+      }
+      return m.secid;
+  }).join(',');
   const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
   container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>';
   try {
       const res = await fetchJSONP(url, 'cb');
       const dataList = res?.data?.diff || [];
       let html = this.data.watchedMarkets.map(item => {
-          // ✅ 修复：直接用完整secid匹配，删除纯代码拆分逻辑
-          const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid) || {};
+          // ✅ 修复：兼容BK板块90.前缀的完整secid匹配
+          const targetSecid = item.code.startsWith('BK') ? `90.${item.code}` : item.secid;
+          const quote = dataList.find(d => `${d.f13}.${d.f12}` === targetSecid) || {};
           let price = quote.f2;
           if (price === undefined || price === null || price === '-') price = '--';
           else price = typeof price === 'number' ? price.toFixed(2) : price;
@@ -1357,10 +1430,11 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
           if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') chgVal = parseFloat(quote.f4).toFixed(2);
           const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : '');
           const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : '';
-          valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : '';
+          const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : '';
+          // ✅ 修复：删除多余删除按钮，仅保留一个
           return `
-          <div class="list-item" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
-              <div class="c-del-btn" style="top:50%; transform:translateY(-50%); right:8px; background:none;" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
+          <div class="list-item" onclick="app.openMarketDetail('${targetSecid}', '${item.name}')">
+              <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
               <div style="flex:1;">
                   <div style="font-weight:800; font-size:15px;">${item.name}</div>
                   <div style="font-size:11px; color:#94a3b8; margin-top:2px;">${item.code}</div>
@@ -1376,6 +1450,7 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
       }).join('');
       container.innerHTML = html;
   } catch (e) {
+      console.error('自选板块渲染失败', e);
       container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>';
   }
 },
@@ -1494,43 +1569,43 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
           }
       } catch (e) { console.warn('K线数据获取失败', e); }
   }
-  // 3. 主力资金流向（✅ 修复：仅BK板块请求，secid前缀正确）
-  const isBK = secid.split('.').pop().startsWith('BK');
-  if (!isBK) {
-      document.getElementById('md-fund-flow-area').style.display = 'none';
-      return;
-  }
-  document.getElementById('md-fund-flow-area').style.display = 'block';
-  // ✅ 修复：BK板块正确前缀90.
-  const flowSecid = secid.startsWith('90.') ? secid : `90.${secid.split('.').pop()}`;
-  // 获取当天明细
-  const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${flowSecid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
-  try {
-      const fRes = await fetchJSONP(detailFlowUrl, 'cb');
-      const fd = fRes?.data;
-      if(fd && fd.f62 !== undefined && fd.f62 !== '-') {
-          const safeParse = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v) : 0;
-          const fmtY = (v) => {
-              if (v === undefined || isNaN(v)) return '--';
-              return (v / 100000000).toFixed(2) + '亿';
-          };
-          let xlIn = safeParse(fd.f64), xlOut = safeParse(fd.f65);
-          let lIn = safeParse(fd.f70), lOut = safeParse(fd.f71);
-          let mainIn = xlIn + lIn, mainOut = xlOut + lOut;
-          let mainNet = safeParse(fd.f62) !== 0 ? safeParse(fd.f62) : (mainIn - mainOut);
-          document.getElementById('ff-main-in').innerText = fmtY(mainIn);
-          document.getElementById('ff-main-out').innerText = fmtY(mainOut);
-          document.getElementById('ff-main-net').innerText = fmtY(mainNet);
-          document.getElementById('ff-main-net').className = mainNet >= 0 ? 'red' : 'green';
-          document.getElementById('ff-xl-in').innerText = fmtY(xlIn); document.getElementById('ff-xl-out').innerText = fmtY(xlOut);
-          document.getElementById('ff-l-in').innerText = fmtY(lIn); document.getElementById('ff-l-out').innerText = fmtY(lOut);
-          document.getElementById('ff-m-in').innerText = fmtY(safeParse(fd.f76)); document.getElementById('ff-m-out').innerText = fmtY(safeParse(fd.f77));
-          document.getElementById('ff-s-in').innerText = fmtY(safeParse(fd.f82)); document.getElementById('ff-s-out').innerText = fmtY(safeParse(fd.f83));
-      } else {
-          const ids = ['ff-main-in','ff-main-out','ff-main-net','ff-xl-in','ff-xl-out','ff-l-in','ff-l-out','ff-m-in','ff-m-out','ff-s-in','ff-s-out'];
-          ids.forEach(id => { document.getElementById(id).innerText = '--'; document.getElementById(id).className = ''; });
-      }
-  } catch(e) { console.warn('资金明细获取失败', e); }
+ // 3. 主力资金流向（✅ 修复BK板块secid，解决0.00亿问题）
+const isBK = secid.split('.').pop().startsWith('BK');
+if (!isBK) {
+    document.getElementById('md-fund-flow-area').style.display = 'none';
+    return;
+}
+document.getElementById('md-fund-flow-area').style.display = 'block';
+// ✅ 修复：BK板块正确secid格式（90.BKxxxx）
+const flowSecid = secid.startsWith('90.') ? secid : `90.${secid.split('.').pop()}`;
+// 获取当天明细
+const detailFlowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${flowSecid}&fields=f62,f64,f65,f70,f71,f76,f77,f82,f83&_=${Date.now()}`;
+try {
+    const fRes = await fetchJSONP(detailFlowUrl, 'cb');
+    const fd = fRes?.data;
+    if(fd && fd.f62 !== undefined && fd.f62 !== '-') {
+        const safeParse = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v) : 0;
+        const fmtY = (v) => {
+            if (v === undefined || isNaN(v)) return '--';
+            return (v / 100000000).toFixed(2) + '亿';
+        };
+        let xlIn = safeParse(fd.f64), xlOut = safeParse(fd.f65);
+        let lIn = safeParse(fd.f70), lOut = safeParse(fd.f71);
+        let mainIn = xlIn + lIn, mainOut = xlOut + lOut;
+        let mainNet = safeParse(fd.f62) !== 0 ? safeParse(fd.f62) : (mainIn - mainOut);
+        document.getElementById('ff-main-in').innerText = fmtY(mainIn);
+        document.getElementById('ff-main-out').innerText = fmtY(mainOut);
+        document.getElementById('ff-main-net').innerText = fmtY(mainNet);
+        document.getElementById('ff-main-net').className = mainNet >= 0 ? 'red' : 'green';
+        document.getElementById('ff-xl-in').innerText = fmtY(xlIn); document.getElementById('ff-xl-out').innerText = fmtY(xlOut);
+        document.getElementById('ff-l-in').innerText = fmtY(lIn); document.getElementById('ff-l-out').innerText = fmtY(lOut);
+        document.getElementById('ff-m-in').innerText = fmtY(safeParse(fd.f76)); document.getElementById('ff-m-out').innerText = fmtY(safeParse(fd.f77));
+        document.getElementById('ff-s-in').innerText = fmtY(safeParse(fd.f82)); document.getElementById('ff-s-out').innerText = fmtY(safeParse(fd.f83));
+    } else {
+        const ids = ['ff-main-in','ff-main-out','ff-main-net','ff-xl-in','ff-xl-out','ff-l-in','ff-l-out','ff-m-in','ff-m-out','ff-s-in','ff-s-out'];
+        ids.forEach(id => { document.getElementById(id).innerText = '--'; document.getElementById(id).className = ''; });
+    }
+} catch(e) { console.warn('资金明细获取失败', e); }
   // 获取历史流向
   const ffUrl = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${flowSecid}&lmt=20&_=${Date.now()}`;
   try {
@@ -1565,11 +1640,11 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
   const w = rect.width, h = rect.height;
   ctx.clearRect(0, 0, w, h);
   const data = this.marketChartData;
-  if (!data.prices || data.prices.length === 0) return;
+  if (!data || !data.prices || data.prices.length === 0) return;
   const pad = { l: 50, r: 50, t: 20, b: 35 };
   const dw = w - pad.l - pad.r, dh = h - pad.t - pad.b;
   let yMax, yMin;
-  // ✅ 修复：价格数据容错，避免NaN
+  // ✅ 价格数据容错
   const validPrices = data.prices.filter(p => !isNaN(p) && p > 0);
   if (validPrices.length === 0) return;
   
@@ -1587,7 +1662,6 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
   }
   const getX = idx => pad.l + (idx / (data.prices.length - 1)) * dw;
   const getY = price => {
-      // ✅ 修复：价格为NaN时返回默认值
       if (isNaN(price) || price === 0) return pad.t + dh;
       return pad.t + dh - ((price - yMin) / (yMax - yMin)) * dh;
   };
@@ -1680,34 +1754,52 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
       grd.addColorStop(0, 'rgba(0,102,255,0.12)'); grd.addColorStop(1, 'rgba(0,102,255,0.01)');
       ctx.fillStyle = grd; ctx.fill();
   }
-  // 图表信息
+  // ✅ 新增：图表底部时间显示区域
+  const timeDisplayEl = document.getElementById('md-chart-time-display');
   const infoDiv = document.getElementById('md-chart-info');
   const titleName = document.getElementById('md-title')?.innerText || '';
   let displayIdx = (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) ? crosshairIdx : data.prices.length - 1;
-  if (infoDiv && displayIdx >= 0 && displayIdx < data.prices.length) {
+  
+  if (displayIdx >= 0 && displayIdx < data.prices.length) {
       const priceVal = data.prices[displayIdx];
       const timeLabel = data.xLabels[displayIdx] || '';
-      const displayTime = data.type === 'trend' ? timeLabel.slice(11, 16) : timeLabel;
-      if (data.type === 'kline') {
-          let m5 = data.ma5 && data.ma5[displayIdx] ? data.ma5[displayIdx].toFixed(2) : '--';
-          let m10 = data.ma10 && data.ma10[displayIdx] ? data.ma10[displayIdx].toFixed(2) : '--';
-          let m20 = data.ma20 && data.ma20[displayIdx] ? data.ma20[displayIdx].toFixed(2) : '--';
-          let m60 = data.ma60 && data.ma60[displayIdx] ? data.ma60[displayIdx].toFixed(2) : '--';
-          infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main); margin-right:8px;">${titleName}</span> `
-              + `<span style="color:#3b82f6; margin-right:6px;">MA5: ${m5}</span> `
-              + `<span style="color:#f59e0b; margin-right:6px;">MA10: ${m10}</span> `
-              + `<span style="color:#ec4899; margin-right:6px;">MA20: ${m20}</span> `
-              + `<span style="color:#10b981; margin-right:6px;">MA60: ${m60}</span>`;
+      // ✅ 分时图：时分；K线图：月-日
+      let displayTime = '';
+      if (data.type === 'trend') {
+          displayTime = timeLabel.slice(11, 16); // 提取时分，如 10:30
       } else {
-          const change = priceVal - data.prevClose;
-          const changeRate = data.prevClose !== 0 ? (change / data.prevClose * 100).toFixed(2) : '0.00';
-          const vol = data.volumes[displayIdx] || 0;
-          const volStr = vol >= 10000 ? (vol / 10000).toFixed(2) + '万' : vol.toString();
-          const chgColor = change >= 0 ? 'var(--red)' : 'var(--green)';
-          infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main);">${titleName}</span> `
-              + `${displayTime} 价格:<b>${priceVal.toFixed(2)}</b> 涨幅:<b style="color:${chgColor};">${change>=0?'+':''}${changeRate}%</b> 成交量:<b>${volStr}</b>`;
+          displayTime = timeLabel.slice(5, 10); // 提取月-日，如 02-05
       }
-  } else if (infoDiv) { infoDiv.innerHTML = ''; }
+      // ✅ 更新底部时间显示
+      if (timeDisplayEl) {
+          timeDisplayEl.innerText = displayTime;
+          timeDisplayEl.style.display = 'block';
+      }
+      // ✅ 同步更新图表信息
+      if (infoDiv) {
+          if (data.type === 'kline') {
+              let m5 = data.ma5 && data.ma5[displayIdx] ? data.ma5[displayIdx].toFixed(2) : '--';
+              let m10 = data.ma10 && data.ma10[displayIdx] ? data.ma10[displayIdx].toFixed(2) : '--';
+              let m20 = data.ma20 && data.ma20[displayIdx] ? data.ma20[displayIdx].toFixed(2) : '--';
+              let m60 = data.ma60 && data.ma60[displayIdx] ? data.ma60[displayIdx].toFixed(2) : '--';
+              infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main); margin-right:8px;">${titleName}</span> `
+                  + `<span style="color:#3b82f6; margin-right:6px;">MA5: ${m5}</span> `
+                  + `<span style="color:#f59e0b; margin-right:6px;">MA10: ${m10}</span> `
+                  + `<span style="color:#ec4899; margin-right:6px;">MA20: ${m20}</span> `
+                  + `<span style="color:#10b981; margin-right:6px;">MA60: ${m60}</span>`;
+          } else {
+              const change = priceVal - data.prevClose;
+              const changeRate = data.prevClose !== 0 ? (change / data.prevClose * 100).toFixed(2) : '0.00';
+              const vol = data.volumes[displayIdx] || 0;
+              const volStr = vol >= 10000 ? (vol / 10000).toFixed(2) + '万' : vol.toString();
+              const chgColor = change >= 0 ? 'var(--red)' : 'var(--green)';
+              infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main);">${titleName}</span> `
+                  + `${displayTime} 价格:<b>${priceVal.toFixed(2)}</b> 涨幅:<b style="color:${chgColor};">${change>=0?'+':''}${changeRate}%</b> 成交量:<b>${volStr}</b>`;
+          }
+      }
+  } else if (timeDisplayEl) {
+      timeDisplayEl.style.display = 'none';
+  }
   // 十字线
   if (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) {
       const cx = getX(crosshairIdx), cy = getY(data.prices[crosshairIdx]);

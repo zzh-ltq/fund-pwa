@@ -43,9 +43,38 @@
 
     .app-container { max-width: 100%; margin: 0 auto; height: 100vh; position: relative; display: flex; flex-direction: column; }
 
-    .page-view { display: none; flex-direction: column; height: 100%; width: 100%; position: absolute; top:0; left:0; 
-                 padding-bottom: calc(85px + var(--safe-bottom)); transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);}
-    .page-view.active { display: flex; animation: fadeIn 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); }
+    /* 在原有.page-view样式后追加 */
+.page-view { 
+  display: none; 
+  flex-direction: column; 
+  height: 100%; 
+  width: 100%; 
+  position: absolute; 
+  top:0; 
+  left:0; 
+  padding-bottom: calc(85px + var(--safe-bottom)); 
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  z-index: 10; /* 新增：基础层级 */
+}
+.page-view.active { 
+  display: flex; 
+  animation: fadeIn 0.4s cubic-bezier(0.25, 0.8, 0.25, 1); 
+  z-index: 15; /* 新增：激活视图层级高于未激活 */
+}
+
+/* 优化卡片子按钮的事件隔离（避免抢占点击） */
+.c-del-btn, .c-star-btn {
+  position: absolute; 
+  /* 原有样式不变，新增：提升层级+指针事件 */
+  z-index: 20; 
+  pointer-events: auto; /* 确保按钮可点击，且不阻断卡片 */
+}
+/* 确保卡片主体可点击 */
+.card {
+  /* 原有样式不变，新增 */
+  pointer-events: auto;
+  cursor: pointer;
+}
     
     @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes slideDown { from { opacity: 0; transform: translate(-50%, -20px); } to { opacity: 1; transform: translate(-50%, 0); } }
@@ -3321,6 +3350,113 @@ roundRect(ctx, x, y, w, h, r) {
 };
 
 window.onload = () => app.init();
+</script>
+  <script>
+// 全局事件委托 - 解决动态渲染元素点击无反应问题
+document.addEventListener('DOMContentLoaded', function() {
+  // ========== 1. 指数卡片（.idx-card）点击事件 ==========
+  const marketIdxContainer = document.getElementById('market-idx-container');
+  if (marketIdxContainer) {
+    marketIdxContainer.addEventListener('click', function(e) {
+      const idxCard = e.target.closest('.idx-card'); // 兼容点击子元素触发
+      if (idxCard) {
+        // 替换为你的指数卡片点击逻辑（示例：获取指数名称/值并处理）
+        const idxName = idxCard.querySelector('.idx-name')?.textContent;
+        const idxVal = idxCard.querySelector('.idx-val')?.textContent;
+        console.log('点击指数卡片：', idxName, idxVal);
+        // 示例：跳转到指数详情/添加至自选
+        // app.addIdxToWatch(idxName, idxVal);
+      }
+    });
+  }
+
+  // ========== 2. 基金卡片（.card）点击事件 ==========
+  // 自选页基金卡片
+  const homeList = document.getElementById('home-list');
+  if (homeList) {
+    homeList.addEventListener('click', function(e) {
+      const card = e.target.closest('.card');
+      if (card) {
+        // 阻止子按钮（删除/收藏）触发卡片主逻辑
+        if (e.target.closest('.c-del-btn, .c-star-btn')) return;
+        
+        // 替换为你的基金卡片点击逻辑（示例：获取基金名称/代码）
+        const cTitle = card.querySelector('.c-title')?.textContent;
+        const cCode = card.querySelector('.c-code')?.textContent;
+        console.log('点击基金卡片：', cTitle, cCode);
+        // 示例：打开基金详情弹窗
+        // app.openFundDetail(cCode);
+      }
+    });
+  }
+
+  // 板块页基金卡片
+  const sectorList = document.getElementById('sector-list');
+  if (sectorList) {
+    sectorList.addEventListener('click', function(e) {
+      const card = e.target.closest('.card');
+      if (card) {
+        if (e.target.closest('.c-del-btn, .c-star-btn')) return;
+        const cTitle = card.querySelector('.c-title')?.textContent;
+        const cCode = card.querySelector('.c-code')?.textContent;
+        console.log('板块页点击基金卡片：', cTitle, cCode);
+        // app.openFundDetail(cCode);
+      }
+    });
+  }
+
+  // ========== 3. 列表视图行（.l-row）点击事件（补充） ==========
+  document.addEventListener('click', function(e) {
+    const listRow = e.target.closest('.l-row');
+    if (listRow) {
+      const cTitle = listRow.querySelector('.l-col-name')?.textContent;
+      console.log('点击列表行：', cTitle);
+      // app.openFundDetail(cTitle);
+    }
+  });
+});
+
+// 补充：修复视图切换时的active状态（确保仅当前tab的视图激活）
+const app = {
+  // 优化tab切换逻辑（原逻辑可能未移除旧视图active）
+  switchTab: function(tabName) {
+    // 1. 移除所有tab-item的active
+    document.querySelectorAll('.tab-item').forEach(item => {
+      item.classList.remove('active');
+    });
+    // 2. 激活当前tab-item
+    document.getElementById(`tab-btn-${tabName}`)?.classList.add('active');
+    
+    // 3. 移除所有page-view的active
+    document.querySelectorAll('.page-view').forEach(view => {
+      view.classList.remove('active');
+      view.style.zIndex = '10'; // 统一基础层级
+    });
+    // 4. 激活当前page-view并提升层级
+    const targetView = document.getElementById(`view-${tabName}`);
+    if (targetView) {
+      targetView.classList.add('active');
+      targetView.style.zIndex = '15'; // 确保激活视图在最上层
+    }
+  },
+
+  // 优化行情子tab切换（同理修复层级）
+  switchMarketTab: function(type) {
+    document.querySelectorAll('.m-tab').forEach(tab => {
+      tab.classList.remove('active');
+    });
+    // 假设点击的tab有对应data-type属性，或直接匹配文本
+    document.querySelectorAll('.m-tab').forEach(tab => {
+      if (tab.onclick.toString().includes(`switchMarketTab('${type}')`)) {
+        tab.classList.add('active');
+      }
+    });
+    // 渲染对应类型指数卡片（需补充你的渲染逻辑）
+    // this.renderMarketIdx(type);
+  },
+
+  // 其他原有app方法...
+};
 </script>
 </body>
 </html>

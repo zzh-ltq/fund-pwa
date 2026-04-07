@@ -307,14 +307,16 @@
     <div class="m-search-wrap"><input type="text" id="market-search-input" placeholder="🔍 搜索板块、指数、ETF添加至自选" oninput="app.searchMarket()" autocomplete="off"><div class="m-search-res" id="market-search-res" style="display:none;"></div></div>
     <div class="rt-controls-mini" style="margin: 0 12px 10px;"><span class="rt-auto-badge" id="mkt-rt-status">⏱️ 等待更新</span><div style="display:flex; gap:8px;"><button class="rt-btn-icon" onclick="app.rtToggleMarketAuto()" id="mkt-rt-toggle">▶️ 开启</button><button class="rt-btn-icon" onclick="app.rtManualRefreshMarket()">🔄 刷新</button></div></div>
     <div class="scroll-area" style="padding-top:0;">
-        
-        <!-- 优化项：新增自定义排序按钮 -->
+        <!-- 优化项：新增自定义多维排序按钮 -->
         <div style="display:flex; justify-content:space-between; align-items:center; margin: 10px 4px 5px;">
             <div style="font-size:12px; font-weight:800; color:#94a3b8;">我的自选板块/ETF</div>
-            <div class="view-toggle" style="background: transparent; box-shadow: none; border: 1px solid #e2e8f0; padding: 2px;">
-                <span id="mkt-sort-default" class="active" onclick="app.setMarketSort('default')" style="font-size:11px; padding:2px 8px;">默认</span>
-                <span id="mkt-sort-desc" onclick="app.setMarketSort('desc')" style="font-size:11px; padding:2px 8px;">降序</span>
-                <span id="mkt-sort-asc" onclick="app.setMarketSort('asc')" style="font-size:11px; padding:2px 8px;">升序</span>
+            <div style="display:flex; gap: 8px; align-items:center;">
+                <div id="mkt-sort-dir-btn" class="sort-dir-btn active" style="padding: 4px 10px;" onclick="app.toggleMarketSortDir()">降序 ↓</div>
+                <select id="mkt-sort-rule" class="sort-rule" style="padding: 4px 8px; font-size:11px;" onchange="app.setMarketSortRule()">
+                    <option value="default">默认添加顺序</option>
+                    <option value="chg">按涨跌幅</option>
+                    <option value="flow">按主力净流入</option>
+                </select>
             </div>
         </div>
 
@@ -479,6 +481,32 @@ const app = {
     ]
   },
 
+  // 1. 新增全局状态 (在 app 对象开头的数据区域补充)
+  marketSortRule: 'default', // default | chg | flow
+  marketSortDir: 'desc',     // desc | asc
+
+  // 2. 新增资金格式化辅助函数
+  formatFlowAmt(val) {
+    if (val === undefined || val === '-' || isNaN(val)) return '--';
+    const n = parseFloat(val);
+    if (Math.abs(n) >= 100000000) return (n / 100000000).toFixed(2) + '亿';
+    if (Math.abs(n) >= 10000) return (n / 10000).toFixed(2) + '万';
+    return n.toFixed(0);
+  },
+
+  // 3. 修改排序控制函数
+  setMarketSortRule() {
+    this.marketSortRule = document.getElementById('mkt-sort-rule').value;
+    this.renderWatchedMarkets();
+  },
+
+  toggleMarketSortDir() {
+    this.marketSortDir = this.marketSortDir === 'desc' ? 'asc' : 'desc';
+    const btn = document.getElementById('mkt-sort-dir-btn');
+    btn.innerText = this.marketSortDir === 'desc' ? '降序 ↓' : '升序 ↑';
+    this.renderWatchedMarkets();
+  },
+  
   // ==========================================
   // 3. 通用辅助函数
   // ==========================================
@@ -1294,6 +1322,7 @@ const app = {
     return `0.${c}`;
   },
 
+  // 4. 完全替换 renderWatchedMarkets 函数 (加入了资金流向拉取与排序展示)
   async renderWatchedMarkets() { 
     const groupKey = this.currentMarketGroup; 
     const list = this.data.marketGroups[groupKey] || []; 
@@ -1309,20 +1338,20 @@ const app = {
     });
 
     const secids = validList.map(item => item.querySecid).join(','); 
-    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`; 
+    // 新增请求字段 f62 (主力净流入)
+    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f62&secids=${secids}&_=${Date.now()}`; 
     container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>'; 
     
     try { 
         const res = await fetchJSONP(url, 'cb'); 
         let dataList = res?.data?.diff || []; 
 
-        // === 补充接口逻辑：东方财富 ulist 有时会抛弃个别指数(如 2.H30199)，使用精确单点接口兜底 ===
         const foundSecids = new Set(dataList.map(d => `${d.f13}.${d.f12}`));
         const missingItems = validList.filter(item => !foundSecids.has(item.querySecid));
         
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
-                const stockUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${item.querySecid}&fields=f43,f169,f170&_=${Date.now()}`;
+                const stockUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${item.querySecid}&fields=f43,f169,f170,f62&_=${Date.now()}`;
                 try {
                     const r = await fetchJSONP(stockUrl, 'cb');
                     const d = r?.data;
@@ -1333,7 +1362,8 @@ const app = {
                             f12: parts[1],
                             f2: d.f43 !== '-' ? parseFloat(d.f43) : '-',
                             f3: d.f170 !== '-' ? parseFloat(d.f170) : '-',
-                            f4: d.f169 !== '-' ? parseFloat(d.f169) : '-'
+                            f4: d.f169 !== '-' ? parseFloat(d.f169) : '-',
+                            f62: d.f62 !== '-' ? parseFloat(d.f62) : '-'
                         });
                     }
                 } catch(e) {}
@@ -1357,6 +1387,12 @@ const app = {
             if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
                 chgVal = parseFloat(quote.f4).toFixed(2);
             }
+
+            // 处理资金流向
+            let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
+            let flowStr = this.formatFlowAmt(rawFlowAmt);
+            let flowCol = rawFlowAmt > 0 ? 'red' : (rawFlowAmt < 0 ? 'green' : '');
+            let flowDisplay = rawFlowAmt !== 0 ? `<div class="${flowCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px; margin-top:4px;">主力净流入 ${rawFlowAmt>0?'+':''}${flowStr}</div>` : '';
             
             const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
@@ -1364,9 +1400,12 @@ const app = {
             
             const html = `<div class="list-item" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')">
                 <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
-                <div style="flex:1; display:flex; align-items:center; gap:8px;">
-                    <div style="font-weight:800; font-size:16px;">${item.name}</div>
-                    <div style="font-size:13px; font-weight:700; color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:6px; letter-spacing:0.5px;">${item.code || ''}</div>
+                <div style="flex:1; display:flex; flex-direction:column; gap:2px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <div style="font-weight:800; font-size:16px;">${item.name}</div>
+                        <div style="font-size:11px; font-weight:700; color:#64748b; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${item.code || ''}</div>
+                    </div>
+                    ${flowDisplay}
                 </div>
                 <div style="width:110px; text-align:right; margin-right:30px;">
                     <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
@@ -1377,17 +1416,19 @@ const app = {
                 </div>
             </div>`; 
             
-            return { html, rawChgRate, originalIndex: index };
+            return { html, rawChgRate, rawFlowAmt, originalIndex: index };
         }); 
 
-        // 执行排序逻辑
-        if (this.marketSortMode === 'desc') {
-            renderItems.sort((a, b) => b.rawChgRate - a.rawChgRate);
-        } else if (this.marketSortMode === 'asc') {
-            renderItems.sort((a, b) => a.rawChgRate - b.rawChgRate);
-        } else {
-            renderItems.sort((a, b) => a.originalIndex - b.originalIndex);
-        }
+        // 执行多维排序逻辑
+        renderItems.sort((a, b) => {
+            if (this.marketSortRule === 'chg') {
+                return this.marketSortDir === 'desc' ? b.rawChgRate - a.rawChgRate : a.rawChgRate - b.rawChgRate;
+            } else if (this.marketSortRule === 'flow') {
+                return this.marketSortDir === 'desc' ? b.rawFlowAmt - a.rawFlowAmt : a.rawFlowAmt - b.rawFlowAmt;
+            } else {
+                return a.originalIndex - b.originalIndex; // 默认顺序
+            }
+        });
 
         container.innerHTML = renderItems.map(i => i.html).join(''); 
     } catch(e) { 
@@ -1472,69 +1513,116 @@ const app = {
     this.startIntradayTimer(); 
   },
   
+  // 5. 替换 refreshMarketDetail，加入资金流向抓取
   async refreshMarketDetail() { 
     const secid = this.marketState.currentSecid; 
     if (!secid) return; 
-    document.getElementById('md-fund-flow-area').style.display = 'none'; 
     
+    // --- 抓取基本行情 ---
     const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f60,f104,f105,f169,f170&_=${Date.now()}`; 
     try { 
       const res = await fetchJSONP(pkUrl, 'cb'); 
       const d = res?.data; 
-      if (d) { 
-        const prevClose = parseFloat(d.f60) || 0; 
-        const curPrice = parseFloat(d.f43); 
-        const price = !isNaN(curPrice) ? curPrice.toFixed(2) : '--'; 
-        let chgVal = '--', chgRate = '--'; 
-        
-        if (d.f169 !== undefined && d.f169 !== '-' && !isNaN(d.f169)) chgVal = parseFloat(d.f169).toFixed(2); 
-        if (d.f170 !== undefined && d.f170 !== '-' && !isNaN(d.f170)) chgRate = parseFloat(d.f170).toFixed(2); 
-        
-        const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green'; 
-        this.marketState.currentPrevClose = prevClose; 
-        
-        document.getElementById('md-price').innerText = price; 
-        document.getElementById('md-price').className = col; 
-        document.getElementById('md-chg-val').innerText = (chgVal !== '--' && parseFloat(chgVal) > 0 ? '+' : '') + chgVal; 
-        document.getElementById('md-chg-val').className = col; 
-        document.getElementById('md-chg-rate').innerText = (chgRate !== '--' && parseFloat(chgRate) > 0 ? '+' : '') + chgRate + '%'; 
-        document.getElementById('md-chg-rate').className = col; 
-        
-        const fmt = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v).toFixed(2) : '--'; 
-        const fmtVol = (v) => { 
-          if (v === undefined || v === '-' || isNaN(v)) return '--'; 
-          const n = parseFloat(v); 
-          if (n >= 100000000) return (n/100000000).toFixed(2)+'亿'; 
-          if (n >= 10000) return (n/10000).toFixed(0)+'万'; 
-          return n.toFixed(0); 
-        }; 
-        
-        document.getElementById('md-high').innerText = fmt(d.f44); 
-        document.getElementById('md-open').innerText = fmt(d.f46); 
-        document.getElementById('md-low').innerText = fmt(d.f45); 
-        document.getElementById('md-prev').innerText = fmt(d.f60); 
-        document.getElementById('md-vol').innerText = fmtVol(d.f47); 
-        document.getElementById('md-amt').innerText = fmtVol(d.f48); 
-        
-        const chgAbsEl = document.getElementById('md-chg-abs'); 
-        if (chgAbsEl) chgAbsEl.innerHTML = `<span class="${col}">${chgVal !== '--' && parseFloat(chgVal)>0?'+':''}${chgVal}</span>`; 
-        
-        const ampEl = document.getElementById('md-amp'); 
-        if (ampEl) { 
-          const hi = parseFloat(d.f44), lo = parseFloat(d.f45); 
-          if (!isNaN(hi) && !isNaN(lo) && prevClose > 0) { 
-            ampEl.innerText = ((hi - lo) / prevClose * 100).toFixed(2) + '%'; 
-          } else ampEl.innerText = '--'; 
-        } 
-        
-        const vrEl = document.getElementById('md-volratio'); 
-        if (vrEl) vrEl.innerText = (d.f50 !== undefined && d.f50 !== '-' && !isNaN(d.f50)) ? parseFloat(d.f50).toFixed(2) : '--'; 
-        
-        const dTime = new Date(); 
-        document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
-      } 
+      // （此处保留原有的基本数据绑定逻辑，因篇幅精简展示，此处同您上一版的代码，绑定 md-price 等字段...）
+      if (d) {
+          const prevClose = parseFloat(d.f60) || 0; 
+          const curPrice = parseFloat(d.f43); 
+          const price = !isNaN(curPrice) ? curPrice.toFixed(2) : '--'; 
+          let chgVal = '--', chgRate = '--'; 
+          if (d.f169 !== undefined && d.f169 !== '-' && !isNaN(d.f169)) chgVal = parseFloat(d.f169).toFixed(2); 
+          if (d.f170 !== undefined && d.f170 !== '-' && !isNaN(d.f170)) chgRate = parseFloat(d.f170).toFixed(2); 
+          const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green'; 
+          this.marketState.currentPrevClose = prevClose; 
+          document.getElementById('md-price').innerText = price; 
+          document.getElementById('md-price').className = col; 
+          document.getElementById('md-chg-val').innerText = (chgVal !== '--' && parseFloat(chgVal) > 0 ? '+' : '') + chgVal; 
+          document.getElementById('md-chg-val').className = col; 
+          document.getElementById('md-chg-rate').innerText = (chgRate !== '--' && parseFloat(chgRate) > 0 ? '+' : '') + chgRate + '%'; 
+          document.getElementById('md-chg-rate').className = col; 
+          const fmt = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v).toFixed(2) : '--'; 
+          const fmtVol = (v) => { 
+            if (v === undefined || v === '-' || isNaN(v)) return '--'; 
+            const n = parseFloat(v); 
+            if (n >= 100000000) return (n/100000000).toFixed(2)+'亿'; 
+            if (n >= 10000) return (n/10000).toFixed(0)+'万'; 
+            return n.toFixed(0); 
+          }; 
+          document.getElementById('md-high').innerText = fmt(d.f44); 
+          document.getElementById('md-open').innerText = fmt(d.f46); 
+          document.getElementById('md-low').innerText = fmt(d.f45); 
+          document.getElementById('md-prev').innerText = fmt(d.f60); 
+          document.getElementById('md-vol').innerText = fmtVol(d.f47); 
+          document.getElementById('md-amt').innerText = fmtVol(d.f48); 
+          document.getElementById('md-chg-abs').innerHTML = `<span class="${col}">${chgVal !== '--' && parseFloat(chgVal)>0?'+':''}${chgVal}</span>`; 
+          const ampEl = document.getElementById('md-amp'); 
+          if (ampEl) { 
+            const hi = parseFloat(d.f44), lo = parseFloat(d.f45); 
+            if (!isNaN(hi) && !isNaN(lo) && prevClose > 0) ampEl.innerText = ((hi - lo) / prevClose * 100).toFixed(2) + '%'; else ampEl.innerText = '--'; 
+          } 
+          document.getElementById('md-volratio').innerText = (d.f50 !== undefined && d.f50 !== '-' && !isNaN(d.f50)) ? parseFloat(d.f50).toFixed(2) : '--'; 
+          const dTime = new Date(); 
+          document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`;
+      }
     } catch(e) { console.warn(e); } 
-    
+
+    // --- 抓取实时资金流向 ---
+    const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f137,f138,f139,f140,f141,f142,f143,f144,f145,f146,f147,f148,f149&_=${Date.now()}`;
+    try {
+        const res = await fetchJSONP(flowUrl, 'cb');
+        const d = res?.data;
+        const flowArea = document.getElementById('md-fund-flow-area');
+        
+        if (d && d.f62 !== undefined && d.f62 !== '-') {
+            flowArea.style.display = 'block'; // 显示资金面板
+            
+            const bindFlow = (id, val) => {
+                const el = document.getElementById(id);
+                if(el) {
+                    const raw = parseFloat(val);
+                    el.innerText = this.formatFlowAmt(raw);
+                }
+            };
+            
+            // 主力总计 = 超大 + 大单
+            const xlIn = parseFloat(d.f137)||0, xlOut = parseFloat(d.f138)||0;
+            const lIn = parseFloat(d.f140)||0, lOut = parseFloat(d.f141)||0;
+            const mainIn = xlIn + lIn;
+            const mainOut = xlOut + lOut;
+            const mainNet = parseFloat(d.f62) || 0; // 直接使用官方净流入字段
+            
+            document.getElementById('ff-main-in').innerText = this.formatFlowAmt(mainIn);
+            document.getElementById('ff-main-out').innerText = this.formatFlowAmt(mainOut);
+            
+            const netEl = document.getElementById('ff-main-net');
+            netEl.innerText = (mainNet > 0 ? '+' : '') + this.formatFlowAmt(mainNet);
+            netEl.className = mainNet >= 0 ? 'red' : 'green';
+
+            // 表格明细
+            bindFlow('ff-xl-in', d.f137); bindFlow('ff-xl-out', d.f138);
+            bindFlow('ff-l-in', d.f140); bindFlow('ff-l-out', d.f141);
+            bindFlow('ff-m-in', d.f143); bindFlow('ff-m-out', d.f144);
+            bindFlow('ff-s-in', d.f146); bindFlow('ff-s-out', d.f147);
+        } else {
+            flowArea.style.display = 'none'; // 如果该指数/ETF不支持资金流向，则隐藏
+        }
+    } catch(e) {}
+
+    // --- 抓取历史10天主力资金流向 ---
+    const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=10&secid=${secid}&fields1=f1&fields2=f51,f52&_=${Date.now()}`;
+    try {
+        const res = await fetchJSONP(hisFlowUrl, 'cb');
+        const klines = res?.data?.klines;
+        if (klines && klines.length > 0) {
+            const flowData = klines.map(str => {
+                const parts = str.split(',');
+                return { date: parts[0].slice(5), netFlow: parseFloat(parts[1]) || 0 };
+            });
+            this.renderFundFlowChart(flowData);
+        }
+    } catch(e) {}
+
+    // (下方保留原有的 trend/kline 图表拉取代码，无修改)
+    // ...
     if (this.marketState.chartType === 'trend') { 
       const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`; 
       try { 
@@ -1543,22 +1631,10 @@ const app = {
         if (trends.length > 0) { 
           const parsed = trends.map(str => { 
             const parts = str.split(','); 
-            return { 
-                time: parts[0], 
-                price: parseFloat(parts[1]) || 0, 
-                avgPrice: parseFloat(parts[2]) || 0, 
-                volume: parseInt(parts[5] || 0) 
-            }; 
+            return { time: parts[0], price: parseFloat(parts[1]) || 0, avgPrice: parseFloat(parts[2]) || 0, volume: parseInt(parts[5] || 0) }; 
           }); 
           this.marketChartData = { 
-            type: 'trend', 
-            xLabels: parsed.map(p => p.time), 
-            prices: parsed.map(p => p.price), 
-            avgPrices: parsed.map(p => p.avgPrice), 
-            volumes: parsed.map(p => p.volume), 
-            prevClose: this.marketState.currentPrevClose, 
-            lastPrice: parsed[parsed.length-1]?.price || 0, 
-            timeStr: new Date().toLocaleTimeString() 
+            type: 'trend', xLabels: parsed.map(p => p.time), prices: parsed.map(p => p.price), avgPrices: parsed.map(p => p.avgPrice), volumes: parsed.map(p => p.volume), prevClose: this.marketState.currentPrevClose, lastPrice: parsed[parsed.length-1]?.price || 0, timeStr: new Date().toLocaleTimeString() 
           }; 
           this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
           this.bindChartEvents(); 
@@ -1573,45 +1649,49 @@ const app = {
         if (klines.length > 0) { 
           const parsed = klines.map(str => { 
             const parts = str.split(','); 
-            return { 
-                date: parts[0], 
-                open: parseFloat(parts[1]) || 0, 
-                close: parseFloat(parts[2]) || 0, 
-                high: parseFloat(parts[3]) || 0, 
-                low: parseFloat(parts[4]) || 0, 
-                volume: parseInt(parts[5] || 0) 
-            }; 
+            return { date: parts[0], open: parseFloat(parts[1]) || 0, close: parseFloat(parts[2]) || 0, high: parseFloat(parts[3]) || 0, low: parseFloat(parts[4]) || 0, volume: parseInt(parts[5] || 0) }; 
           }); 
-          
           const calcMA = (data, days) => { 
             let res = []; 
             for(let i=0; i<data.length; i++){ 
               if(i < days-1) { res.push(null); continue; } 
               let sum=0; 
-              for(let j=0; j<days; j++) sum += data[i-j]; 
-              res.push(sum/days); 
-            } 
-            return res; 
+              for(let j=0; j<days; j++) sum += data[i-j]; res.push(sum/days); 
+            } return res; 
           }; 
-          
           this.marketChartData = { 
-            type: 'kline', 
-            xLabels: parsed.map(p => p.date), 
-            prices: parsed.map(p => p.close), 
-            ma5: calcMA(parsed.map(p => p.close),5), 
-            ma10: calcMA(parsed.map(p => p.close),10), 
-            ma20: calcMA(parsed.map(p => p.close),20), 
-            ma60: calcMA(parsed.map(p => p.close),60), 
-            volumes: parsed.map(p => p.volume), 
-            prevClose: this.marketState.currentPrevClose, 
-            lastPrice: parsed[parsed.length-1]?.close || 0, 
-            timeStr: new Date().toLocaleTimeString() 
+            type: 'kline', xLabels: parsed.map(p => p.date), prices: parsed.map(p => p.close), ma5: calcMA(parsed.map(p => p.close),5), ma10: calcMA(parsed.map(p => p.close),10), ma20: calcMA(parsed.map(p => p.close),20), ma60: calcMA(parsed.map(p => p.close),60), volumes: parsed.map(p => p.volume), prevClose: this.marketState.currentPrevClose, lastPrice: parsed[parsed.length-1]?.close || 0, timeStr: new Date().toLocaleTimeString() 
           }; 
           this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
           this.bindChartEvents(); 
         } 
       } catch(e) {} 
     } 
+  },
+
+   // 6. 新增历史资金柱状图绘制函数
+  renderFundFlowChart(data) {
+    const container = document.getElementById('ff-history-chart');
+    if (!container || !data || data.length === 0) return;
+    
+    // 找出最大绝对值以计算高度比例
+    const maxVal = Math.max(...data.map(d => Math.abs(d.netFlow))) || 1;
+    
+    const html = data.map(item => {
+        const heightPct = Math.max((Math.abs(item.netFlow) / maxVal) * 100, 2); // 最少2%高度
+        const color = item.netFlow >= 0 ? 'var(--red)' : 'var(--green)';
+        const bgCol = item.netFlow >= 0 ? 'rgba(244,63,94,0.8)' : 'rgba(16,185,129,0.8)';
+        
+        return `<div class="flow-col">
+            <div style="font-size:8px; font-weight:bold; color:${color}; margin-bottom:2px; transform:scale(0.85); white-space:nowrap;">
+                ${this.formatFlowAmt(item.netFlow).replace('万', 'W').replace('亿', 'Y')}
+            </div>
+            <div class="flow-stick" style="height:${heightPct}%; background:${bgCol};"></div>
+            <div class="flow-date">${item.date}</div>
+        </div>`;
+    }).join('');
+    
+    container.innerHTML = html;
   },
   
   drawMarketChartWithCrosshair(showCrosshair, crosshairIdx) { 

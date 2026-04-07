@@ -735,12 +735,10 @@ function fetchJSONP(url, callbackName = 'callback') {
   });
 }
 
-const app = {
-  data: {
-    groups: [...],
+data: {
+    groups: [{ id: 'default', name: '全部', fundCodes: [] }],  // 默认分组
     fundsCache: {},
     customSectors: [],
-    // 原 watchedMarkets 改为分组形式
     marketGroups: {
         index: [],   // 存放指数自选 { secid, name, code }
         stock: []    // 存放股票/ETF/BK板块自选
@@ -912,17 +910,27 @@ const app = {
         }
     }
 
-    // 在 init 函数中，加载数据后执行迁移
+   // 数据迁移：将旧的 watchedMarkets 转换为 marketGroups
 if (savedData && savedData.watchedMarkets && !savedData.marketGroups) {
-    // 将旧数据全部放入 stock 分组（因为之前主要是板块和ETF）
+    // 将旧数据全部放入 stock 分组
     this.data.marketGroups = {
         index: [],
         stock: savedData.watchedMarkets
     };
+    // 删除旧字段
     delete this.data.watchedMarkets;
     await this.saveData();
 } else if (savedData && savedData.marketGroups) {
+    // 直接使用已有的分组数据
     this.data.marketGroups = savedData.marketGroups;
+} else if (!this.data.marketGroups) {
+    // 初始化空分组
+    this.data.marketGroups = { index: [], stock: [] };
+}
+
+    // 在 init 函数中，加载数据后确保 groups 至少有一个默认分组
+if (!this.data.groups || this.data.groups.length === 0) {
+    this.data.groups = [{ id: 'default', name: '全部', fundCodes: [] }];
 }
 
     this.initS3(); 
@@ -966,6 +974,9 @@ if (savedData && savedData.watchedMarkets && !savedData.marketGroups) {
     
     // 最后加这一行
   this.renderTopIndices('HK');
+
+    // 确保 currentMarketGroup 有值
+if (!this.currentMarketGroup) this.currentMarketGroup = 'index';
   },
 
   bindChartEvents() {
@@ -1366,8 +1377,10 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
 
   addWatchedMarket(secid, name, code) {
     const groupKey = this.currentMarketGroup;
+    if (!this.data.marketGroups[groupKey]) {
+        this.data.marketGroups[groupKey] = [];
+    }
     const targetList = this.data.marketGroups[groupKey];
-    if (!targetList) return;
 
     let finalSecid = secid;
     if (code && /^\d{6}$/.test(code)) {
@@ -1460,9 +1473,9 @@ async renderTopIndices(market) {
         return;
     }
 
-    // 构建 secids（与之前逻辑相同，但数据源为 list）
+    // 构建 secids（规范化）
     const secids = list.map(item => {
-         let finalSecid = item.secid;
+        let finalSecid = item.secid;
         const code = item.code;
         if (code && code.startsWith('BK')) finalSecid = `90.${code}`;
         else if (code && /^\d{6}$/.test(code)) {
@@ -1481,8 +1494,9 @@ async renderTopIndices(market) {
         const res = await fetchJSONP(url, 'cb');
         const dataList = res?.data?.diff || [];
         
-        let html = this.data.watchedMarkets.map(item => {
-            // 构建匹配用的 secid（与上面逻辑一致）
+        // 关键修复：使用 list 而不是 this.data.watchedMarkets
+        let html = list.map(item => {
+            // 构建匹配用的 secid
             let matchSecid = item.secid;
             const code = item.code;
             if (code && code.startsWith('BK')) matchSecid = `90.${code}`;

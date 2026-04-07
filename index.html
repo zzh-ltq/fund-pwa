@@ -2414,6 +2414,314 @@ const app = {
       ] 
     }; 
   },
+
+
+  // ==========================================
+  // 基金详情与走势图模块 (补充原先丢失的代码)
+  // ==========================================
+  
+  toggleStar(btnEl, code, e) { 
+    this.stopProp(e); 
+    const f = this.data.fundsCache[code]; 
+    if (f) { 
+      f.isStarred = !f.isStarred; 
+      this.saveData(); 
+      if (btnEl) { 
+        if (f.isStarred) { 
+          btnEl.classList.add('starred'); 
+          btnEl.innerText = '★'; 
+        } else { 
+          btnEl.classList.remove('starred'); 
+          btnEl.innerText = '☆'; 
+        } 
+        const row = document.getElementById(`fund-row-${code}`); 
+        if(row) { 
+          if(f.isStarred) row.classList.add('starred-row'); 
+          else row.classList.remove('starred-row'); 
+        } 
+      } 
+    } 
+  },
+  
+  async openDetail(code) { 
+    this.currentDetailCode = code; 
+    const f = this.data.fundsCache[code]; 
+    
+    // 防错处理：万一未加载出基础信息，显示默认code
+    document.getElementById('det-name').innerText = f?.name || code; 
+    document.getElementById('det-code').innerText = f?.code || code; 
+    
+    let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join(''); 
+    document.getElementById('det-group-select').innerHTML = opts; 
+    
+    if (!this.rtData[code]) { 
+      const rt = await this.rtFetchSingle(code); 
+      if (rt) this.rtData[code] = rt; 
+    } 
+    
+    this.updateDetailRtInfo(code); 
+    this.renderDetailTab(30); 
+    this.openModal('detail'); 
+  },
+  
+  updateDetailRtInfo(code) { 
+    const rtBlock = document.getElementById('det-rt-block'); 
+    const rtVal = document.getElementById('det-rt-val'); 
+    const rtChg = document.getElementById('det-rt-chg'); 
+    const rtTime = document.getElementById('det-rt-time'); 
+    const rt = this.rtData[code]; 
+    if (rt) { 
+      rtBlock.style.display = 'block'; 
+      const col = rt.gszzl >= 0 ? 'red' : 'green'; 
+      rtVal.innerText = rt.gsz.toFixed(4); 
+      rtVal.className = col; 
+      rtChg.innerText = (rt.gszzl > 0 ? '+' : '') + rt.gszzl.toFixed(2) + '%'; 
+      rtChg.className = col; 
+      rtTime.innerText = '盘中估算 ' + (rt.gztime ? rt.gztime.slice(11) : ''); 
+    } else { 
+      rtBlock.style.display = 'none'; 
+    } 
+  },
+  
+  addToGroupFromDetail() { 
+    const sel = document.getElementById('det-group-select'); 
+    const gid = sel.value; 
+    if(!gid) return; 
+    const g = this.data.groups.find(g => g.id === gid); 
+    if(g && !g.fundCodes.includes(this.currentDetailCode)) { 
+      g.fundCodes.push(this.currentDetailCode); 
+      const defaultGroup = this.data.groups.find(g => g.id === 'default'); 
+      if (defaultGroup && !defaultGroup.fundCodes.includes(this.currentDetailCode)) { 
+        defaultGroup.fundCodes.push(this.currentDetailCode); 
+      } 
+      this.saveData(); 
+      this.showToast('添加成功'); 
+      if(document.getElementById('view-home').classList.contains('active')) this.renderHome(); 
+    } else this.showToast('已存在', 'error'); 
+    sel.value = ''; 
+  },
+  
+  renderDetailTab(days) { 
+    const tabs = document.querySelectorAll('#det-tabs .action-pill'); 
+    tabs.forEach(el => el.classList.remove('active')); 
+    
+    // 修复：移除全局 event 依赖，直接根据 days 参数精准高亮对应的 Tab
+    if (days === 15 && tabs[0]) tabs[0].classList.add('active');
+    else if (days === 30 && tabs[1]) tabs[1].classList.add('active');
+    else if (days === 60 && tabs[2]) tabs[2].classList.add('active');
+    else if (days === 90 && tabs[3]) tabs[3].classList.add('active');
+    else if (days === 'hold' && tabs[4]) tabs[4].classList.add('active');
+    else if (days === 'analysis' && tabs[5]) tabs[5].classList.add('active');
+
+    document.getElementById('det-chart-area').style.display = 'none'; 
+    document.getElementById('det-hold-area').style.display = 'none'; 
+    document.getElementById('det-analysis-area').style.display = 'none'; 
+    
+    if(days === 'hold') { 
+      document.getElementById('det-hold-area').style.display = 'block'; 
+      this.loadHoldings(this.currentDetailCode); 
+      return; 
+    } else if (days === 'analysis') { 
+      document.getElementById('det-analysis-area').style.display = 'block'; 
+      this.generateAnalysisReport(this.currentDetailCode); 
+      return; 
+    } 
+    
+    document.getElementById('det-chart-area').style.display = 'block'; 
+    const f = this.data.fundsCache[this.currentDetailCode]; 
+    if(!f || !f.netWorth) return; 
+    const nw = f.netWorth.slice(-days); 
+    if(nw.length < 2) return; 
+    
+    let tbl = nw.slice().reverse().map((item, i, arr) => { 
+      let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--'; 
+      return `<div class="list-item" style="padding:10px 14px;"><span style="color:var(--text-sub); font-size:13px; flex:1; font-weight:600;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:800; font-size:14px; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right; font-weight:800;">${chg>0?'+':''}${chg}%</span></div>`; 
+    }).join(''); 
+    document.getElementById('det-table-area').innerHTML = tbl; 
+    
+    const base = nw[0].y; 
+    let maxDrawdown = 0, maxPeak = nw[0].y; 
+    this.chartInfo.data = nw.map(item => { 
+      const rate = ((item.y-base)/base*100); 
+      if(item.y > maxPeak) maxPeak = item.y; 
+      const drop = ((maxPeak - item.y) / maxPeak * 100); 
+      if(drop > maxDrawdown) maxDrawdown = drop; 
+      return { date: this.formatEMDate(item.x, 5, 5), fullDate: this.formatEMDate(item.x, 10), y: item.y, rate }; 
+    }); 
+    
+    document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%'; 
+    this.chartInfo.touchIdx = -1; 
+    this.drawChart(); 
+  },
+  
+  drawChart() { 
+    const canvas = document.getElementById('det-canvas'); 
+    const ctx = canvas.getContext('2d'); 
+    const rect = canvas.getBoundingClientRect(); 
+    const dpr = window.devicePixelRatio || 1; 
+    canvas.width = rect.width * dpr; 
+    canvas.height = rect.height * dpr; 
+    ctx.scale(dpr, dpr); 
+    const w = rect.width, h = rect.height; 
+    ctx.clearRect(0,0,w,h); 
+    const data = this.chartInfo.data; 
+    if(data.length<2) return; 
+    const values = data.map(d=>d.rate); 
+    const max = Math.max(...values, 0) + 1; 
+    const min = Math.min(...values, 0) - 1; 
+    const pad = {t:20, b:20, l:40, r:10}, dw = w-pad.l-pad.r, dh = h-pad.t-pad.b; 
+    const getX = i => pad.l + (i/(data.length-1))*dw; 
+    const getY = v => pad.t + dh - ((v-min)/(max-min))*dh; 
+    
+    ctx.font = '9px sans-serif'; 
+    ctx.textAlign = 'right'; 
+    ctx.textBaseline = 'middle'; 
+    [min, 0, max].forEach(v => { 
+      let y = getY(v); 
+      ctx.fillStyle = '#f1f5f9'; 
+      ctx.fillRect(pad.l, y, dw, 1); 
+      ctx.fillStyle = v>0?'#f43f5e':(v<0?'#10b981':'#94a3b8'); 
+      let txt = v===0 ? '0.00%' : (v>0?'+':'')+v.toFixed(2)+'%'; 
+      ctx.fillText(txt, pad.l-5, y); 
+    }); 
+    
+    ctx.beginPath(); 
+    ctx.moveTo(getX(0), getY(data[0].rate)); 
+    data.forEach((d,i) => ctx.lineTo(getX(i), getY(d.rate))); 
+    ctx.lineTo(getX(data.length-1), h-pad.b); 
+    ctx.lineTo(getX(0), h-pad.b); 
+    ctx.closePath(); 
+    const grd = ctx.createLinearGradient(0,pad.t,0,h-pad.b); 
+    grd.addColorStop(0,'rgba(0,102,255,0.15)'); 
+    grd.addColorStop(1,'rgba(0,102,255,0.01)'); 
+    ctx.fillStyle = grd; 
+    ctx.fill(); 
+    
+    ctx.beginPath(); 
+    ctx.moveTo(getX(0), getY(data[0].rate)); 
+    data.forEach((d,i) => ctx.lineTo(getX(i), getY(d.rate))); 
+    ctx.strokeStyle = '#0066ff'; 
+    ctx.lineWidth = 2; 
+    ctx.stroke(); 
+    
+    const idx = this.chartInfo.touchIdx; 
+    if(idx !== -1 && data[idx]) { 
+      const cx = getX(idx), cy = getY(data[idx].rate); 
+      ctx.beginPath(); 
+      ctx.moveTo(cx, pad.t); 
+      ctx.lineTo(cx, h-pad.b); 
+      ctx.strokeStyle = '#94a3b8'; 
+      ctx.setLineDash([4,4]); 
+      ctx.stroke(); 
+      ctx.setLineDash([]); 
+      
+      ctx.beginPath(); 
+      ctx.arc(cx,cy,3,0,Math.PI*2); 
+      ctx.fillStyle='#fff'; 
+      ctx.fill(); 
+      ctx.strokeStyle='#f43f5e'; 
+      ctx.lineWidth=2; 
+      ctx.stroke(); 
+      
+      let bx = cx - 35; 
+      if(bx < pad.l) bx = pad.l; 
+      if(bx+70 > w-pad.r) bx = w-pad.r-70; 
+      ctx.fillStyle = '#1e293b'; 
+      ctx.beginPath(); 
+      this.roundRect(ctx, bx, h-pad.b+2, 70, 18, 6); 
+      ctx.fill(); 
+      ctx.fillStyle = '#fff'; 
+      ctx.textAlign = 'center'; 
+      ctx.fillText(data[idx].fullDate, bx+35, h-pad.b+11); 
+      
+      const tip = `涨跌: ${data[idx].rate>0?'+':''}${data[idx].rate.toFixed(2)}% | 净值: ${data[idx].y.toFixed(4)}`; 
+      const tw = ctx.measureText(tip).width + 12; 
+      let tx = cx - tw/2; 
+      if(tx < pad.l) tx = pad.l; 
+      if(tx+tw > w-pad.r) tx = w-pad.r-tw; 
+      let ty = cy - 32; 
+      if(ty < 5) ty = cy + 10; 
+      
+      ctx.fillStyle = 'rgba(255,255,255,0.95)'; 
+      ctx.beginPath(); 
+      this.roundRect(ctx, tx, ty, tw, 24, 6); 
+      ctx.fill(); 
+      ctx.strokeStyle = '#e2e8f0'; 
+      ctx.stroke(); 
+      ctx.fillStyle = data[idx].rate>=0?'#f43f5e':'#10b981'; 
+      ctx.fillText(tip, tx+tw/2, ty+12); 
+    } 
+  },
+  
+  onChartTouch(e) { 
+    if(this.chartInfo.data.length === 0) return; 
+    const rect = e.target.getBoundingClientRect(); 
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX; 
+    let x = clientX - rect.left - 40; 
+    let dw = rect.width - 50; 
+    if(x<0) x=0; 
+    if(x>dw) x=dw; 
+    let idx = Math.round((x/dw)*(this.chartInfo.data.length-1)); 
+    if(idx !== this.chartInfo.touchIdx) { 
+      this.chartInfo.touchIdx = idx; 
+      this.drawChart(); 
+    } 
+  },
+  
+  onChartEnd() { 
+    this.chartInfo.touchIdx = -1; 
+    this.drawChart(); 
+  },
+  
+  generateAnalysisReport(code) { 
+    const area = document.getElementById('det-analysis-area'); 
+    const res = this.getFundQuantAnalysis(code); 
+    if (!res.isValid) { 
+      area.innerHTML = `<div style="text-align:center; padding: 30px; color:#94a3b8;">${res.msg}</div>`; 
+      return; 
+    } 
+    let modelsHtml = res.models.map(m => `<div style="display:flex; flex-direction:column; padding: 10px 0; border-bottom: 1px dashed #e2e8f0;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;"><span style="font-weight:800; font-size:13px;">${m.name}</span><span class="ana-badge" style="background:${m.col}15; color:${m.col}; border: 1px solid ${m.col}40;">建议：${m.adv}</span></div><div class="ana-desc">${m.desc}</div></div>`).join(''); 
+    
+    area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
+  },
+  
+  async loadHoldings(code) { 
+    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>'; 
+    try { 
+      const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
+      const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
+      const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || []; 
+      const holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
+      if(holdings.length === 0) throw new Error(); 
+      
+      const secids = holdings.map(h => ((h.code.startsWith('6')||h.code.startsWith('9'))?'1.':'0.')+h.code).join(','); 
+      const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f60&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb'); 
+      let qtMap = {}; 
+      (qtData?.data?.diff || []).forEach(item => { 
+        let chg = 0; 
+        if (item.f3 !== '-' && !isNaN(parseFloat(item.f3))) { 
+          chg = parseFloat(item.f3); 
+        } else if (item.f2 !== '-' && item.f60 !== '-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))) { 
+          let f2 = parseFloat(item.f2); 
+          let f60 = parseFloat(item.f60); 
+          if (f60 > 0) chg = ((f2 - f60) / f60) * 100; 
+        } 
+        qtMap[item.f12] = Number(chg.toFixed(2)); 
+      }); 
+      
+      let sumR = 0, est = 0; 
+      let hHtml = holdings.map(h => { 
+        let chg = qtMap[h.code] || 0; 
+        sumR += h.ratio; 
+        est += (h.ratio/100)*chg; 
+        return `<div class="list-item"><span style="flex:2; font-weight:800; font-size:13px;">${h.name} <span class="c-code">${h.code}</span></span><span style="flex:1;text-align:center; color:var(--text-sub); font-size:12px;">${h.ratio}%</span><span style="flex:1;text-align:right; font-weight:800; font-size:13px;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg}%</span></div>`; 
+      }).join(''); 
+      
+      document.getElementById('det-hold-area').innerHTML = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px;"><span>前十总占比</span><span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px;"><span>加权估算涨幅</span><span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>${hHtml}`; 
+    } catch(e) { 
+      document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">暂无股票持仓数据</div>'; 
+    } 
+  },
   
   // ==========================================
   // 13. 系统其它辅助

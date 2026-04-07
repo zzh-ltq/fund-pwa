@@ -301,6 +301,12 @@
     <div class="idx-scroll" id="market-idx-container">
         <!-- 指数卡片将渲染在这里 -->
     </div>
+
+    <!-- 自选分组切换栏 -->
+    <div style="display: flex; gap: 8px; margin: 8px 12px 0;">
+        <div id="market-group-index" class="action-pill active" style="flex:1; text-align:center;" onclick="app.switchMarketGroup('index')">📈 指数</div>
+        <div id="market-group-stock" class="action-pill" style="flex:1; text-align:center;" onclick="app.switchMarketGroup('stock')">📊 股票</div>
+    </div>
     
     <div class="m-search-wrap">
       <input type="text" id="market-search-input" placeholder="🔍 搜索板块、指数、ETF添加至自选" oninput="app.searchMarket()" autocomplete="off">
@@ -731,11 +737,15 @@ function fetchJSONP(url, callbackName = 'callback') {
 
 const app = {
   data: {
-    groups: [{ id: 'default', name: '全部', fundCodes: [] }],
+    groups: [...],
     fundsCache: {},
     customSectors: [],
-    watchedMarkets: [] // 新增：保存自选板块/ETF
-  },
+    // 原 watchedMarkets 改为分组形式
+    marketGroups: {
+        index: [],   // 存放指数自选 { secid, name, code }
+        stock: []    // 存放股票/ETF/BK板块自选
+    }
+},
   
   // ====== 新增：大容量本地数据库引擎 (IndexedDB) ======
   dbHelper: {
@@ -784,6 +794,16 @@ const app = {
   },
   // ====================================================
 
+  currentMarketGroup: 'index',  // 当前选中的自选分组
+  switchMarketGroup(group) {
+    this.currentMarketGroup = group;
+    // 更新按钮样式
+    document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill';
+    document.getElementById('market-group-stock').className = group === 'stock' ? 'action-pill active' : 'action-pill';
+    // 重新渲染当前分组的自选列表
+    this.renderWatchedMarkets();
+},
+  
   s3: null,
   currentGroupId: 'default',
   activeSector: '',
@@ -891,6 +911,19 @@ const app = {
             } catch(e) {}
         }
     }
+
+    // 在 init 函数中，加载数据后执行迁移
+if (savedData && savedData.watchedMarkets && !savedData.marketGroups) {
+    // 将旧数据全部放入 stock 分组（因为之前主要是板块和ETF）
+    this.data.marketGroups = {
+        index: [],
+        stock: savedData.watchedMarkets
+    };
+    delete this.data.watchedMarkets;
+    await this.saveData();
+} else if (savedData && savedData.marketGroups) {
+    this.data.marketGroups = savedData.marketGroups;
+}
 
     this.initS3(); 
     this.processGroupRisks();
@@ -1332,23 +1365,30 @@ if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
   },
 
   addWatchedMarket(secid, name, code) {
-    if (!this.data.watchedMarkets) this.data.watchedMarkets = [];
-    
-    // 修复：对于ETF代码，确保保存正确的secid格式
+    const groupKey = this.currentMarketGroup;
+    const targetList = this.data.marketGroups[groupKey];
+    if (!targetList) return;
+
     let finalSecid = secid;
     if (code && /^\d{6}$/.test(code)) {
         const firstDigit = code.charAt(0);
-        finalSecid = (firstDigit === '6' || firstDigit === '9') ? `1.${code}` : `0.${code}`;
-    } else if (code && code.startsWith('BK') && !secid.startsWith('90.')) {
+        if (firstDigit === '9' || code.startsWith('000')) {
+            finalSecid = `1.${code}`;
+        } else if (firstDigit === '0' || firstDigit === '3' || code.startsWith('399')) {
+            finalSecid = `0.${code}`;
+        } else if (firstDigit === '6' || firstDigit === '9') {
+            finalSecid = `1.${code}`;
+        }
+    } else if (code && code.startsWith('BK')) {
         finalSecid = `90.${code}`;
     }
     
-    if (this.data.watchedMarkets.some(m => m.secid === finalSecid)) {
-        this.showToast('该板块/ETF已在自选列表中', 'error');
+    if (targetList.some(m => m.secid === finalSecid)) {
+        this.showToast(`该${groupKey === 'index' ? '指数' : '股票'}已在自选列表中`, 'error');
     } else {
-        this.data.watchedMarkets.push({ secid: finalSecid, name, code });
+        targetList.push({ secid: finalSecid, name, code });
         this.saveData();
-        this.showToast('✅ 添加成功');
+        this.showToast(`✅ 添加至${groupKey === 'index' ? '指数' : '股票'}分组成功`);
         this.renderWatchedMarkets();
     }
     document.getElementById('market-search-input').value = '';
@@ -1411,33 +1451,29 @@ async renderTopIndices(market) {
 },
   
   async renderWatchedMarkets() {
+    const groupKey = this.currentMarketGroup;
+    const list = this.data.marketGroups[groupKey] || [];
     const container = document.getElementById('market-watched-list');
-    if (!this.data.watchedMarkets || this.data.watchedMarkets.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选板块，请在上方搜索添加</div>';
+    
+    if (list.length === 0) {
+        container.innerHTML = `<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选${groupKey === 'index' ? '指数' : '股票'}，请在上方搜索添加</div>`;
         return;
     }
-    
-    // 修复：对每个自选项目正确处理secid，确保ETF/指数能正常获取行情
-    const secids = this.data.watchedMarkets.map(m => {
-        let finalSecid = m.secid;
-        
-        // BK板块：确保格式为 90.BKxxxx
-        if (m.code && m.code.startsWith('BK')) {
-            finalSecid = m.secid.startsWith('90.') ? m.secid : `90.${m.code}`;
-        } 
-        // ETF基金：确保正确的市场前缀（6开头沪市用1.，0/3开头深市用0.）
-        else if (m.code && /^\d{6}$/.test(m.code)) {
-            const firstDigit = m.code.charAt(0);
-            if (firstDigit === '6' || firstDigit === '9') {
-                finalSecid = `1.${m.code}`;
-            } else {
-                finalSecid = `0.${m.code}`;
-            }
+
+    // 构建 secids（与之前逻辑相同，但数据源为 list）
+    const secids = list.map(item => {
+         let finalSecid = item.secid;
+        const code = item.code;
+        if (code && code.startsWith('BK')) finalSecid = `90.${code}`;
+        else if (code && /^\d{6}$/.test(code)) {
+            const firstDigit = code.charAt(0);
+            if (firstDigit === '9' || code.startsWith('000')) finalSecid = `1.${code}`;
+            else if (firstDigit === '0' || firstDigit === '3' || code.startsWith('399')) finalSecid = `0.${code}`;
+            else if (firstDigit === '6' || firstDigit === '9') finalSecid = `1.${code}`;
         }
-        // 指数：保持原secid（如 1.000001, 100.HSI）
         return finalSecid;
     }).join(',');
-    
+
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`;
     container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>';
     
@@ -1446,17 +1482,18 @@ async renderTopIndices(market) {
         const dataList = res?.data?.diff || [];
         
         let html = this.data.watchedMarkets.map(item => {
-            // 构建用于匹配的secid（与上面secids生成逻辑保持一致）
+            // 构建匹配用的 secid（与上面逻辑一致）
             let matchSecid = item.secid;
-            if (item.code && item.code.startsWith('BK')) {
-                matchSecid = item.secid.startsWith('90.') ? item.secid : `90.${item.code}`;
-            } else if (item.code && /^\d{6}$/.test(item.code)) {
-                const firstDigit = item.code.charAt(0);
-                matchSecid = (firstDigit === '6' || firstDigit === '9') ? `1.${item.code}` : `0.${item.code}`;
+            const code = item.code;
+            if (code && code.startsWith('BK')) matchSecid = `90.${code}`;
+            else if (code && /^\d{6}$/.test(code)) {
+                const firstDigit = code.charAt(0);
+                if (firstDigit === '9' || code.startsWith('000')) matchSecid = `1.${code}`;
+                else if (firstDigit === '0' || firstDigit === '3' || code.startsWith('399')) matchSecid = `0.${code}`;
+                else if (firstDigit === '6' || firstDigit === '9') matchSecid = `1.${code}`;
             }
             
             const quote = dataList.find(d => `${d.f13}.${d.f12}` === matchSecid) || {};
-            
             let price = quote.f2;
             if (price === undefined || price === null || price === '-') price = '--';
             else price = typeof price === 'number' ? price.toFixed(2) : price;
@@ -1493,12 +1530,15 @@ async renderTopIndices(market) {
 },
 
   delWatchedMarket(e, secid) {
-      this.stopProp(e);
-      if(!confirm('确定删除该自选板块吗？')) return;
-      this.data.watchedMarkets = this.data.watchedMarkets.filter(m => m.secid !== secid);
-      this.saveData();
-      this.renderWatchedMarkets();
-  },
+    this.stopProp(e);
+    const groupKey = this.currentMarketGroup;
+    const list = this.data.marketGroups[groupKey];
+    if (!list) return;
+    if(!confirm('确定删除该自选吗？')) return;
+    this.data.marketGroups[groupKey] = list.filter(m => m.secid !== secid);
+    this.saveData();
+    this.renderWatchedMarkets();
+},
 
 
   openMarketDetail(secid, name) {

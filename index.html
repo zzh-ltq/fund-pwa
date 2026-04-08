@@ -393,7 +393,8 @@
         <div class="nav-title" id="md-title">--</div>
         <div class="nav-btn" style="background:transparent; color:var(--text-sub); box-shadow:none;" onclick="app.refreshMarketDetail()">刷新</div>
       </div>
-      <div class="scroll-area" style="background:#f8fafc; padding:0;">
+      <!-- 替换为（开启全屏滑动，删除局部滚动限制） -->
+        <div class="scroll-area" style="background:#f8fafc; padding:0; height:100%; overflow-y:auto; -webkit-overflow-scrolling:touch;">
         <div style="background:#fff; padding: 20px 15px 10px; text-align:center;">
           <div id="md-price" style="font-size: 32px; font-weight: 900;">--</div>
           <div style="display:flex; justify-content:center; gap:12px; font-size:14px; font-weight:bold; margin-top:4px;">
@@ -439,7 +440,8 @@
             <div style="border-left: 4px solid var(--green); padding-left: 8px; margin-top: 25px; font-weight: 900; font-size: 14px; color: var(--text-main);">
                 今日主力净流入走势 (分时)
             </div>
-            <div id="ff-intraday-chart" style="height: 200px; margin-top: 10px; position: relative;">
+            <!-- 替换为（固定高度+不挤压布局） -->
+            <div id="ff-intraday-chart" style="height: 220px; margin-top:10px; position:relative; min-height:220px;">
                 <canvas id="ff-canvas" style="width:100%; height:100%;"></canvas>
             </div>
          </div>
@@ -1831,58 +1833,53 @@ rtManualRefreshMarket() {
    renderFundFlowChart(data) {
     const container = document.getElementById('ff-history-chart');
     if (!container || !data || data.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无历史资金数据</div>';
+        container.innerHTML = '<div style="text-align:center; padding:15px; color:#94a3b8;">暂无历史资金数据</div>';
         return;
     }
-
-    // 1. 数据预处理：元转换为亿
+    // 数据转换：元→亿
     const processedData = data.map(item => ({
         ...item,
         netFlow: item.netFlow / 100000000,
         absFlow: Math.abs(item.netFlow / 100000000)
     }));
 
-    // 2. 图表配置参数（核心优化：限制最大柱高，给顶部留足空间）
+    // 核心修复：降低高度、缩减排量、零轴线下移，彻底不挡标题
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    const maxBarHeight = 150; // 限制最大柱高，防止无限高遮标题
-    const minBarHeight = 5;   // 最小柱高，防止小数据消失
-    const zeroLineY = 160;    // 零轴线位置，整体下移
-    const containerHeight = 360; // 图表总高度，增大空间
+    const maxBarHeight = 100;  // 限制最大柱高
+    const minBarHeight = 6;
+    const zeroLineY = 110;     // 零轴线下移
+    const containerHeight = 240;// 缩小总高度
+    const titleSafePadding = 10;// 标题安全间距
 
-    // 3. 构建 HTML 结构
     let html = `
-    <div style="width:100%; max-width:800px; margin:0 auto; padding: 40px 10px 20px 10px; box-sizing: border-box;">
-        <div style="position: relative; height: ${containerHeight}px; display: flex; justify-content: space-between; align-items: flex-end; gap: 4px;">
+    <div style="width:100%; max-width:700px; margin:0 auto; padding:${titleSafePadding}px 8px; box-sizing:border-box;">
+        <div style="position:relative; height:${containerHeight}px; display:flex; justify-content:space-around; gap:4px;">
             <!-- 零轴线 -->
-            <div style="position: absolute; left: 0; right: 0; top: ${zeroLineY}px; height: 1px; background: #e0e0e0; z-index: 1;"></div>
+            <div style="position:absolute; left:0; right:0; top:${zeroLineY}px; height:1px; background:#e0e0e0; z-index:1;"></div>
     `;
 
     processedData.forEach(item => {
         const isInflow = item.netFlow > 0;
         const absVal = item.absFlow;
-
-        // 动态计算柱高
         let barHeight = (absVal / maxAbs) * maxBarHeight;
-        barHeight = Math.min(Math.max(barHeight, minBarHeight), maxBarHeight); // 限制范围
-
-        // 计算柱顶位置
+        barHeight = Math.min(Math.max(barHeight, minBarHeight), maxBarHeight);
         const barTop = isInflow ? (zeroLineY - barHeight) : zeroLineY;
         
-        // 数值位置：核心修复点，给顶部留出足够安全距离
-        const valueTop = isInflow ? (barTop - 28) : (zeroLineY + 5); // 向上预留28px防遮标题
-        const textColor = isInflow ? '#f5222d' : '#52c41a';
-        const barColor = isInflow ? '#f5222d' : '#52c41a';
+        // 数值位置：固定安全距离，绝不挡标题
+        const valueTop = isInflow ? Math.max(barTop - 20, 8) : (zeroLineY - 20);
+        const textColor = isInflow ? '#f43f5e' : '#10b981';
+        const barColor = isInflow ? '#f43f5e' : '#10b981';
 
         html += `
-        <div style="flex: 1; min-width: 30px; height: 100%; position: relative; display: flex; flex-direction: column; align-items: center;">
-            <!-- 数值：z-index 高于柱子，绝对不会被遮挡 -->
-            <div style="position: absolute; top: ${valueTop}px; left: 0; right: 0; text-align: center; font-size: 12px; color: ${textColor}; font-weight: 500; z-index: 2; white-space: nowrap;">
+        <div style="flex:1; min-width:35px; height:100%; position:relative; display:flex; flex-direction:column; align-items:center;">
+            <!-- 数值：z-index置顶，绝不遮挡 -->
+            <div style="position:absolute; top:${valueTop}px; left:0; right:0; text-align:center; font-size:11px; color:${textColor}; font-weight:600; z-index:3; white-space:nowrap;">
                 ${isInflow ? '+' : ''}${item.netFlow.toFixed(2)}亿
             </div>
-            <!-- 柱子：底部圆角，顶部白线，z-index 较低 -->
-            <div style="position: absolute; width: 16px; top: ${barTop}px; height: ${barHeight}px; background: ${barColor}; border-radius: 0 0 4px 4px; border-top: 1px solid #fff; z-index: 1;"></div>
-            <!-- 日期 -->
-            <div style="position: absolute; bottom: -25px; left: 0; right: 0; text-align: center; font-size: 10px; color: #666; z-index: 2;">
+            <!-- 柱子：圆角+顶部白线，层级最低 -->
+            <div style="position:absolute; width:16px; top:${barTop}px; height:${barHeight}px; background:${barColor}; border-radius:4px; border-top:1px solid #fff; z-index:1;"></div>
+            <!-- 日期：底部小字体 -->
+            <div style="position:absolute; bottom:0; left:0; right:0; text-align:center; font-size:10px; color:#666; z-index:2;">
                 ${item.date}
             </div>
         </div>
@@ -1891,9 +1888,8 @@ rtManualRefreshMarket() {
 
     html += `</div></div>`;
     container.innerHTML = html;
-    
-    // 强制容器样式，确保居中且有足够高度
-    container.style.cssText = "display: flex; justify-content: center; align-items: center; width: 100%; min-height: 400px; padding: 10px 0; box-sizing: border-box;";
+    // 强制居中，无多余高度
+    container.style.cssText = "display:flex; justify-content:center; align-items:center; width:100%; padding:0; margin:0;";
 },
 
   async renderIntradayFlowChart(secid) {

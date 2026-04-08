@@ -1831,71 +1831,59 @@ rtManualRefreshMarket() {
    renderFundFlowChart(data) {
     const container = document.getElementById('ff-history-chart');
     if (!container || !data || data.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无历史资金数据</div>';
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">暂无历史资金数据</div>';
         return;
     }
 
-    // 1. 数据预处理：修复单位（元→亿）、计算最大绝对值
-    const processedData = data.map(item => {
-        // 核心修复：将元转换为亿（除以100000000），解决数值放大10000倍的问题
-        const netFlow = item.netFlow / 100000000;
-        return {
-            ...item,
-            netFlow: netFlow,
-            absFlow: Math.abs(netFlow)
-        };
-    });
+    // 数据转换：元 → 亿
+    const processedData = data.map(item => ({
+        ...item,
+        netFlow: item.netFlow / 100000000,
+        absFlow: Math.abs(item.netFlow / 100000000)
+    }));
 
-    // 2. 计算最大绝对值，统一柱子高度比例
+    // 图表配置
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    const maxBarHeight = 120; // 最大柱高（px）
-    const zeroLineY = 100;   // 零轴线Y坐标（居中）
-    const containerHeight = 220; // 图表总高度
+    const maxBarHeight = 120;
+    const zeroLineY = 100;
+    const containerHeight = 220;
 
-    // 3. 构建HTML结构（完全内联样式，不依赖外部CSS）
+    // 渲染HTML
     let html = `
-    <div style="width: 100%; max-width: 700px; margin: 0 auto; padding: 16px; box-sizing: border-box;">
-        <div style="position: relative; height: ${containerHeight}px; display: flex; align-items: flex-end; justify-content: space-around; gap: 6px;">
-            <!-- 零轴线（居中分隔线） -->
-            <div style="position: absolute; left: 0; right: 0; top: ${zeroLineY}px; height: 1px; background: #e0e0e0; z-index: 1;"></div>
+    <div style="width:100%; max-width:700px; margin:0 auto; padding:16px; box-sizing:border-box;">
+        <div style="position:relative; height:${containerHeight}px; display:flex; justify-content:space-around; gap:6px;">
+            <div style="position:absolute; left:0; right:0; top:${zeroLineY}px; height:1px; background:#e0e0e0; z-index:1;"></div>
     `;
 
-    processedData.forEach((item, index) => {
-        const isInflow = item.netFlow > 0; // 流入为正（红色），流出为负（绿色）
+    processedData.forEach(item => {
+        const isInflow = item.netFlow > 0;
         const absVal = item.absFlow;
-        // 计算柱子高度和位置：流入向上，流出向下
         const barHeight = (absVal / maxAbs) * maxBarHeight;
         const barTop = isInflow ? (zeroLineY - barHeight) : zeroLineY;
-        // 格式化数值：保留2位小数，带正负号+亿单位
         const displayVal = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
-        // 颜色定义：流入红色，流出绿色
         const barColor = isInflow ? '#ff4d4f' : '#36c666';
         const textColor = isInflow ? '#ff4d4f' : '#36c666';
 
         html += `
-        <!-- 单根柱子+数值+日期模块 -->
-        <div style="display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 40px; height: 100%;">
-            <!-- 数值（柱子上方/下方） -->
-            <div style="font-size: 12px; color: ${textColor}; margin-bottom: 4px; height: 18px; line-height: 18px; text-align: center;">${displayVal}</div>
-            <!-- 柱子容器 -->
-            <div style="position: relative; width: 18px; height: ${maxBarHeight}px;">
-                <div style="position: absolute; left: 0; right: 0; top: ${barTop}px; height: ${barHeight}px; background: ${barColor}; border-radius: 4px;"></div>
+        <div style="flex:1; min-width:40px; height:100%; position:relative; display:flex; flex-direction:column; align-items:center;">
+            <!-- 数值：紧贴柱子上方 -->
+            <div style="position:absolute; top:-24px; left:0; right:0; text-align:center; font-size:12px; color:${textColor}; white-space:nowrap;">
+                ${displayVal}
             </div>
-            <!-- 日期（柱子下方） -->
-            <div style="font-size: 12px; color: #666; margin-top: 8px; height: 18px; line-height: 18px; text-align: center;">${item.date}</div>
+            <!-- 柱子：圆角+顶部白线 -->
+            <div style="position:absolute; width:18px; top:${barTop}px; height:${barHeight}px; background:${barColor}; border-radius:4px; border-top:1px solid #fff;"></div>
+            <!-- 日期：小字体、贴底居中 -->
+            <div style="position:absolute; bottom:0; left:0; right:0; text-align:center; font-size:10px; color:#666;">
+                ${item.date}
+            </div>
         </div>
         `;
     });
 
-    html += `
-        </div>
-    </div>
-    `;
+    html += `</div></div>`;
     container.innerHTML = html;
     // 强制容器居中
-    container.style.display = 'flex';
-    container.style.justifyContent = 'center';
-    container.style.alignItems = 'center';
+    container.style.cssText = "display:flex; justify-content:center; align-items:center; width:100%;";
 },
 
   async renderIntradayFlowChart(secid) {

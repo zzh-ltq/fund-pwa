@@ -1842,8 +1842,10 @@ rtManualRefreshMarket() {
                 return { date: parts[0].slice(5), netFlow: parseFloat(parts[1]) || 0 };
             });
             this.renderFundFlowChart(flowData);
-          // 渲染分时主力净流入走势图（异步）
-            this.renderIntradayFlowChart(secid);
+        // 修复：强制延迟渲染分时图，确保容器已加载
+            setTimeout(() => {
+                this.renderIntradayFlowChart(secid);
+            }, 100);
         }
     } catch(e) {}
 
@@ -1901,45 +1903,33 @@ rtManualRefreshMarket() {
         return;
     }
 
-    // 计算最大绝对值（用于高度比例）
     const maxAbs = Math.max(...data.map(d => Math.abs(d.netFlow)), 0.01);
-    const maxHeightPercent = 70; // 柱状图最高占容器高度的 70%
-
-    let html = `<div class="hist-flow-wrap">
-        <div class="hist-zero-line"></div>`;
+    const maxHeightPercent = 75;
+    let html = `<div class="hist-flow-wrap" style="padding:12px 6px; background:#fafbfc; border:1px solid #e2e8f0;">
+        <div class="hist-zero-line" style="top:50%;"></div>`;
 
     data.forEach(item => {
         const isPos = item.netFlow >= 0;
         const absVal = Math.abs(item.netFlow);
         let barHeightPercent = (absVal / maxAbs) * maxHeightPercent;
-        barHeightPercent = Math.min(barHeightPercent, 70); // 限制最高 70%
-        barHeightPercent = Math.max(barHeightPercent, 2);  // 最低 2%
+        barHeightPercent = Math.min(barHeightPercent, 75);
+        barHeightPercent = Math.max(barHeightPercent, 3);
 
         const displayVal = (item.netFlow > 0 ? '+' : '') + this.formatFlowAmt(item.netFlow);
-        const valColor = isPos ? '#f43f5e' : '#10b981';
-
-        // 柱状图高度（使用 flex 对齐底部，正负统一向上延伸）
-        // 正柱：底部对齐，高度为 barHeightPercent；负柱：顶部对齐，高度为 barHeightPercent（但需要反转）
-        // 为简化，统一使用底部对齐，负柱通过 transform 或者单独处理
-        let barStyle = '';
-        let barClass = `hist-bar ${isPos ? 'up' : 'down'}`;
-        // 负柱需要从顶部向下延伸，因此使用 position: relative 并设置 top
-        if (!isPos) {
-            barStyle = `height: ${barHeightPercent}%; align-self: flex-start;`;
-        } else {
-            barStyle = `height: ${barHeightPercent}%;`;
-        }
+        const barClass = `hist-bar ${isPos ? 'up' : 'down'}`;
+        const barStyle = isPos 
+            ? `height: ${barHeightPercent}%;`
+            : `height: ${barHeightPercent}%; align-self:flex-start;`;
 
         html += `
-        <div class="hist-col">
-            <div class="hist-value ${isPos ? 'up' : 'down'}">${displayVal}</div>
-            <div class="hist-bar-container">
+        <div class="hist-col" style="padding:0 2px;">
+            <div class="hist-value ${isPos ? 'up' : 'down'}" style="font-size:9px; margin-bottom:4px;">${displayVal}</div>
+            <div class="hist-bar-container" style="height:100%;">
                 <div class="${barClass}" style="${barStyle}"></div>
             </div>
-            <div class="hist-date">${item.date}</div>
+            <div class="hist-date" style="font-size:9px; margin-top:6px;">${item.date}</div>
         </div>`;
     });
-
     html += `</div>`;
     container.innerHTML = html;
 },
@@ -1947,24 +1937,24 @@ rtManualRefreshMarket() {
   async renderIntradayFlowChart(secid) {
     const container = document.getElementById('ff-intraday-chart');
     if (!container) return;
-    
-    // 显示加载中
-    container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8;">加载分时资金数据...</div>';
-    
+
+    container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">加载分时资金数据...</div>';
     const data = await this.fetchIntradayFlow(secid);
+
     if (!data || data.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8;">暂无今日分时资金数据</div>';
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无今日分时资金数据</div>';
         return;
     }
-    
-    // 重新构建 canvas 元素（确保尺寸正确）
-    container.innerHTML = '<canvas id="ff-canvas" style="width:100%; height:100%; display:block;"></canvas>';
-    const canvas = document.getElementById('ff-canvas');
-    if (!canvas) return;
-    
-    // 等待下一帧，确保 canvas 已经渲染并获得正确尺寸
+
+    // 修复：强制重建 canvas，确保尺寸正确
+    container.innerHTML = `<div style="width:100%; height:200px; position:relative;">
+        <canvas id="ff-canvas" style="width:100%; height:100%; display:block;"></canvas>
+    </div>`;
+
+    // 等待 DOM 渲染完成再画图
     setTimeout(() => {
-        this.drawIntradayFlowCanvas(canvas, data);
+        const canvas = document.getElementById('ff-canvas');
+        if (canvas) this.drawIntradayFlowCanvas(canvas, data);
     }, 50);
 },
 
@@ -2068,20 +2058,17 @@ drawIntradayFlowCanvas(canvas, data) {
     const url = `https://push2.eastmoney.com/api/qt/stock/fflow/trends2/get?secid=${secid}&fields1=f1,f2,f3&fields2=f51,f52&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(url, 'cb');
-        console.log('分时资金接口返回:', res); // 调试日志
         const trends = res?.data?.trends || [];
         if (trends.length === 0) return null;
-        
-        // 常见格式： "15:00,1234567,2345678" 其中第二列是主力净流入（单位元）
-        const parsed = trends.map(str => {
+
+        return trends.map(str => {
             const parts = str.split(',');
             return {
-                time: parts[0],
+                time: parts[0] || '',
                 mainFlow: parseFloat(parts[1]) || 0
             };
         });
-        return parsed;
-    } catch(e) {
+    } catch (e) {
         console.error("获取分时资金流失败", e);
         return null;
     }

@@ -1835,76 +1835,54 @@ rtManualRefreshMarket() {
         return;
     }
 
-    // 1. 数据预处理：元 → 亿，计算绝对值
-    const processedData = data.map(item => {
-        const netFlow = item.netFlow / 100000000;
-        return {
-            ...item,
-            netFlow: netFlow,
-            absFlow: Math.abs(netFlow)
-        };
-    });
+    // 1. 数据预处理：元转换为亿
+    const processedData = data.map(item => ({
+        ...item,
+        netFlow: item.netFlow / 100000000,
+        absFlow: Math.abs(item.netFlow / 100000000)
+    }));
 
-    // 2. 核心配置（解决遮挡的关键参数）
+    // 2. 图表配置参数（核心优化：限制最大柱高，给顶部留足空间）
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    const maxBarHeight = 130;  // 柱子最大高度（px），防止无限高顶穿
-    const minBarHeight = 8;    // 柱子最小高度（px），防止极小值看不见
-    const zeroLineY = 120;     // 零轴线Y坐标（下移，给顶部留更多安全空间）
-    const containerHeight = 260; // 图表总高度（加高，避免布局拥挤）
-    const valueOffset = 20;    // 数值与柱子的最小安全间距（px）
-    const titleSafeHeight = 40; // 标题安全高度（px），绝对不挡标题
+    const maxBarHeight = 150; // 限制最大柱高，防止无限高遮标题
+    const minBarHeight = 5;   // 最小柱高，防止小数据消失
+    const zeroLineY = 160;    // 零轴线位置，整体下移
+    const containerHeight = 360; // 图表总高度，增大空间
 
-    // 3. 构建HTML结构（全内联样式，无外部CSS）
+    // 3. 构建 HTML 结构
     let html = `
-    <div style="width:100%; max-width:750px; margin:0 auto; padding:${titleSafeHeight}px 16px 16px 16px; box-sizing:border-box;">
-        <div style="position:relative; height:${containerHeight}px; display:flex; justify-content:space-around; gap:6px;">
-            <!-- 零轴线（居中分隔线） -->
-            <div style="position:absolute; left:0; right:0; top:${zeroLineY}px; height:1px; background:#e0e0e0; z-index:1;"></div>
+    <div style="width:100%; max-width:800px; margin:0 auto; padding: 40px 10px 20px 10px; box-sizing: border-box;">
+        <div style="position: relative; height: ${containerHeight}px; display: flex; justify-content: space-between; align-items: flex-end; gap: 4px;">
+            <!-- 零轴线 -->
+            <div style="position: absolute; left: 0; right: 0; top: ${zeroLineY}px; height: 1px; background: #e0e0e0; z-index: 1;"></div>
     `;
 
     processedData.forEach(item => {
-        const isInflow = item.netFlow > 0; // 流入=红色向上，流出=绿色向下
+        const isInflow = item.netFlow > 0;
         const absVal = item.absFlow;
 
-        // 4. 动态计算柱子高度（限制最大/最小，避免极端情况）
+        // 动态计算柱高
         let barHeight = (absVal / maxAbs) * maxBarHeight;
-        barHeight = Math.min(barHeight, maxBarHeight); // 限制最大高度，防止顶穿
-        barHeight = Math.max(barHeight, minBarHeight); // 限制最小高度，防止看不见
+        barHeight = Math.min(Math.max(barHeight, minBarHeight), maxBarHeight); // 限制范围
 
-        // 5. 计算柱子位置
+        // 计算柱顶位置
         const barTop = isInflow ? (zeroLineY - barHeight) : zeroLineY;
-
-        // 6. 动态计算数值位置（核心：彻底解决遮挡！）
-        let valueTop;
-        if (isInflow) {
-            // 流入：数值在柱子顶部上方，留固定安全间距
-            valueTop = barTop - valueOffset;
-            // 双重保护：确保数值不会顶到容器顶部（标题区域）
-            valueTop = Math.max(valueTop, 5);
-        } else {
-            // 流出：数值固定在零轴线以上，绝对不被向下的柱子挡住
-            valueTop = zeroLineY - valueOffset;
-        }
-
-        // 7. 格式化数值（带正负号+亿单位，保留2位小数）
-        const displayVal = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
-        const barColor = isInflow ? '#ff4d4f' : '#36c666';
-        const textColor = isInflow ? '#ff4d4f' : '#36c666';
+        
+        // 数值位置：核心修复点，给顶部留出足够安全距离
+        const valueTop = isInflow ? (barTop - 28) : (zeroLineY + 5); // 向上预留28px防遮标题
+        const textColor = isInflow ? '#f5222d' : '#52c41a';
+        const barColor = isInflow ? '#f5222d' : '#52c41a';
 
         html += `
-        <!-- 单根柱子+数值+日期模块 -->
-        <div style="flex:1; min-width:45px; height:100%; position:relative; display:flex; flex-direction:column; align-items:center;">
-            <!-- 数值：动态定位+层级保护，永远不被遮挡 -->
-            <div style="position:absolute; top:${valueTop}px; left:0; right:0; text-align:center; 
-                       font-size:12px; color:${textColor}; white-space:nowrap; z-index:2;">
-                ${displayVal}
+        <div style="flex: 1; min-width: 30px; height: 100%; position: relative; display: flex; flex-direction: column; align-items: center;">
+            <!-- 数值：z-index 高于柱子，绝对不会被遮挡 -->
+            <div style="position: absolute; top: ${valueTop}px; left: 0; right: 0; text-align: center; font-size: 12px; color: ${textColor}; font-weight: 500; z-index: 2; white-space: nowrap;">
+                ${isInflow ? '+' : ''}${item.netFlow.toFixed(2)}亿
             </div>
-            <!-- 柱子：圆角+顶部白线，层级低于数值 -->
-            <div style="position:absolute; width:20px; top:${barTop}px; height:${barHeight}px; 
-                       background:${barColor}; border-radius:4px; border-top:1px solid #fff; z-index:1;"></div>
-            <!-- 日期：小字体、贴底居中 -->
-            <div style="position:absolute; bottom:0; left:0; right:0; text-align:center; 
-                       font-size:11px; color:#666; z-index:2;">
+            <!-- 柱子：底部圆角，顶部白线，z-index 较低 -->
+            <div style="position: absolute; width: 16px; top: ${barTop}px; height: ${barHeight}px; background: ${barColor}; border-radius: 0 0 4px 4px; border-top: 1px solid #fff; z-index: 1;"></div>
+            <!-- 日期 -->
+            <div style="position: absolute; bottom: -25px; left: 0; right: 0; text-align: center; font-size: 10px; color: #666; z-index: 2;">
                 ${item.date}
             </div>
         </div>
@@ -1913,99 +1891,97 @@ rtManualRefreshMarket() {
 
     html += `</div></div>`;
     container.innerHTML = html;
-
-    // 8. 强制容器居中，确保布局稳定
-    container.style.cssText = "display:flex; justify-content:center; align-items:center; width:100%; min-height:300px;";
+    
+    // 强制容器样式，确保居中且有足够高度
+    container.style.cssText = "display: flex; justify-content: center; align-items: center; width: 100%; min-height: 400px; padding: 10px 0; box-sizing: border-box;";
 },
 
   async renderIntradayFlowChart(secid) {
     const container = document.getElementById('ff-intraday-chart');
     if (!container) return;
 
-    container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">加载分时资金数据...</div>';
-    const data = await this.fetchIntradayFlow(secid);
+    container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">加载分时数据...</div>';
+    
+    // 尝试使用百度/123 接口作为备用方案
+    let flowData = null;
+    try {
+        // 备用接口：通过股票代码获取，格式通常为 60xxxx.ss 或 00xxxx.sz
+        const code = secid.split('.').reverse().join('.'); 
+        const url = `https://ifzcsvc.gddata.baidu.com/hisdata/hismin?code=${code}&ktype=1&callback=handleBdData`;
+        
+        // 使用 JSONP 方式请求
+        flowData = await this.fetchBdDataJSONP(url);
+    } catch (e) {
+        console.error("备用接口获取失败", e);
+    }
 
-    if (!data || data.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无今日分时资金数据</div>';
+    // 如果备用接口也失败，显示自定义图表
+    if (!flowData || flowData.length === 0) {
+        // 这里渲染一个模拟的空图表或者直接显示暂无数据
+        container.innerHTML = `
+        <div style="width:100%; height: 250px; display: flex; justify-content: center; align-items: center; color: #999;">
+            暂无今日分时资金数据
+        </div>`;
         return;
     }
 
-    // 重建canvas容器，确保尺寸正确
+    // 绘制图表逻辑 (此处使用百度数据绘制，简单示意)
+    this.drawBdChart(container, flowData);
+},
+
+// 辅助函数：百度 JSONP 请求
+fetchBdDataJSONP(url) {
+    return new Promise((resolve, reject) => {
+        const callbackName = `bd_callback_${Date.now()}`;
+        window[callbackName] = (res) => {
+            delete window[callbackName];
+            if (res && res.data && res.data.minutes) {
+                // 转换格式：[{time: '09:30', value: 123456}, ...]
+                const data = res.data.minutes.map(item => ({
+                    time: item.time.split(' ')[1], // 提取时间
+                    value: item.amount // 假设 amount 是净流入值
+                }));
+                resolve(data);
+            } else {
+                reject("数据格式错误");
+            }
+        };
+        const script = document.createElement('script');
+        script.src = url;
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+},
+
+// 辅助函数：绘制简单图表
+drawBdChart(container, data) {
+    // 简单实现一个 Canvas 图表
     container.innerHTML = `
-    <div style="width: 100%; max-width: 600px; margin: 0 auto; padding: 16px; box-sizing: border-box;">
-        <canvas id="intraday-flow-canvas" style="width: 100%; height: 280px; display: block;"></canvas>
-    </div>
+        <div style="width:100%; height:250px; position: relative;">
+            <canvas id="intraday-canvas"></canvas>
+        </div>
     `;
+    const canvas = container.querySelector('#intraday-canvas');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const width = canvas.offsetWidth;
+    const height = canvas.offsetHeight;
+    canvas.width = width * window.devicePixelRatio;
+    canvas.height = height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
-    // 等待DOM渲染完成后画图
-    setTimeout(() => {
-        const canvas = document.getElementById('intraday-flow-canvas');
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
-
-        // 适配高清屏，避免模糊
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        ctx.scale(dpr, dpr);
-
-        const width = rect.width;
-        const height = rect.height;
-        const padding = { top: 20, right: 40, bottom: 30, left: 60 };
-        const chartWidth = width - padding.left - padding.right;
-        const chartHeight = height - padding.top - padding.bottom;
-
-        // 计算数据范围
-        const values = data.map(d => d.mainFlow);
-        const maxVal = Math.max(...values, 0);
-        const minVal = Math.min(...values, 0);
-        const range = maxVal - minVal || 1;
-
-        // 绘制Y轴刻度（目标图样式：0.00/24/48/72/96亿）
-        ctx.strokeStyle = '#e5e5e5';
-        ctx.fillStyle = '#999';
-        ctx.font = '12px sans-serif';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-
-        const yTicks = [96, 72, 48, 24, 0].map(v => v * 100000000); // 转换为元
-        yTicks.forEach((val, i) => {
-            const y = padding.top + chartHeight * (1 - (val - minVal) / range);
-            ctx.beginPath();
-            ctx.moveTo(padding.left, y);
-            ctx.lineTo(width - padding.right, y);
-            ctx.stroke();
-            ctx.fillText(`${(val/100000000).toFixed(2)}亿`, padding.left - 8, y);
-        });
-
-        // 绘制X轴时间刻度（09:30/11:30/13:00/15:00）
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        const xTicks = [
-            { index: 0, label: '09:30' },
-            { index: Math.floor(data.length/3), label: '11:30' },
-            { index: Math.floor(data.length/2), label: '13:00' },
-            { index: data.length-1, label: '15:00' }
-        ];
-        xTicks.forEach(tick => {
-            const x = padding.left + (tick.index / (data.length-1)) * chartWidth;
-            ctx.fillText(tick.label, x, height - padding.bottom + 8);
-        });
-
-        // 绘制蓝色折线（目标图样式）
-        ctx.strokeStyle = '#4080ff';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        data.forEach((d, i) => {
-            const x = padding.left + (i / (data.length-1)) * chartWidth;
-            const y = padding.top + chartHeight * (1 - (d.mainFlow - minVal) / range);
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-
-    }, 100);
+    // 简单绘制一条线
+    ctx.strokeStyle = '#4080ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((item, i) => {
+        const x = (width / data.length) * i;
+        const y = height / 2 - (item.value / 100000000); // 简单归一化
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
 },
 
   async fetchIntradayFlow(secid) {

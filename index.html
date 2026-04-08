@@ -315,17 +315,6 @@
   <!-- 行情中心 -->
   <div id="view-market" class="page-view">
     <div class="nav-bar"><div class="nav-title">行情中心</div></div>
-    <div class="market-tabs" id="market-tabs"><div class="m-tab active" onclick="app.switchMarketTab('A', event)">A股</div><div class="m-tab" onclick="app.switchMarketTab('HK', event)">港股</div><div class="m-tab" onclick="app.switchMarketTab('US', event)">美股</div><div class="m-tab" onclick="app.switchMarketTab('ASIA', event)">亚太</div></div>
-    <div class="idx-scroll" id="market-idx-container"></div>
-    
-    <!-- 优化项：合理缩小按钮并居中 -->
-    <div style="display: flex; justify-content: center; gap: 16px; margin: 15px 12px 5px;">
-        <div id="market-group-index" class="action-pill active" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('index')">📈 指数</div>
-        <div id="market-group-stock" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('stock')">📊 股票</div>
-    </div>
-
-    <div class="m-search-wrap"><input type="text" id="market-search-input" placeholder="🔍 搜索板块、指数、ETF添加至自选" oninput="app.searchMarket()" autocomplete="off"><div class="m-search-res" id="market-search-res" style="display:none;"></div></div>
-    <div class="rt-controls-mini" style="margin: 0 12px 10px;"><span class="rt-auto-badge" id="mkt-rt-status">⏱️ 等待更新</span><div style="display:flex; gap:8px;"><button class="rt-btn-icon" onclick="app.rtToggleMarketAuto()" id="mkt-rt-toggle">▶️ 开启</button><button class="rt-btn-icon" onclick="app.rtManualRefreshMarket()">🔄 刷新</button></div></div>
     <div class="scroll-area" style="padding-top:0;">
         <!-- 优化项：新增自定义多维排序按钮 -->
         <div style="display:flex; justify-content:space-between; align-items:center; margin: 10px 4px 5px;">
@@ -341,8 +330,19 @@
         </div>
 
       <div id="market-watched-list" class="market-list-grid"></div>
-      
+      </div>
+    <div class="market-tabs" id="market-tabs"><div class="m-tab active" onclick="app.switchMarketTab('A', event)">A股</div><div class="m-tab" onclick="app.switchMarketTab('HK', event)">港股</div><div class="m-tab" onclick="app.switchMarketTab('US', event)">美股</div><div class="m-tab" onclick="app.switchMarketTab('ASIA', event)">亚太</div></div>
+    <div class="idx-scroll" id="market-idx-container"></div>
+    
+    <!-- 优化项：合理缩小按钮并居中 -->
+    <div style="display: flex; justify-content: center; gap: 16px; margin: 15px 12px 5px;">
+        <div id="market-group-index" class="action-pill active" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('index')">📈 指数</div>
+        <div id="market-group-stock" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('stock')">📊 股票</div>
     </div>
+
+    <div class="m-search-wrap"><input type="text" id="market-search-input" placeholder="🔍 搜索板块、指数、ETF添加至自选" oninput="app.searchMarket()" autocomplete="off"><div class="m-search-res" id="market-search-res" style="display:none;"></div></div>
+    <div class="rt-controls-mini" style="margin: 0 12px 10px;"><span class="rt-auto-badge" id="mkt-rt-status">⏱️ 等待更新</span><div style="display:flex; gap:8px;"><button class="rt-btn-icon" onclick="app.rtToggleMarketAuto()" id="mkt-rt-toggle">▶️ 开启</button><button class="rt-btn-icon" onclick="app.rtManualRefreshMarket()">🔄 刷新</button></div></div>
+      
   </div>
 
   <!-- 排名页 -->

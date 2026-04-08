@@ -246,25 +246,6 @@
     /* 修复文字换行问题 */
     .flow-val { width: 75px; text-align: right; font-weight: 900; font-size: 13px; white-space: nowrap; }
 
-   /* ========== 新版历史资金双向柱状图 (Flexbox防遮挡布局) ========== */
-
-    /* 资金流模块容器 */
-#ff-history-chart, #ff-intraday-chart {
-    width: 100%;
-    min-height: 260px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    box-sizing: border-box;
-    padding: 12px 0;
-}
-
-/* 历史图柱子容器 */
-.hist-flow-wrap {
-    width: 100%;
-    max-width: 600px;
-    margin: 0 auto;
-}
 
     
     @media (min-width: 768px) {
@@ -1791,11 +1772,12 @@ rtManualRefreshMarket() {
                 const parts = str.split(',');
                 return { date: parts[0].slice(5), netFlow: parseFloat(parts[1]) || 0 };
             });
+            // 渲染历史主力资金图
             this.renderFundFlowChart(flowData);
             // 延迟渲染分时图，确保DOM完全加载
             setTimeout(() => {
                 this.renderIntradayFlowChart(secid);
-            }, 150);
+            }, 200);
         }
     } catch(e) {}
 
@@ -1853,47 +1835,54 @@ rtManualRefreshMarket() {
         return;
     }
 
-    // 1. 计算最大绝对值，统一柱子高度比例
-    const maxAbs = Math.max(...data.map(d => Math.abs(d.netFlow)), 0.01);
-    const maxHeight = 120; // 最大柱高，适配容器
-    const zeroLineY = 100; // 零轴线Y坐标，居中
+    // 1. 数据预处理：修复单位（元→亿）、计算最大绝对值
+    const processedData = data.map(item => {
+        // 核心修复：将元转换为亿（除以100000000），解决数值放大10000倍的问题
+        const netFlow = item.netFlow / 100000000;
+        return {
+            ...item,
+            netFlow: netFlow,
+            absFlow: Math.abs(netFlow)
+        };
+    });
 
-    // 2. 构建HTML结构，完全还原目标样式
+    // 2. 计算最大绝对值，统一柱子高度比例
+    const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
+    const maxBarHeight = 120; // 最大柱高（px）
+    const zeroLineY = 100;   // 零轴线Y坐标（居中）
+    const containerHeight = 220; // 图表总高度
+
+    // 3. 构建HTML结构（完全内联样式，不依赖外部CSS）
     let html = `
-    <div style="width: 100%; max-width: 600px; margin: 0 auto; padding: 16px; box-sizing: border-box;">
-        <div style="position: relative; height: 220px; display: flex; align-items: flex-end; justify-content: space-around; gap: 4px;">
-            <!-- 零轴线 -->
-            <div style="position: absolute; left: 0; right: 0; top: ${zeroLineY}px; height: 1px; background: #dcdcdc; z-index: 1;"></div>
+    <div style="width: 100%; max-width: 700px; margin: 0 auto; padding: 16px; box-sizing: border-box;">
+        <div style="position: relative; height: ${containerHeight}px; display: flex; align-items: flex-end; justify-content: space-around; gap: 6px;">
+            <!-- 零轴线（居中分隔线） -->
+            <div style="position: absolute; left: 0; right: 0; top: ${zeroLineY}px; height: 1px; background: #e0e0e0; z-index: 1;"></div>
     `;
 
-    data.forEach(item => {
-        const isInflow = item.netFlow > 0;
-        const absVal = Math.abs(item.netFlow);
-        // 计算柱高：流入向上，流出向下
-        const barHeight = (absVal / maxAbs) * maxHeight;
+    processedData.forEach((item, index) => {
+        const isInflow = item.netFlow > 0; // 流入为正（红色），流出为负（绿色）
+        const absVal = item.absFlow;
+        // 计算柱子高度和位置：流入向上，流出向下
+        const barHeight = (absVal / maxAbs) * maxBarHeight;
         const barTop = isInflow ? (zeroLineY - barHeight) : zeroLineY;
-        // 格式化数值，保留2位小数，带正负号
-        const formatVal = (val) => {
-            const abs = Math.abs(val);
-            let str = abs >= 10000 ? `${(abs/10000).toFixed(2)}亿` : `${abs.toFixed(2)}万`;
-            return val > 0 ? `+${str}` : `-${str}`;
-        };
-        const displayVal = formatVal(item.netFlow);
-        // 柱子样式：流入红色，流出绿色，圆角
+        // 格式化数值：保留2位小数，带正负号+亿单位
+        const displayVal = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
+        // 颜色定义：流入红色，流出绿色
         const barColor = isInflow ? '#ff4d4f' : '#36c666';
         const textColor = isInflow ? '#ff4d4f' : '#36c666';
 
         html += `
-        <!-- 单根柱子+日期+数值 -->
-        <div style="display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 30px;">
-            <!-- 数值 -->
-            <div style="font-size: 11px; color: ${textColor}; margin-bottom: 4px; height: 16px; line-height: 16px;">${displayVal}</div>
+        <!-- 单根柱子+数值+日期模块 -->
+        <div style="display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 40px; height: 100%;">
+            <!-- 数值（柱子上方/下方） -->
+            <div style="font-size: 12px; color: ${textColor}; margin-bottom: 4px; height: 18px; line-height: 18px; text-align: center;">${displayVal}</div>
             <!-- 柱子容器 -->
-            <div style="position: relative; width: 16px; height: ${maxHeight}px;">
+            <div style="position: relative; width: 18px; height: ${maxBarHeight}px;">
                 <div style="position: absolute; left: 0; right: 0; top: ${barTop}px; height: ${barHeight}px; background: ${barColor}; border-radius: 4px;"></div>
             </div>
-            <!-- 日期 -->
-            <div style="font-size: 11px; color: #666; margin-top: 8px; height: 16px; line-height: 16px;">${item.date}</div>
+            <!-- 日期（柱子下方） -->
+            <div style="font-size: 12px; color: #666; margin-top: 8px; height: 18px; line-height: 18px; text-align: center;">${item.date}</div>
         </div>
         `;
     });
@@ -1903,6 +1892,7 @@ rtManualRefreshMarket() {
     </div>
     `;
     container.innerHTML = html;
+    // 强制容器居中
     container.style.display = 'flex';
     container.style.justifyContent = 'center';
     container.style.alignItems = 'center';
@@ -1999,19 +1989,19 @@ rtManualRefreshMarket() {
 },
 
   async fetchIntradayFlow(secid) {
-    // 东方财富分时资金流正确接口
-    const url = `https://push2.eastmoney.com/api/qt/stock/fflow/trends2/get?secid=${secid}&fields1=f1,f2,f3&fields2=f51,f52&_=${Date.now()}`;
+    // 东方财富分时资金流正确接口（兼容A股/指数）
+    const url = `https://push2his.eastmoney.com/api/qt/stock/fflow/kline/get?lmt=240&secid=${secid}&fields1=f1&fields2=f51,f52&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(url, 'cb');
-        const trends = res?.data?.trends || [];
-        if (trends.length === 0) return null;
+        const klineData = res?.data?.klines || [];
+        if (klineData.length === 0) return null;
 
-        // 解析数据：时间、主力净流入
-        return trends.map(str => {
+        // 解析数据：时间、主力净流入（元→亿）
+        return klineData.map(str => {
             const parts = str.split(',');
             return {
                 time: parts[0] || '',
-                mainFlow: parseFloat(parts[1]) || 0
+                mainFlow: parseFloat(parts[1]) / 100000000 || 0 // 元转亿
             };
         });
     } catch (e) {

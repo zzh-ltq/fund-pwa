@@ -246,16 +246,20 @@
     /* 修复文字换行问题 */
     .flow-val { width: 75px; text-align: right; font-weight: 900; font-size: 13px; white-space: nowrap; }
 
-    /* 历史资金双向柱状图 (修复错位与遮挡) */
-    .hist-flow-wrap { display: flex; justify-content: space-between; align-items: center; height: 160px; position: relative; margin-top: 15px; padding-bottom: 20px; }
-    .hist-zero-line { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: dashed 1px #cbd5e1; border-top: 1px dashed #94a3b8; z-index: 1; }
-    .hist-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; height: 100%; z-index: 2; }
-    .hist-bar-up, .hist-bar-down { width: 8px; border-radius: 4px; position: absolute; transition: height 0.5s; min-height: 2px; left: 50%; transform: translateX(-50%); }
-    .hist-bar-up { bottom: 50%; background: linear-gradient(180deg, #f43f5e, #fb7185); box-shadow: 0 2px 4px rgba(244,63,94,0.2); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-    .hist-bar-down { top: 50%; background: linear-gradient(180deg, #34d399, #10b981); box-shadow: 0 2px 4px rgba(16,185,129,0.2); border-top-left-radius: 0; border-top-right-radius: 0; }
-    .hist-val-up { position: absolute; bottom: calc(50% + var(--h) + 4px); left: 50%; transform: translateX(-50%); font-size: 9px; color: var(--red); font-weight: 900; font-family: monospace; white-space: nowrap; }
-    .hist-val-down { position: absolute; top: calc(50% + var(--h) + 4px); left: 50%; transform: translateX(-50%); font-size: 9px; color: var(--green); font-weight: 900; font-family: monospace; white-space: nowrap; }
-    .hist-date { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%) scale(0.85); font-size: 9px; color: #94a3b8; font-weight: bold; white-space: nowrap; }
+   /* ========== 新版历史资金双向柱状图 (Flexbox防遮挡布局) ========== */
+    .hist-flow-wrap { display: flex; justify-content: space-between; align-items: center; height: 180px; position: relative; margin-top: 10px; padding-bottom: 15px; }
+    .hist-zero-line { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #cbd5e1; z-index: 1; border-top: 1px dashed #94a3b8; }
+    .hist-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; z-index: 2; position: relative; }
+    .hist-half { flex: 1; width: 100%; display: flex; flex-direction: column; align-items: center; }
+    .hist-top { justify-content: flex-end; padding-bottom: 0px; }
+    .hist-bottom { justify-content: flex-start; padding-top: 0px; }
+    .hist-bar { width: 8px; border-radius: 4px; transition: height 0.5s cubic-bezier(0.25, 0.8, 0.25, 1); min-height: 2px; }
+    .hist-bar.up { background: linear-gradient(180deg, #f43f5e, #fb7185); border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: 0 -2px 6px rgba(244,63,94,0.2); }
+    .hist-bar.down { background: linear-gradient(180deg, #34d399, #10b981); border-top-left-radius: 0; border-top-right-radius: 0; box-shadow: 0 2px 6px rgba(16,185,129,0.2); }
+    .hist-val { font-size: 10px; font-weight: 900; font-family: monospace; white-space: nowrap; padding: 4px 0; letter-spacing: -0.5px; }
+    .hist-val.up { color: var(--red); }
+    .hist-val.down { color: var(--green); }
+    .hist-date { position: absolute; bottom: -8px; font-size: 9px; color: #94a3b8; font-weight: bold; white-space: nowrap; transform: scale(0.9); }
     
     @media (min-width: 768px) {
       .app-container { max-width: 1400px; flex-direction: row; align-items: stretch; padding: 20px; gap: 20px; }
@@ -1500,14 +1504,23 @@ const app = {
                 chgVal = parseFloat(quote.f4).toFixed(2);
             }
 
+
+          // 处理资金流向 (主力与散户双显)
             let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
-            let flowStr = this.formatFlowAmt(rawFlowAmt);
-            let flowCol = rawFlowAmt > 0 ? 'red' : (rawFlowAmt < 0 ? 'green' : '');
-            let flowDisplay = rawFlowAmt !== 0 ? `<div class="${flowCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px; margin-top:4px; display:inline-block;">主力净流入 ${rawFlowAmt>0?'+':''}${flowStr}</div>` : '';
-            
-            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
-            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
-            const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
+            let retailFlowAmt = -rawFlowAmt; // 散户净流入 = - 主力净流入
+
+            let flowDisplay = '';
+            if (rawFlowAmt !== 0) {
+                let mainCol = rawFlowAmt > 0 ? 'red' : 'green';
+                let retailCol = retailFlowAmt > 0 ? 'red' : 'green';
+                
+                // 并排显示主力和散户
+                flowDisplay = `
+                <div style="display:flex; gap: 6px; margin-top: 4px;">
+                    <div class="${mainCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px;">主力 ${rawFlowAmt>0?'+':''}${this.formatFlowAmt(rawFlowAmt)}</div>
+                    <div class="${retailCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px;">散户 ${retailFlowAmt>0?'+':''}${this.formatFlowAmt(retailFlowAmt)}</div>
+                </div>`;
+            }
             
             const html = `<div class="list-item" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')">
                 <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
@@ -1814,30 +1827,33 @@ const app = {
     } 
   },
 
-   // 完全替换的 renderFundFlowChart：修复文字与柱体遮挡问题
+   // 完美修复版：彻底告别文字与柱体遮挡的 Flexbox 历史流向图
   renderFundFlowChart(data) {
     const container = document.getElementById('ff-history-chart');
     if (!container || !data || data.length === 0) return;
     
-    // 找出最大绝对值
+    // 找出最大绝对值，用于计算高度比例 (柱体最高占所在半区的 75%，永远为文字留出 25% 的安全空间)
     const maxVal = Math.max(...data.map(d => Math.abs(d.netFlow))) || 1;
     
     let html = `<div class="hist-zero-line"></div>`;
     
     html += data.map(item => {
-        // 【核心修复】：最大高度限制为 35%，为文字留出空间，绝不越界
-        const heightPct = Math.max((Math.abs(item.netFlow) / maxVal) * 35, 1); 
+        // 高度计算：最大不超过 75%
+        const pct = Math.max((Math.abs(item.netFlow) / maxVal) * 75, 2); 
         const isPos = item.netFlow >= 0;
         
-        const barClass = isPos ? 'hist-bar-up' : 'hist-bar-down';
-        const valClass = isPos ? 'hist-val-up' : 'hist-val-down';
-        const displayVal = this.formatFlowAmt(item.netFlow).replace('万', 'w').replace('亿', 'Y');
+        // 恢复中文 "万/亿" 显示，更符合国内阅读习惯
+        const displayVal = (item.netFlow > 0 ? '+' : '') + this.formatFlowAmt(item.netFlow);
         
-        // 使用 CSS 变量 --h 将高度传入内联样式
+        // 采用 Flexbox 上下分层布局：上层放涨，下层放跌。文字永远在柱体的外侧。
         return `
-        <div class="hist-col" style="--h: ${heightPct}%">
-            <div class="${barClass}" style="height: ${heightPct}%;"></div>
-            <div class="${valClass}">${displayVal}</div>
+        <div class="hist-col">
+            <div class="hist-half hist-top">
+                ${isPos ? `<div class="hist-val up">${displayVal}</div><div class="hist-bar up" style="height: ${pct}%;"></div>` : ''}
+            </div>
+            <div class="hist-half hist-bottom">
+                ${!isPos ? `<div class="hist-bar down" style="height: ${pct}%;"></div><div class="hist-val down">${displayVal}</div>` : ''}
+            </div>
             <div class="hist-date">${item.date}</div>
         </div>`;
     }).join('');

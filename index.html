@@ -572,7 +572,7 @@ const app = {
   marketSortRule: 'default', // default | chg | flow
   marketSortDir: 'desc',     // desc | asc
 
-  // 2. 新增资金格式化辅助函数
+  // 1. 确保这个金额格式化函数存在 (如果之前漏了，这次补上)
   formatFlowAmt(val) {
     if (val === undefined || val === '-' || isNaN(val)) return '--';
     const n = parseFloat(val);
@@ -864,7 +864,7 @@ const app = {
   rtManualRefreshMarket() { 
     this.marketRtCountdown = 60; 
     this.renderMarketTabs(); 
-    this.renderWatchedMarkets(); 
+    this.(); 
     this.showToast('行情数据已刷新'); 
   },
 
@@ -1323,7 +1323,7 @@ const app = {
     
     if(tabId === 'market') { 
       this.renderMarketTabs(); 
-      this.renderWatchedMarkets(); 
+      this.(); 
     } 
   },
   
@@ -1374,7 +1374,7 @@ const app = {
     this.currentMarketGroup = group; 
     document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
     document.getElementById('market-group-stock').className = group === 'stock' ? 'action-pill active' : 'action-pill'; 
-    this.renderWatchedMarkets(); 
+    this.(); 
   },
   
   setMarketSort(mode) { 
@@ -1382,7 +1382,7 @@ const app = {
     document.getElementById('mkt-sort-default').className = mode === 'default' ? 'active' : ''; 
     document.getElementById('mkt-sort-desc').className = mode === 'desc' ? 'active' : ''; 
     document.getElementById('mkt-sort-asc').className = mode === 'asc' ? 'active' : ''; 
-    this.renderWatchedMarkets(); 
+    this.(); 
   },
   
   // 1. 完全替换 getCorrectSecid (精准处理股票和指数前缀)
@@ -1413,7 +1413,7 @@ const app = {
     return `0.${c}`;
   },
 
-  // 2. 完全替换 renderWatchedMarkets (加入终极防断流自愈机制)
+   // 2. 完全替换 renderWatchedMarkets 函数 (解决网络请求失败和散户双显)
   async renderWatchedMarkets() { 
     const groupKey = this.currentMarketGroup; 
     const list = this.data.marketGroups[groupKey] || []; 
@@ -1424,7 +1424,6 @@ const app = {
         return; 
     } 
 
-    // 使用严格规则过滤并组装请求 Secid
     const validList = list.map(item => {
         return { ...item, querySecid: this.getCorrectSecid(item.secid, item.code, groupKey) };
     });
@@ -1440,7 +1439,6 @@ const app = {
         const foundSecids = new Set(dataList.map(d => `${d.f13}.${d.f12}`));
         const missingItems = validList.filter(item => !foundSecids.has(item.querySecid));
         
-        // === 终极自愈兜底机制 ===
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
                 let stockUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${item.querySecid}&fields=f43,f169,f170,f62&_=${Date.now()}`;
@@ -1448,11 +1446,9 @@ const app = {
                     let r = await fetchJSONP(stockUrl, 'cb');
                     let d = r?.data;
                     
-                    // 如果单点接口依然获取不到数据，说明前缀错得离谱，触发轮询嗅探重试！
                     if (!d) {
                         const parts = item.querySecid.split('.');
                         if (parts.length === 2) {
-                            // 尝试遍历 0, 1, 2 三个市场前缀寻找真身
                             const otherPrefixes = ['0', '1', '2'].filter(p => p !== parts[0]);
                             for (let p of otherPrefixes) {
                                 let retrySecid = `${p}.${parts[1]}`;
@@ -1460,7 +1456,6 @@ const app = {
                                 let r2 = await fetchJSONP(retryUrl, 'cb');
                                 if (r2?.data) {
                                     d = r2.data;
-                                    // 嗅探成功！永久修复本地错误缓存
                                     item.querySecid = retrySecid;
                                     let idx = this.data.marketGroups[groupKey].findIndex(m => m.code === item.code);
                                     if(idx !== -1) this.data.marketGroups[groupKey][idx].secid = retrySecid;
@@ -1504,8 +1499,7 @@ const app = {
                 chgVal = parseFloat(quote.f4).toFixed(2);
             }
 
-
-          // 处理资金流向 (主力与散户双显)
+            // 处理资金流向 (主力与散户双显)
             let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
             let retailFlowAmt = -rawFlowAmt; // 散户净流入 = - 主力净流入
 
@@ -1514,13 +1508,16 @@ const app = {
                 let mainCol = rawFlowAmt > 0 ? 'red' : 'green';
                 let retailCol = retailFlowAmt > 0 ? 'red' : 'green';
                 
-                // 并排显示主力和散户
                 flowDisplay = `
                 <div style="display:flex; gap: 6px; margin-top: 4px;">
                     <div class="${mainCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px;">主力 ${rawFlowAmt>0?'+':''}${this.formatFlowAmt(rawFlowAmt)}</div>
                     <div class="${retailCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px;">散户 ${retailFlowAmt>0?'+':''}${this.formatFlowAmt(retailFlowAmt)}</div>
                 </div>`;
             }
+            
+            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
+            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
+            const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
             
             const html = `<div class="list-item" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')">
                 <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
@@ -1543,7 +1540,6 @@ const app = {
             return { html, rawChgRate, rawFlowAmt, originalIndex: index };
         }); 
 
-        // 执行多维排序逻辑
         renderItems.sort((a, b) => {
             if (this.marketSortRule === 'chg') {
                 return this.marketSortDir === 'desc' ? b.rawChgRate - a.rawChgRate : a.rawChgRate - b.rawChgRate;
@@ -1556,7 +1552,8 @@ const app = {
 
         container.innerHTML = renderItems.map(i => i.html).join(''); 
     } catch(e) { 
-        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败</div>'; 
+        console.error("渲染失败:", e); // 在控制台输出实际报错原因
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败或数据解析异常</div>'; 
     } 
   },
   
@@ -1827,25 +1824,21 @@ const app = {
     } 
   },
 
-   // 完美修复版：彻底告别文字与柱体遮挡的 Flexbox 历史流向图
+   // 3. 完全替换 renderFundFlowChart 函数 (完美修复错位遮挡的柱状图)
   renderFundFlowChart(data) {
     const container = document.getElementById('ff-history-chart');
     if (!container || !data || data.length === 0) return;
     
-    // 找出最大绝对值，用于计算高度比例 (柱体最高占所在半区的 75%，永远为文字留出 25% 的安全空间)
+    // 找出最大绝对值，用于计算高度比例 (最高占所在半区的 75%)
     const maxVal = Math.max(...data.map(d => Math.abs(d.netFlow))) || 1;
     
     let html = `<div class="hist-zero-line"></div>`;
     
     html += data.map(item => {
-        // 高度计算：最大不超过 75%
         const pct = Math.max((Math.abs(item.netFlow) / maxVal) * 75, 2); 
         const isPos = item.netFlow >= 0;
-        
-        // 恢复中文 "万/亿" 显示，更符合国内阅读习惯
         const displayVal = (item.netFlow > 0 ? '+' : '') + this.formatFlowAmt(item.netFlow);
         
-        // 采用 Flexbox 上下分层布局：上层放涨，下层放跌。文字永远在柱体的外侧。
         return `
         <div class="hist-col">
             <div class="hist-half hist-top">

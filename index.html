@@ -448,7 +448,14 @@
                 近 10 日主力净流入
             </div>
             <div class="hist-flow-wrap" id="ff-history-chart"></div>
-        </div>
+
+            <div style="border-left: 4px solid var(--green); padding-left: 8px; margin-top: 25px; font-weight: 900; font-size: 14px; color: var(--text-main);">
+                今日主力净流入走势 (分时)
+            </div>
+            <div id="ff-intraday-chart" style="height: 200px; margin-top: 10px; position: relative;">
+                <canvas id="ff-canvas" style="width:100%; height:100%;"></canvas>
+            </div>
+         </div>
         <div style="height:30px;"></div>
       </div>
     </div>
@@ -1514,12 +1521,9 @@ rtManualRefreshMarket() {
             let flowDisplay = '';
             if (rawFlowAmt !== 0) {
                 let mainCol = rawFlowAmt > 0 ? 'red' : 'green';
-                let retailCol = retailFlowAmt > 0 ? 'red' : 'green';
-                
                 flowDisplay = `
                 <div style="display:flex; gap: 6px; margin-top: 4px;">
                     <div class="${mainCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px;">主力 ${rawFlowAmt>0?'+':''}${this.formatFlowAmt(rawFlowAmt)}</div>
-                    <div class="${retailCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px;">散户 ${retailFlowAmt>0?'+':''}${this.formatFlowAmt(retailFlowAmt)}</div>
                 </div>`;
             }
             
@@ -1782,6 +1786,8 @@ rtManualRefreshMarket() {
                 return { date: parts[0].slice(5), netFlow: parseFloat(parts[1]) || 0 };
             });
             this.renderFundFlowChart(flowData);
+          // 渲染分时主力净流入走势图
+            await this.renderIntradayFlowChart(secid);
         }
     } catch(e) {}
 
@@ -1832,35 +1838,170 @@ rtManualRefreshMarket() {
     } 
   },
 
-   // 3. 完全替换 renderFundFlowChart 函数 (完美修复错位遮挡的柱状图)
-  renderFundFlowChart(data) {
+   renderFundFlowChart(data) {
     const container = document.getElementById('ff-history-chart');
-    if (!container || !data || data.length === 0) return;
-    
-    // 找出最大绝对值，用于计算高度比例 (最高占所在半区的 75%)
-    const maxVal = Math.max(...data.map(d => Math.abs(d.netFlow))) || 1;
-    
-    let html = `<div class="hist-zero-line"></div>`;
-    
-    html += data.map(item => {
-        const pct = Math.max((Math.abs(item.netFlow) / maxVal) * 75, 2); 
+    if (!container || !data || data.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">暂无历史资金数据</div>';
+        return;
+    }
+
+    // 找出最大绝对值，用于计算高度比例（柱高占所在半区的 80%）
+    const maxAbs = Math.max(...data.map(d => Math.abs(d.netFlow)), 0.01);
+    const halfHeightPercent = 80; // 最高柱占半区高度的百分比
+    const zeroLinePos = 50; // 零线位置占整体高度的百分比（%）
+
+    let html = `<div class="hist-flow-wrap" style="position:relative; height:200px; margin-top:10px;">`;
+    html += `<div class="hist-zero-line" style="position:absolute; left:0; right:0; top:${zeroLinePos}%; height:2px; background:#94a3b8; z-index:1; border-top:1px dashed #cbd5e1;"></div>`;
+
+    data.forEach(item => {
         const isPos = item.netFlow >= 0;
+        const absVal = Math.abs(item.netFlow);
+        const barHeightPercent = (absVal / maxAbs) * halfHeightPercent;
+        // 限制最小高度为 2%
+        const barHeight = Math.max(barHeightPercent, 2);
         const displayVal = (item.netFlow > 0 ? '+' : '') + this.formatFlowAmt(item.netFlow);
+        const valColor = isPos ? '#f43f5e' : '#10b981';
+
+        // 柱子的定位：正柱从零线向上，负柱从零线向下
+        let barTop = isPos ? `calc(${zeroLinePos}% - ${barHeight}%)` : `${zeroLinePos}%`;
+        let barHeightStyle = isPos ? `${barHeight}%` : `${barHeight}%`;
         
-        return `
-        <div class="hist-col">
-            <div class="hist-half hist-top">
-                ${isPos ? `<div class="hist-val up">${displayVal}</div><div class="hist-bar up" style="height: ${pct}%;"></div>` : ''}
+        // 数值标签的位置
+        let labelTop = isPos ? `calc(${zeroLinePos}% - ${barHeight}% - 18px)` : `calc(${zeroLinePos}% + ${barHeight}% + 4px)`;
+        
+        html += `
+        <div class="hist-col" style="position:relative; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;">
+            <div style="position:absolute; top:${labelTop}; font-size:10px; font-weight:900; color:${valColor}; white-space:nowrap; background:rgba(255,255,255,0.7); padding:0 4px; border-radius:4px; z-index:2;">
+                ${displayVal}
             </div>
-            <div class="hist-half hist-bottom">
-                ${!isPos ? `<div class="hist-bar down" style="height: ${pct}%;"></div><div class="hist-val down">${displayVal}</div>` : ''}
-            </div>
-            <div class="hist-date">${item.date}</div>
+            <div style="position:absolute; top:${barTop}; width:16px; height:${barHeightStyle}; background:${isPos ? 'linear-gradient(180deg, #f43f5e, #fb7185)' : 'linear-gradient(0deg, #10b981, #34d399)'}; border-radius:${isPos ? '4px 4px 0 0' : '0 0 4px 4px'}; box-shadow:0 2px 6px ${isPos ? 'rgba(244,63,94,0.3)' : 'rgba(16,185,129,0.3)'};"></div>
+            <div style="position:absolute; bottom:-20px; font-size:9px; color:#64748b; font-weight:bold; white-space:nowrap;">${item.date}</div>
         </div>`;
-    }).join('');
-    
+    });
+
+    html += `</div>`;
     container.innerHTML = html;
-  },
+},
+
+  async renderIntradayFlowChart(secid) {
+    const canvas = document.getElementById('ff-canvas');
+    if (!canvas) return;
+    
+    const data = await this.fetchIntradayFlow(secid);
+    if (!data || data.length === 0) {
+        document.getElementById('ff-intraday-chart').innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8;">暂无今日分时资金数据</div>';
+        return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    
+    const w = rect.width, h = rect.height;
+    const pad = { l: 45, r: 25, t: 10, b: 25 };
+    const dw = w - pad.l - pad.r;
+    const dh = h - pad.t - pad.b;
+    
+    const flows = data.map(d => d.mainFlow);
+    const maxFlow = Math.max(...flows, 0);
+    const minFlow = Math.min(...flows, 0);
+    const range = Math.max(maxFlow - minFlow, 0.01);
+    const getY = val => pad.t + dh - ((val - minFlow) / range) * dh;
+    
+    // 绘制背景网格
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 4; i++) {
+        let y = pad.t + (i / 4) * dh;
+        ctx.beginPath();
+        ctx.moveTo(pad.l, y);
+        ctx.lineTo(w - pad.r, y);
+        ctx.stroke();
+        // 数值标签
+        let val = minFlow + ((4 - i) / 4) * range;
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(this.formatFlowAmt(val), pad.l - 5, y + 3);
+    }
+    
+    // 绘制零线
+    const zeroY = getY(0);
+    ctx.beginPath();
+    ctx.moveTo(pad.l, zeroY);
+    ctx.lineTo(w - pad.r, zeroY);
+    ctx.strokeStyle = '#94a3b8';
+    ctx.setLineDash([4, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // 绘制曲线
+    const step = dw / (data.length - 1);
+    ctx.beginPath();
+    for (let i = 0; i < data.length; i++) {
+        let x = pad.l + i * step;
+        let y = getY(flows[i]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // 绘制时间轴标签（取首尾和中间几个点）
+    const timeStep = Math.ceil(data.length / 6);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    for (let i = 0; i < data.length; i += timeStep) {
+        let x = pad.l + i * step;
+        let timeLabel = data[i].time.slice(0, 5); // "HH:MM"
+        ctx.fillText(timeLabel, x, h - pad.b + 12);
+    }
+    
+    // 绘制填充区域
+    ctx.beginPath();
+    for (let i = 0; i < data.length; i++) {
+        let x = pad.l + i * step;
+        let y = getY(flows[i]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.lineTo(pad.l + (data.length - 1) * step, zeroY);
+    ctx.lineTo(pad.l, zeroY);
+    ctx.closePath();
+    const grd = ctx.createLinearGradient(0, zeroY, 0, h - pad.b);
+    grd.addColorStop(0, 'rgba(245,158,11,0.3)');
+    grd.addColorStop(1, 'rgba(245,158,11,0.02)');
+    ctx.fillStyle = grd;
+    ctx.fill();
+},
+
+  async fetchIntradayFlow(secid) {
+    const url = `https://push2.eastmoney.com/api/qt/stock/fflow/trends2/get?secid=${secid}&fields1=f1,f2,f3&fields2=f51,f52&_=${Date.now()}`;
+    try {
+        const res = await fetchJSONP(url, 'cb');
+        const trends = res?.data?.trends || [];
+        if (trends.length === 0) return null;
+        
+        // 解析数据：每项格式 "时间,主力净流入,散户净流入" 等，具体索引需验证
+        // 通常格式: "15:00,1234567,2345678" 第一个是时间，第二个是主力净流入（单位元）
+        const parsed = trends.map(str => {
+            const parts = str.split(',');
+            return {
+                time: parts[0],
+                mainFlow: parseFloat(parts[1]) || 0
+            };
+        });
+        return parsed;
+    } catch(e) {
+        console.warn("获取分时资金流失败", e);
+        return null;
+    }
+},
   
   drawMarketChartWithCrosshair(showCrosshair, crosshairIdx) { 
     const canvas = document.getElementById('md-canvas'); 

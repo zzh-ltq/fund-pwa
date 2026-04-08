@@ -1381,33 +1381,35 @@ const app = {
     this.renderWatchedMarkets(); 
   },
   
-  // 核心修复：精准处理残缺或错误的历史自选 secid
-  getCorrectSecid(secid, code) {
-    // 1. 如果自带完整市场前缀(包含点号)，绝对信任原生数据
-    if (secid && secid.includes('.')) return secid;
-    
-    if (!code) return secid;
-    const c = code.toUpperCase();
-    
-    // 板块
+  // 1. 完全替换 getCorrectSecid (精准处理股票和指数前缀)
+  getCorrectSecid(savedSecid, code, groupType) {
+    if (!code) return savedSecid;
+    const c = String(code).toUpperCase();
+
+    // 板块绝对前缀
     if (c.startsWith('BK')) return `90.${c}`;
-    
-    if (/^\d{6}$/.test(c)) {
-      // 6开头(沪市主板/科创)、9开头(部分指数) 归为上海 1.
-      if (c.startsWith('6') || c.startsWith('9')) return `1.${c}`;
-      // 0开头(深市主板, 包括000547等)、3开头(创业板) 归为深圳 0.
-      if (c.startsWith('0') || c.startsWith('3')) return `0.${c}`;
-      // 8开头、4开头 归为北交所 0.
-      if (c.startsWith('8') || c.startsWith('4')) return `0.${c}`;
+
+    // 如果是股票，规则是死的，强制纠正历史错误缓存
+    if (groupType === 'stock') {
+      if (c.startsWith('6') || c.startsWith('9')) return `1.${c}`; // 沪市主板/科创
+      if (c.startsWith('0') || c.startsWith('3') || c.startsWith('4') || c.startsWith('8')) return `0.${c}`; // 深市/北交所
     }
-    
-    // 特殊指数兜底
-    if (c.startsWith('H')) return `2.${c}`; 
-    
+
+    // 如果是指数，由于东方财富前缀较混乱(98, 93, H等)，优先信任之前正确保存的带小数点的前缀
+    if (savedSecid && String(savedSecid).includes('.')) return savedSecid;
+
+    if (groupType === 'index') {
+      if (c.startsWith('399')) return `0.${c}`;
+      if (c.startsWith('000')) return `1.${c}`;
+      if (c.startsWith('98')) return `0.${c}`; // 国证通常为 0.
+      if (c.startsWith('93')) return `1.${c}`; // 中证通常为 1.
+      if (c.startsWith('H')) return `2.${c}`;
+    }
+
     return `0.${c}`;
   },
 
-  // 4. 完全替换 renderWatchedMarkets 函数 (加入了资金流向拉取与排序展示)
+  // 2. 完全替换 renderWatchedMarkets (加入终极防断流自愈机制)
   async renderWatchedMarkets() { 
     const groupKey = this.currentMarketGroup; 
     const list = this.data.marketGroups[groupKey] || []; 
@@ -1418,12 +1420,12 @@ const app = {
         return; 
     } 
 
+    // 使用严格规则过滤并组装请求 Secid
     const validList = list.map(item => {
-        return { ...item, querySecid: this.getCorrectSecid(item.secid, item.code) };
+        return { ...item, querySecid: this.getCorrectSecid(item.secid, item.code, groupKey) };
     });
 
     const secids = validList.map(item => item.querySecid).join(','); 
-    // 新增请求字段 f62 (主力净流入)
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f62&secids=${secids}&_=${Date.now()}`; 
     container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>'; 
     
@@ -1434,12 +1436,37 @@ const app = {
         const foundSecids = new Set(dataList.map(d => `${d.f13}.${d.f12}`));
         const missingItems = validList.filter(item => !foundSecids.has(item.querySecid));
         
+        // === 终极自愈兜底机制 ===
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
-                const stockUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${item.querySecid}&fields=f43,f169,f170,f62&_=${Date.now()}`;
+                let stockUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${item.querySecid}&fields=f43,f169,f170,f62&_=${Date.now()}`;
                 try {
-                    const r = await fetchJSONP(stockUrl, 'cb');
-                    const d = r?.data;
+                    let r = await fetchJSONP(stockUrl, 'cb');
+                    let d = r?.data;
+                    
+                    // 如果单点接口依然获取不到数据，说明前缀错得离谱，触发轮询嗅探重试！
+                    if (!d) {
+                        const parts = item.querySecid.split('.');
+                        if (parts.length === 2) {
+                            // 尝试遍历 0, 1, 2 三个市场前缀寻找真身
+                            const otherPrefixes = ['0', '1', '2'].filter(p => p !== parts[0]);
+                            for (let p of otherPrefixes) {
+                                let retrySecid = `${p}.${parts[1]}`;
+                                let retryUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${retrySecid}&fields=f43,f169,f170,f62&_=${Date.now()}`;
+                                let r2 = await fetchJSONP(retryUrl, 'cb');
+                                if (r2?.data) {
+                                    d = r2.data;
+                                    // 嗅探成功！永久修复本地错误缓存
+                                    item.querySecid = retrySecid;
+                                    let idx = this.data.marketGroups[groupKey].findIndex(m => m.code === item.code);
+                                    if(idx !== -1) this.data.marketGroups[groupKey][idx].secid = retrySecid;
+                                    this.saveData();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                     if (d) {
                         const parts = item.querySecid.split('.');
                         dataList.push({
@@ -1473,11 +1500,10 @@ const app = {
                 chgVal = parseFloat(quote.f4).toFixed(2);
             }
 
-            // 处理资金流向
             let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
             let flowStr = this.formatFlowAmt(rawFlowAmt);
             let flowCol = rawFlowAmt > 0 ? 'red' : (rawFlowAmt < 0 ? 'green' : '');
-            let flowDisplay = rawFlowAmt !== 0 ? `<div class="${flowCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px; margin-top:4px;">主力净流入 ${rawFlowAmt>0?'+':''}${flowStr}</div>` : '';
+            let flowDisplay = rawFlowAmt !== 0 ? `<div class="${flowCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px; margin-top:4px; display:inline-block;">主力净流入 ${rawFlowAmt>0?'+':''}${flowStr}</div>` : '';
             
             const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
@@ -1485,7 +1511,7 @@ const app = {
             
             const html = `<div class="list-item" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')">
                 <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
-                <div style="flex:1; display:flex; flex-direction:column; gap:2px;">
+                <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:2px;">
                     <div style="display:flex; align-items:center; gap:8px;">
                         <div style="font-weight:800; font-size:16px;">${item.name}</div>
                         <div style="font-size:11px; font-weight:700; color:#64748b; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${item.code || ''}</div>
@@ -1511,7 +1537,7 @@ const app = {
             } else if (this.marketSortRule === 'flow') {
                 return this.marketSortDir === 'desc' ? b.rawFlowAmt - a.rawFlowAmt : a.rawFlowAmt - b.rawFlowAmt;
             } else {
-                return a.originalIndex - b.originalIndex; // 默认顺序
+                return a.originalIndex - b.originalIndex; 
             }
         });
 
@@ -1534,12 +1560,18 @@ const app = {
     } 
   },
   
+   // 3. 完全替换 addWatchedMarket (防止新增时存入被污染的前缀)
   addWatchedMarket(secid, name, code) { 
     const groupKey = this.currentMarketGroup; 
     if (!this.data.marketGroups[groupKey]) this.data.marketGroups[groupKey] = []; 
     
     const targetList = this.data.marketGroups[groupKey]; 
-    let finalSecid = this.getCorrectSecid(secid, code);
+    
+    // 如果 secid 没有带小数点，再用规则生成；如果有小数点，说明是搜索接口返回的正确数据，直接信任！
+    let finalSecid = secid;
+    if (!String(finalSecid).includes('.')) {
+        finalSecid = this.getCorrectSecid(secid, code, groupKey);
+    }
     
     if (targetList.some(m => m.secid === finalSecid)) { 
         this.showToast(`该${groupKey === 'index' ? '指数' : '股票'}已在自选列表中`, 'error'); 

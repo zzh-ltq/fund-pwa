@@ -861,12 +861,13 @@ const app = {
     if (this.marketRtTimer) { clearInterval(this.marketRtTimer); this.marketRtTimer = null; } 
   },
   
-  rtManualRefreshMarket() { 
-    this.marketRtCountdown = 60; 
-    this.renderMarketTabs(); 
-    this.(); 
-    this.showToast('行情数据已刷新'); 
-  },
+  // 修改为
+rtManualRefreshMarket() { 
+  this.marketRtCountdown = 60; 
+  this.renderMarketTabs(); 
+  this.renderWatchedMarkets();  // ✅ 正确
+  this.showToast('行情数据已刷新'); 
+},
 
   // ==========================================
   // 7. 基金业务核心
@@ -1043,12 +1044,24 @@ const app = {
       if(va === vb) return 0; 
       return this.sortDir === 'desc' ? vb - va : va - vb; 
     }); 
-    
+
     const container = document.getElementById('home-list'); 
-    container.className = this.viewMode === 'card' ? 'card-grid' : ''; 
-    container.innerHTML = this.viewMode === 'card' 
-        ? funds.map(f => this.buildCardHtml(f, true)).join('') 
-        : this.buildListHtml(funds, true, false); 
+  container.className = this.viewMode === 'card' ? 'card-grid' : ''; 
+  
+  if (funds.length === 0) {
+    // 无基金时显示友好提示
+    container.innerHTML = `<div style="text-align:center; padding:60px 20px; color:#94a3b8;">
+      <div style="font-size:48px; margin-bottom:16px;">📭</div>
+      <div style="font-weight:bold; margin-bottom:8px;">暂无基金</div>
+      <div style="font-size:13px;">点击右上角「搜索」按钮，添加您关注的基金</div>
+    </div>`;
+    return;
+  }
+  
+  container.innerHTML = this.viewMode === 'card' 
+    ? funds.map(f => this.buildCardHtml(f, true)).join('') 
+    : this.buildListHtml(funds, true, false); 
+
   },
   
   buildCardHtml(f, isHomeGroup = false) { 
@@ -1321,9 +1334,10 @@ const app = {
       this.renderSector(); 
     } 
     
+    // 修改为
     if(tabId === 'market') { 
       this.renderMarketTabs(); 
-      this.(); 
+      this.renderWatchedMarkets();  // ✅ 正确
     } 
   },
   
@@ -1374,7 +1388,7 @@ const app = {
     this.currentMarketGroup = group; 
     document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
     document.getElementById('market-group-stock').className = group === 'stock' ? 'action-pill active' : 'action-pill'; 
-    this.(); 
+    this.renderWatchedMarkets();  // ✅ 正确 
   },
   
   setMarketSort(mode) { 
@@ -1382,7 +1396,7 @@ const app = {
     document.getElementById('mkt-sort-default').className = mode === 'default' ? 'active' : ''; 
     document.getElementById('mkt-sort-desc').className = mode === 'desc' ? 'active' : ''; 
     document.getElementById('mkt-sort-asc').className = mode === 'asc' ? 'active' : ''; 
-    this.(); 
+    this.renderWatchedMarkets();  // ✅ 正确
   },
   
   // 1. 完全替换 getCorrectSecid (精准处理股票和指数前缀)

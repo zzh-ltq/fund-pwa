@@ -1851,53 +1851,80 @@ rtManualRefreshMarket() {
    renderFundFlowChart(data) {
     const container = document.getElementById('ff-history-chart');
     if (!container || !data || data.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:15px; color:#94a3b8;">暂无历史资金数据</div>';
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无历史资金数据</div>';
         return;
     }
-    // 数据转换：元→亿
-    const processedData = data.map(item => ({
-        ...item,
-        netFlow: item.netFlow / 100000000,
-        absFlow: Math.abs(item.netFlow / 100000000)
-    }));
 
-    // 核心修复：降低高度、缩减排量、零轴线下移，彻底不挡标题
+    // 1. 数据预处理：元 → 亿，计算绝对值
+    const processedData = data.map(item => {
+        const netFlow = item.netFlow / 100000000;
+        return {
+            ...item,
+            netFlow: netFlow,
+            absFlow: Math.abs(netFlow)
+        };
+    });
+
+    // 2. 核心配置（彻底防遮挡的关键参数）
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    const maxBarHeight = 100;  // 限制最大柱高
-    const minBarHeight = 6;
-    const zeroLineY = 110;     // 零轴线下移
-    const containerHeight = 240;// 缩小总高度
-    const titleSafePadding = 10;// 标题安全间距
+    const maxBarHeight = 140;  // 柱子最大高度（限制大柱子，防止顶穿）
+    const minBarHeight = 6;    // 柱子最小高度（防止小数据看不见）
+    const zeroLineY = 130;     // 零轴线Y坐标（下移，给顶部留足安全空间）
+    const containerHeight = 280; // 图表总高度（加高，避免布局拥挤）
+    const valueSafeGap = 22;   // 数值与柱子的最小安全间距（px）
+    const titleSafeTop = 45;   // 标题安全距离（绝对不挡「近10日主力净流入」标题）
 
+    // 3. 构建HTML结构（全内联样式，无外部CSS依赖）
     let html = `
-    <div style="width:100%; max-width:700px; margin:0 auto; padding:${titleSafePadding}px 8px; box-sizing:border-box;">
-        <div style="position:relative; height:${containerHeight}px; display:flex; justify-content:space-around; gap:4px;">
-            <!-- 零轴线 -->
+    <div style="width:100%; max-width:800px; margin:0 auto; padding:${titleSafeTop}px 16px 20px 16px; box-sizing:border-box;">
+        <div style="position:relative; height:${containerHeight}px; display:flex; justify-content:space-around; gap:6px;">
+            <!-- 零轴线（居中分隔线） -->
             <div style="position:absolute; left:0; right:0; top:${zeroLineY}px; height:1px; background:#e0e0e0; z-index:1;"></div>
     `;
 
     processedData.forEach(item => {
-        const isInflow = item.netFlow > 0;
+        const isInflow = item.netFlow > 0; // 流入=红色向上，流出=绿色向下
         const absVal = item.absFlow;
+
+        // 4. 动态计算柱子高度（限制最大/最小，避免极端情况）
         let barHeight = (absVal / maxAbs) * maxBarHeight;
-        barHeight = Math.min(Math.max(barHeight, minBarHeight), maxBarHeight);
+        barHeight = Math.min(barHeight, maxBarHeight); // 限制最大高度，防止顶穿
+        barHeight = Math.max(barHeight, minBarHeight); // 限制最小高度，防止看不见
+
+        // 5. 计算柱子位置
         const barTop = isInflow ? (zeroLineY - barHeight) : zeroLineY;
-        
-        // 数值位置：固定安全距离，绝不挡标题
-        const valueTop = isInflow ? Math.max(barTop - 20, 8) : (zeroLineY - 20);
-        const textColor = isInflow ? '#f43f5e' : '#10b981';
-        const barColor = isInflow ? '#f43f5e' : '#10b981';
+
+        // 6. 动态计算数值位置（核心：彻底解决遮挡！）
+        let valueTop;
+        if (isInflow) {
+            // 流入：数值在柱子顶部上方，留固定安全间距
+            valueTop = barTop - valueSafeGap;
+            // 双重保护：确保数值不会顶到标题区域
+            valueTop = Math.max(valueTop, 8);
+        } else {
+            // 流出：数值固定在零轴线以上，绝对不被向下的柱子挡住
+            valueTop = zeroLineY - valueSafeGap;
+        }
+
+        // 7. 格式化数值（带正负号+亿单位，保留2位小数）
+        const displayVal = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
+        const barColor = isInflow ? '#ff4d4f' : '#36c666';
+        const textColor = isInflow ? '#ff4d4f' : '#36c666';
 
         html += `
-        <div style="flex:1; min-width:35px; height:100%; position:relative; display:flex; flex-direction:column; align-items:center;">
-            <!-- 数值：z-index置顶，绝不遮挡 -->
-            <div style="position:absolute; top:${valueTop}px; left:0; right:0; text-align:center; font-size:11px; color:${textColor}; font-weight:600; z-index:3; white-space:nowrap;">
-                ${isInflow ? '+' : ''}${item.netFlow.toFixed(2)}亿
+        <!-- 单根柱子+数值+日期模块 -->
+        <div style="flex:1; min-width:45px; height:100%; position:relative; display:flex; flex-direction:column; align-items:center;">
+            <!-- 数值：z-index置顶，永远不被遮挡 -->
+            <div style="position:absolute; top:${valueTop}px; left:0; right:0; text-align:center; 
+                       font-size:12px; color:${textColor}; font-weight:500; z-index:3; white-space:nowrap;">
+                ${displayVal}
             </div>
-            <!-- 柱子：圆角+顶部白线，层级最低 -->
-            <div style="position:absolute; width:16px; top:${barTop}px; height:${barHeight}px; background:${barColor}; border-radius:4px; border-top:1px solid #fff; z-index:1;"></div>
-            <!-- 日期：底部小字体 -->
-            <div style="position:absolute; bottom:0; left:0; right:0; text-align:center; font-size:10px; color:#666; z-index:2;">
+            <!-- 柱子：圆角+顶部白线，层级低于数值 -->
+            <div style="position:absolute; width:18px; top:${barTop}px; height:${barHeight}px; 
+                       background:${barColor}; border-radius:4px; border-top:1px solid #fff; z-index:1;"></div>
+            <!-- 日期：贴底居中，不被遮挡 -->
+            <div style="position:absolute; bottom:0; left:0; right:0; text-align:center; 
+                       font-size:11px; color:#666; z-index:2;">
                 ${item.date}
             </div>
         </div>
@@ -1906,8 +1933,9 @@ rtManualRefreshMarket() {
 
     html += `</div></div>`;
     container.innerHTML = html;
-    // 强制居中，无多余高度
-    container.style.cssText = "display:flex; justify-content:center; align-items:center; width:100%; padding:0; margin:0;";
+
+    // 8. 强制容器居中，确保布局稳定
+    container.style.cssText = "display:flex; justify-content:center; align-items:center; width:100%; min-height:320px;";
 },
 
   async renderIntradayFlowChart(secid) {
@@ -1999,14 +2027,20 @@ drawBdChart(container, data) {
 },
 
   async fetchIntradayFlow(secid) {
-    const url = `https://push2.eastmoney.com/api/qt/stock/fflow/trends2/get?secid=${secid}&fields1=f1,f2,f3&fields2=f51,f52&_=${Date.now()}`;
+    // 东方财富A股分时主力资金流官方接口（JSONP跨域兼容）
+    const url = `https://push2his.eastmoney.com/api/qt/stock/fflow/kline/get?lmt=240&secid=${secid}&fields1=f1&fields2=f51,f52&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(url, 'cb');
-        const trends = res?.data?.trends || [];
-        if (trends.length === 0) return null;
-        return trends.map(str => {
+        const klineData = res?.data?.klines || [];
+        if (klineData.length === 0) return null;
+
+        // 解析数据：时间、主力净流入（元→亿）
+        return klineData.map(str => {
             const parts = str.split(',');
-            return { time: parts[0], mainFlow: parseFloat(parts[1]) / 100000000 || 0 };
+            return {
+                time: parts[0] || '',
+                mainFlow: parseFloat(parts[1]) / 100000000 || 0
+            };
         });
     } catch (e) {
         console.error("获取分时资金流失败", e);

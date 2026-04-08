@@ -1443,7 +1443,7 @@ rtManualRefreshMarket() {
     });
 
     const secids = validList.map(item => item.querySecid).join(','); 
-    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f62&secids=${secids}&_=${Date.now()}`; 
+    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f62,f82&secids=${secids}&_=${Date.now()}`;
     container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>'; 
     
     try { 
@@ -1455,29 +1455,22 @@ rtManualRefreshMarket() {
         
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
-                let stockUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${item.querySecid}&fields=f43,f169,f170,f62&_=${Date.now()}`;
+                let stockUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${item.querySecid}&fields=f43,f169,f170,f62,f82&_=${Date.now()}`;
                 try {
                     let r = await fetchJSONP(stockUrl, 'cb');
                     let d = r?.data;
                     
-                    if (!d) {
-                        const parts = item.querySecid.split('.');
-                        if (parts.length === 2) {
-                            const otherPrefixes = ['0', '1', '2'].filter(p => p !== parts[0]);
-                            for (let p of otherPrefixes) {
-                                let retrySecid = `${p}.${parts[1]}`;
-                                let retryUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${retrySecid}&fields=f43,f169,f170,f62&_=${Date.now()}`;
-                                let r2 = await fetchJSONP(retryUrl, 'cb');
-                                if (r2?.data) {
-                                    d = r2.data;
-                                    item.querySecid = retrySecid;
-                                    let idx = this.data.marketGroups[groupKey].findIndex(m => m.code === item.code);
-                                    if(idx !== -1) this.data.marketGroups[groupKey][idx].secid = retrySecid;
-                                    this.saveData();
-                                    break;
-                                }
-                            }
-                        }
+                    if (d) {
+                    const parts = item.querySecid.split('.');
+                    dataList.push({
+                        f13: parseInt(parts[0]),
+                        f12: parts[1],
+                        f2: d.f43 !== '-' ? parseFloat(d.f43) : '-',
+                        f3: d.f170 !== '-' ? parseFloat(d.f170) : '-',
+                        f4: d.f169 !== '-' ? parseFloat(d.f169) : '-',
+                        f62: d.f62 !== '-' ? parseFloat(d.f62) : '-',
+                        f82: d.f82 !== '-' ? parseFloat(d.f82) : '-'
+                      });
                     }
 
                     if (d) {
@@ -1515,7 +1508,8 @@ rtManualRefreshMarket() {
 
             // 处理资金流向 (主力与散户双显)
             let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
-            let retailFlowAmt = -rawFlowAmt; // 散户净流入 = - 主力净流入
+            // 优先使用小单净流入 f82，如果不存在则使用 -主力净流入作为后备（通常不会出现）
+            let retailFlowAmt = (quote.f82 !== undefined && quote.f82 !== '-') ? parseFloat(quote.f82) : -rawFlowAmt;
 
             let flowDisplay = '';
             if (rawFlowAmt !== 0) {

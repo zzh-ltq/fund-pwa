@@ -264,6 +264,11 @@
       .page-view { position: relative; width: 100%; flex: 1; padding-bottom: 0; background: rgba(255,255,255,0.5); border-radius: 16px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.8); overflow: hidden; }
       .nav-bar { background: transparent; backdrop-filter: none; border: none;}
       .scroll-area { padding: 20px; }
+      
+      /* PC端市场列表双栏显示 */
+      .market-list-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+      .market-list-grid .list-item { margin-bottom: 0; }
+      
       @media (hover: hover) {
         .card:hover { transform: translateY(-4px) scale(1.01); box-shadow: var(--shadow-hover); border-color: var(--blue-light);}
         .l-row:hover:not(.starred-row) { background: #f8fafc; transform: scale(1.005); border-radius: 8px;}
@@ -344,7 +349,8 @@
             </div>
         </div>
 
-        <div id="market-watched-list"></div>
+      <div id="market-watched-list" class="market-list-grid"></div>
+      
     </div>
   </div>
 
@@ -1375,26 +1381,28 @@ const app = {
     this.renderWatchedMarkets(); 
   },
   
-  // 核心：处理残缺或错误的历史自选 secid
+  // 核心修复：精准处理残缺或错误的历史自选 secid
   getCorrectSecid(secid, code) {
+    // 1. 如果自带完整市场前缀(包含点号)，绝对信任原生数据
+    if (secid && secid.includes('.')) return secid;
+    
     if (!code) return secid;
     const c = code.toUpperCase();
     
+    // 板块
     if (c.startsWith('BK')) return `90.${c}`;
     
     if (/^\d{6}$/.test(c)) {
-      if (c.startsWith('98')) return `0.${c}`; // 国证指数
-      if (c.startsWith('000')) return `1.${c}`; // 上证指数
-      if (c.startsWith('399')) return `0.${c}`; // 深证指数
-      if (c.startsWith('6')) return `1.${c}`; // 沪市主板/科创
-      if (c.startsWith('0') || c.startsWith('3')) return `0.${c}`; // 深市/创业板
-      if (c.startsWith('8') || c.startsWith('4') || c.startsWith('92')) return `0.${c}`; // 北交所
+      // 6开头(沪市主板/科创)、9开头(部分指数) 归为上海 1.
+      if (c.startsWith('6') || c.startsWith('9')) return `1.${c}`;
+      // 0开头(深市主板, 包括000547等)、3开头(创业板) 归为深圳 0.
+      if (c.startsWith('0') || c.startsWith('3')) return `0.${c}`;
+      // 8开头、4开头 归为北交所 0.
+      if (c.startsWith('8') || c.startsWith('4')) return `0.${c}`;
     }
     
-    if (c.startsWith('H')) return `2.${c}`; // 中证指数等特殊情况
-    
-    // 如果自带完整市场前缀，优先信任
-    if (secid && secid.includes('.')) return secid;
+    // 特殊指数兜底
+    if (c.startsWith('H')) return `2.${c}`; 
     
     return `0.${c}`;
   },
@@ -1647,14 +1655,13 @@ const app = {
       } 
     } catch(e) { console.warn(e); } 
 
-   // --- 抓取实时资金流向 (在 refreshMarketDetail 函数内部) ---
+  // --- 抓取实时资金流向 (重写逻辑：强制优先使用 f62 官方汇总净额) ---
     const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f70,f76,f82,f139,f142,f145,f148&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(flowUrl, 'cb');
         const d = res?.data;
         const flowArea = document.getElementById('md-fund-flow-area');
         
-        // 只要能获取到超大单或主力数据就显示
         if (d && (d.f64 !== undefined || d.f139 !== undefined || d.f62 !== undefined)) {
             flowArea.style.display = 'block'; 
             
@@ -1664,8 +1671,14 @@ const app = {
             const mNet = parseFloat(d.f76) || parseFloat(d.f145) || 0;
             const sNet = parseFloat(d.f82) || parseFloat(d.f148) || 0;
             
-            // 【核心修复】：主力净流入 = 超大单 + 大单 (彻底解决主力为0的问题)
-            const mainNet = xlNet + lNet;
+            // 【核心修复】：对于板块(BK)，大中小单是特殊聚合值，绝对不能相加。
+            // 必须强制优先使用官方的主力净流汇总字段 f62。
+            let mainNet = 0;
+            if (d.f62 !== undefined && d.f62 !== '-') {
+                mainNet = parseFloat(d.f62);
+            } else {
+                mainNet = xlNet + lNet; // 仅在 f62 缺失时才使用加法兜底
+            }
             
             // 更新标题主力总净额
             const mainNetEl = document.getElementById('ff-main-net-title');

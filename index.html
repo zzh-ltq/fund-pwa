@@ -247,18 +247,25 @@
     .flow-val { width: 75px; text-align: right; font-weight: 900; font-size: 13px; white-space: nowrap; }
 
    /* ========== 新版历史资金双向柱状图 (Flexbox防遮挡布局) ========== */
-    .hist-flow-wrap {
+
+    /* 资金流模块容器 */
+#ff-history-chart, #ff-intraday-chart {
+    width: 100%;
+    min-height: 260px;
     display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    height: 220px;
-    margin-top: 15px;
-    position: relative;
-    background: #ffffff;
-    border-radius: 12px;
-    padding: 10px 5px 20px 5px;
-    box-shadow: var(--shadow-sm);
+    justify-content: center;
+    align-items: center;
+    box-sizing: border-box;
+    padding: 12px 0;
 }
+
+/* 历史图柱子容器 */
+.hist-flow-wrap {
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
 .hist-col {
     flex: 1;
     display: flex;
@@ -1842,10 +1849,10 @@ rtManualRefreshMarket() {
                 return { date: parts[0].slice(5), netFlow: parseFloat(parts[1]) || 0 };
             });
             this.renderFundFlowChart(flowData);
-        // 修复：强制延迟渲染分时图，确保容器已加载
+            // 延迟渲染分时图，确保DOM完全加载
             setTimeout(() => {
                 this.renderIntradayFlowChart(secid);
-            }, 100);
+            }, 150);
         }
     } catch(e) {}
 
@@ -1899,39 +1906,63 @@ rtManualRefreshMarket() {
    renderFundFlowChart(data) {
     const container = document.getElementById('ff-history-chart');
     if (!container || !data || data.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">暂无历史资金数据</div>';
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无历史资金数据</div>';
         return;
     }
 
+    // 1. 计算最大绝对值，统一柱子高度比例
     const maxAbs = Math.max(...data.map(d => Math.abs(d.netFlow)), 0.01);
-    const maxHeightPercent = 75;
-    let html = `<div class="hist-flow-wrap" style="padding:12px 6px; background:#fafbfc; border:1px solid #e2e8f0;">
-        <div class="hist-zero-line" style="top:50%;"></div>`;
+    const maxHeight = 120; // 最大柱高，适配容器
+    const zeroLineY = 100; // 零轴线Y坐标，居中
+
+    // 2. 构建HTML结构，完全还原目标样式
+    let html = `
+    <div style="width: 100%; max-width: 600px; margin: 0 auto; padding: 16px; box-sizing: border-box;">
+        <div style="position: relative; height: 220px; display: flex; align-items: flex-end; justify-content: space-around; gap: 4px;">
+            <!-- 零轴线 -->
+            <div style="position: absolute; left: 0; right: 0; top: ${zeroLineY}px; height: 1px; background: #dcdcdc; z-index: 1;"></div>
+    `;
 
     data.forEach(item => {
-        const isPos = item.netFlow >= 0;
+        const isInflow = item.netFlow > 0;
         const absVal = Math.abs(item.netFlow);
-        let barHeightPercent = (absVal / maxAbs) * maxHeightPercent;
-        barHeightPercent = Math.min(barHeightPercent, 75);
-        barHeightPercent = Math.max(barHeightPercent, 3);
-
-        const displayVal = (item.netFlow > 0 ? '+' : '') + this.formatFlowAmt(item.netFlow);
-        const barClass = `hist-bar ${isPos ? 'up' : 'down'}`;
-        const barStyle = isPos 
-            ? `height: ${barHeightPercent}%;`
-            : `height: ${barHeightPercent}%; align-self:flex-start;`;
+        // 计算柱高：流入向上，流出向下
+        const barHeight = (absVal / maxAbs) * maxHeight;
+        const barTop = isInflow ? (zeroLineY - barHeight) : zeroLineY;
+        // 格式化数值，保留2位小数，带正负号
+        const formatVal = (val) => {
+            const abs = Math.abs(val);
+            let str = abs >= 10000 ? `${(abs/10000).toFixed(2)}亿` : `${abs.toFixed(2)}万`;
+            return val > 0 ? `+${str}` : `-${str}`;
+        };
+        const displayVal = formatVal(item.netFlow);
+        // 柱子样式：流入红色，流出绿色，圆角
+        const barColor = isInflow ? '#ff4d4f' : '#36c666';
+        const textColor = isInflow ? '#ff4d4f' : '#36c666';
 
         html += `
-        <div class="hist-col" style="padding:0 2px;">
-            <div class="hist-value ${isPos ? 'up' : 'down'}" style="font-size:9px; margin-bottom:4px;">${displayVal}</div>
-            <div class="hist-bar-container" style="height:100%;">
-                <div class="${barClass}" style="${barStyle}"></div>
+        <!-- 单根柱子+日期+数值 -->
+        <div style="display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 30px;">
+            <!-- 数值 -->
+            <div style="font-size: 11px; color: ${textColor}; margin-bottom: 4px; height: 16px; line-height: 16px;">${displayVal}</div>
+            <!-- 柱子容器 -->
+            <div style="position: relative; width: 16px; height: ${maxHeight}px;">
+                <div style="position: absolute; left: 0; right: 0; top: ${barTop}px; height: ${barHeight}px; background: ${barColor}; border-radius: 4px;"></div>
             </div>
-            <div class="hist-date" style="font-size:9px; margin-top:6px;">${item.date}</div>
-        </div>`;
+            <!-- 日期 -->
+            <div style="font-size: 11px; color: #666; margin-top: 8px; height: 16px; line-height: 16px;">${item.date}</div>
+        </div>
+        `;
     });
-    html += `</div>`;
+
+    html += `
+        </div>
+    </div>
+    `;
     container.innerHTML = html;
+    container.style.display = 'flex';
+    container.style.justifyContent = 'center';
+    container.style.alignItems = 'center';
 },
 
   async renderIntradayFlowChart(secid) {
@@ -1946,121 +1977,93 @@ rtManualRefreshMarket() {
         return;
     }
 
-    // 修复：强制重建 canvas，确保尺寸正确
-    container.innerHTML = `<div style="width:100%; height:200px; position:relative;">
-        <canvas id="ff-canvas" style="width:100%; height:100%; display:block;"></canvas>
-    </div>`;
+    // 重建canvas容器，确保尺寸正确
+    container.innerHTML = `
+    <div style="width: 100%; max-width: 600px; margin: 0 auto; padding: 16px; box-sizing: border-box;">
+        <canvas id="intraday-flow-canvas" style="width: 100%; height: 280px; display: block;"></canvas>
+    </div>
+    `;
 
-    // 等待 DOM 渲染完成再画图
+    // 等待DOM渲染完成后画图
     setTimeout(() => {
-        const canvas = document.getElementById('ff-canvas');
-        if (canvas) this.drawIntradayFlowCanvas(canvas, data);
-    }, 50);
-},
+        const canvas = document.getElementById('intraday-flow-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
 
-drawIntradayFlowCanvas(canvas, data) {
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) {
-        // 如果尺寸为0，延迟重试
-        setTimeout(() => this.drawIntradayFlowCanvas(canvas, data), 100);
-        return;
-    }
-    
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-    
-    const w = rect.width, h = rect.height;
-    const pad = { l: 45, r: 25, t: 10, b: 25 };
-    const dw = w - pad.l - pad.r;
-    const dh = h - pad.t - pad.b;
-    
-    const flows = data.map(d => d.mainFlow);
-    const maxFlow = Math.max(...flows, 0);
-    const minFlow = Math.min(...flows, 0);
-    const range = Math.max(maxFlow - minFlow, 0.01);
-    const getY = val => pad.t + dh - ((val - minFlow) / range) * dh;
-    
-    // 清空画布
-    ctx.clearRect(0, 0, w, h);
-    
-    // 绘制背景网格
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 0.5;
-    for (let i = 0; i <= 4; i++) {
-        let y = pad.t + (i / 4) * dh;
-        ctx.beginPath();
-        ctx.moveTo(pad.l, y);
-        ctx.lineTo(w - pad.r, y);
-        ctx.stroke();
-        let val = minFlow + ((4 - i) / 4) * range;
-        ctx.fillStyle = '#64748b';
-        ctx.font = '10px sans-serif';
+        // 适配高清屏，避免模糊
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+
+        const width = rect.width;
+        const height = rect.height;
+        const padding = { top: 20, right: 40, bottom: 30, left: 60 };
+        const chartWidth = width - padding.left - padding.right;
+        const chartHeight = height - padding.top - padding.bottom;
+
+        // 计算数据范围
+        const values = data.map(d => d.mainFlow);
+        const maxVal = Math.max(...values, 0);
+        const minVal = Math.min(...values, 0);
+        const range = maxVal - minVal || 1;
+
+        // 绘制Y轴刻度（目标图样式：0.00/24/48/72/96亿）
+        ctx.strokeStyle = '#e5e5e5';
+        ctx.fillStyle = '#999';
+        ctx.font = '12px sans-serif';
         ctx.textAlign = 'right';
-        ctx.fillText(this.formatFlowAmt(val), pad.l - 5, y + 3);
-    }
-    
-    // 绘制零线
-    const zeroY = getY(0);
-    ctx.beginPath();
-    ctx.moveTo(pad.l, zeroY);
-    ctx.lineTo(w - pad.r, zeroY);
-    ctx.strokeStyle = '#94a3b8';
-    ctx.setLineDash([4, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    
-    // 绘制曲线
-    const step = dw / (data.length - 1);
-    ctx.beginPath();
-    for (let i = 0; i < data.length; i++) {
-        let x = pad.l + i * step;
-        let y = getY(flows[i]);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    
-    // 绘制填充区域
-    ctx.beginPath();
-    for (let i = 0; i < data.length; i++) {
-        let x = pad.l + i * step;
-        let y = getY(flows[i]);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    }
-    ctx.lineTo(pad.l + (data.length - 1) * step, zeroY);
-    ctx.lineTo(pad.l, zeroY);
-    ctx.closePath();
-    const grd = ctx.createLinearGradient(0, zeroY, 0, h - pad.b);
-    grd.addColorStop(0, 'rgba(245,158,11,0.3)');
-    grd.addColorStop(1, 'rgba(245,158,11,0.02)');
-    ctx.fillStyle = grd;
-    ctx.fill();
-    
-    // 绘制时间轴标签
-    const timeStep = Math.ceil(data.length / 6);
-    ctx.fillStyle = '#64748b';
-    ctx.font = '9px sans-serif';
-    ctx.textAlign = 'center';
-    for (let i = 0; i < data.length; i += timeStep) {
-        let x = pad.l + i * step;
-        let timeLabel = data[i].time.slice(0, 5);
-        ctx.fillText(timeLabel, x, h - pad.b + 12);
-    }
+        ctx.textBaseline = 'middle';
+
+        const yTicks = [96, 72, 48, 24, 0].map(v => v * 100000000); // 转换为元
+        yTicks.forEach((val, i) => {
+            const y = padding.top + chartHeight * (1 - (val - minVal) / range);
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(width - padding.right, y);
+            ctx.stroke();
+            ctx.fillText(`${(val/100000000).toFixed(2)}亿`, padding.left - 8, y);
+        });
+
+        // 绘制X轴时间刻度（09:30/11:30/13:00/15:00）
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const xTicks = [
+            { index: 0, label: '09:30' },
+            { index: Math.floor(data.length/3), label: '11:30' },
+            { index: Math.floor(data.length/2), label: '13:00' },
+            { index: data.length-1, label: '15:00' }
+        ];
+        xTicks.forEach(tick => {
+            const x = padding.left + (tick.index / (data.length-1)) * chartWidth;
+            ctx.fillText(tick.label, x, height - padding.bottom + 8);
+        });
+
+        // 绘制蓝色折线（目标图样式）
+        ctx.strokeStyle = '#4080ff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        data.forEach((d, i) => {
+            const x = padding.left + (i / (data.length-1)) * chartWidth;
+            const y = padding.top + chartHeight * (1 - (d.mainFlow - minVal) / range);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+    }, 100);
 },
 
   async fetchIntradayFlow(secid) {
+    // 东方财富分时资金流正确接口
     const url = `https://push2.eastmoney.com/api/qt/stock/fflow/trends2/get?secid=${secid}&fields1=f1,f2,f3&fields2=f51,f52&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(url, 'cb');
         const trends = res?.data?.trends || [];
         if (trends.length === 0) return null;
 
+        // 解析数据：时间、主力净流入
         return trends.map(str => {
             const parts = str.split(',');
             return {

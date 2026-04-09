@@ -256,8 +256,8 @@
       .nav-bar { background: transparent; backdrop-filter: none; border: none;}
       .scroll-area { padding: 20px; }
       
-      /* PC端市场列表双栏显示 */
-      .market-list-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+      /* PC端市场列表三栏显示 */
+      .market-list-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
       .market-list-grid .list-item { margin-bottom: 0; }
       
       @media (hover: hover) {
@@ -1463,7 +1463,7 @@ rtManualRefreshMarket() {
         const res = await fetchJSONP(url, 'cb'); 
         let dataList = res?.data?.diff || []; 
 
-        // 核心修复1：将返回了 "-" (无效价格) 的项也视为丢失，强制进入备用纠错拉取逻辑
+        // 找出请求失败或返回 "-" 的顽固指数
         const missingItems = validList.filter(item => {
             const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.querySecid);
             return !quote || quote.f2 === '-' || quote.f2 === undefined;
@@ -1471,47 +1471,43 @@ rtManualRefreshMarket() {
         
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
-                let stockUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${item.querySecid}&fields=f43,f169,f170,f62,f82&_=${Date.now()}`;
-                try {
-                    let r = await fetchJSONP(stockUrl, 'cb');
-                    let d = r?.data;
-                    
-                    // 核心修复2：【指数前缀自愈机制】如果数据依然无效，尝试反转前缀(0改1，1改0)再次请求
-                    if ((!d || d.f43 === '-') && groupKey === 'index' && item.querySecid.includes('.')) {
-                        let parts = item.querySecid.split('.');
-                        let newPrefix = parts[0] === '1' ? '0' : '1';
-                        let newSecid = `${newPrefix}.${parts[1]}`;
-                        let retryUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${newSecid}&fields=f43,f169,f170,f62,f82&_=${Date.now()}`;
+                let d = null;
+                // 终极前缀自愈遍历：0(深市), 1(沪市), 2(跨市场/港股), 90(板块)
+                const possiblePrefixes = ['0', '1', '2', '90'];
+                
+                for (let prefix of possiblePrefixes) {
+                    let newSecid = `${prefix}.${item.code}`;
+                    let retryUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${newSecid}&fields=f43,f169,f170,f62,f82&_=${Date.now()}`;
+                    try {
                         let r2 = await fetchJSONP(retryUrl, 'cb');
-                        
                         if (r2?.data && r2.data.f43 !== '-') {
                             d = r2.data;
-                            item.querySecid = newSecid; // 纠正为正确的 secid
+                            item.querySecid = newSecid; 
                             
-                            // 永久修复本地缓存，下次直接秒开
+                            // 永久保存正确的 secid，下次秒开
                             const targetItem = this.data.marketGroups[groupKey].find(m => m.code === item.code);
                             if (targetItem) {
                                 targetItem.secid = newSecid;
                                 this.saveData();
                             }
+                            break; // 找到了就跳出循环
                         }
-                    }
+                    } catch(e) {}
+                }
 
-                    if (d && d.f43 !== '-') {
-                        const parts = item.querySecid.split('.');
-                        // 剔除旧的无效占位数据
-                        dataList = dataList.filter(x => !(`${x.f13}.${x.f12}` === item.querySecid));
-                        dataList.push({
-                            f13: parseInt(parts[0]),
-                            f12: parts[1],
-                            f2: d.f43 !== '-' ? parseFloat(d.f43) : '-',
-                            f3: d.f170 !== '-' ? parseFloat(d.f170) : '-',
-                            f4: d.f169 !== '-' ? parseFloat(d.f169) : '-',
-                            f62: d.f62 !== '-' ? parseFloat(d.f62) : '-',
-                            f82: d.f82 !== '-' ? parseFloat(d.f82) : '-'
-                        });
-                    }
-                } catch(e) {}
+                if (d && d.f43 !== '-') {
+                    const parts = item.querySecid.split('.');
+                    dataList = dataList.filter(x => !(`${x.f13}.${x.f12}` === item.querySecid));
+                    dataList.push({
+                        f13: parseInt(parts[0]),
+                        f12: parts[1],
+                        f2: d.f43 !== '-' ? parseFloat(d.f43) : '-',
+                        f3: d.f170 !== '-' ? parseFloat(d.f170) : '-',
+                        f4: d.f169 !== '-' ? parseFloat(d.f169) : '-',
+                        f62: d.f62 !== '-' ? parseFloat(d.f62) : '-',
+                        f82: d.f82 !== '-' ? parseFloat(d.f82) : '-'
+                    });
+                }
             }));
         }
         
@@ -1519,23 +1515,18 @@ rtManualRefreshMarket() {
             const parts = item.querySecid.split('.');
             const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
             
-            let price = quote.f2; 
-            if (price === undefined || price === null || price === '-') price = '--'; 
-            else price = typeof price === 'number' ? price.toFixed(2) : price; 
-            
+            let price = quote.f2 !== undefined && quote.f2 !== '-' ? quote.f2.toFixed(2) : '--'; 
             let chgRate = '--', chgVal = '--'; 
             let rawChgRate = -999999;
-            if (quote.f3 !== undefined && quote.f3 !== null && quote.f3 !== '-') {
+            if (quote.f3 !== undefined && quote.f3 !== '-') {
                 chgRate = parseFloat(quote.f3).toFixed(2);
                 rawChgRate = parseFloat(quote.f3);
             }
-            if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') {
+            if (quote.f4 !== undefined && quote.f4 !== '-') {
                 chgVal = parseFloat(quote.f4).toFixed(2);
             }
 
             let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
-            let retailFlowAmt = (quote.f82 !== undefined && quote.f82 !== '-') ? parseFloat(quote.f82) : -rawFlowAmt;
-
             let flowDisplay = '';
             if (rawFlowAmt !== 0) {
                 let mainCol = rawFlowAmt > 0 ? 'red' : 'green';
@@ -1566,23 +1557,17 @@ rtManualRefreshMarket() {
                     </div>
                 </div>
             </div>`; 
-            
             return { html, rawChgRate, rawFlowAmt, originalIndex: index };
         }); 
 
         renderItems.sort((a, b) => {
-            if (this.marketSortRule === 'chg') {
-                return this.marketSortDir === 'desc' ? b.rawChgRate - a.rawChgRate : a.rawChgRate - b.rawChgRate;
-            } else if (this.marketSortRule === 'flow') {
-                return this.marketSortDir === 'desc' ? b.rawFlowAmt - a.rawFlowAmt : a.rawFlowAmt - b.rawFlowAmt;
-            } else {
-                return a.originalIndex - b.originalIndex; 
-            }
+            if (this.marketSortRule === 'chg') return this.marketSortDir === 'desc' ? b.rawChgRate - a.rawChgRate : a.rawChgRate - b.rawChgRate;
+            else if (this.marketSortRule === 'flow') return this.marketSortDir === 'desc' ? b.rawFlowAmt - a.rawFlowAmt : a.rawFlowAmt - b.rawFlowAmt;
+            else return a.originalIndex - b.originalIndex; 
         });
 
         container.innerHTML = renderItems.map(i => i.html).join(''); 
     } catch(e) { 
-        console.error("渲染失败:", e); 
         container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败或数据解析异常</div>'; 
     } 
   },
@@ -1673,9 +1658,12 @@ rtManualRefreshMarket() {
   async refreshMarketDetail() { 
     const secid = this.marketState.currentSecid; 
     if (!secid) return; 
-    document.getElementById('md-fund-flow-area').style.display = 'none'; 
     
-    // --- 抓取基本行情 ---
+    // 修复：不要直接隐藏整个流向区域，等待接口判定
+    const flowArea = document.getElementById('md-fund-flow-area');
+    flowArea.style.display = 'none'; 
+    
+    // --- 1. 抓取基本行情 ---
     const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f60,f104,f105,f169,f170&_=${Date.now()}`; 
     try { 
       const res = await fetchJSONP(pkUrl, 'cb'); 
@@ -1688,7 +1676,6 @@ rtManualRefreshMarket() {
         if (d.f170 !== undefined && d.f170 !== '-' && !isNaN(d.f170)) chgRate = parseFloat(d.f170).toFixed(2); 
         const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green'; 
         
-        // 核心修复3：如果接口缺失 f60 (昨收)，则通过 当前价 - 涨跌额 倒推昨收，避免后面图表计算除以0
         const prevCloseRaw = parseFloat(d.f60);
         let calculatedPrev = (!isNaN(curPrice) && chgVal !== '--') ? (curPrice - parseFloat(chgVal)) : 0;
         this.marketState.currentPrevClose = (!isNaN(prevCloseRaw) && prevCloseRaw > 0) ? prevCloseRaw : calculatedPrev;
@@ -1711,7 +1698,6 @@ rtManualRefreshMarket() {
         document.getElementById('md-high').innerText = fmt(d.f44); 
         document.getElementById('md-open').innerText = fmt(d.f46); 
         document.getElementById('md-low').innerText = fmt(d.f45); 
-        // 界面上也显示倒推或真实的昨收价
         document.getElementById('md-prev').innerText = this.marketState.currentPrevClose > 0 ? this.marketState.currentPrevClose.toFixed(2) : '--'; 
         document.getElementById('md-vol').innerText = fmtVol(d.f47); 
         document.getElementById('md-amt').innerText = fmtVol(d.f48); 
@@ -1728,15 +1714,13 @@ rtManualRefreshMarket() {
         const dTime = new Date(); 
         document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
       } 
-    } catch(e) { console.warn(e); } 
+    } catch(e) {} 
 
-    // --- 抓取实时资金流向 ---
+    // --- 2. 抓取实时资金流向 ---
     const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f70,f76,f82,f139,f142,f145,f148&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(flowUrl, 'cb');
         const d = res?.data;
-        const flowArea = document.getElementById('md-fund-flow-area');
-        
         if (d && (d.f64 !== undefined || d.f139 !== undefined || d.f62 !== undefined)) {
             flowArea.style.display = 'block'; 
             const xlNet = parseFloat(d.f64) || parseFloat(d.f139) || 0;
@@ -1762,30 +1746,26 @@ rtManualRefreshMarket() {
                 <div class="flow-row">
                     <span class="flow-label">${label}</span>
                     <div class="flow-bar-container">
-                        <div class="flow-bar-left">
-                            ${!isPos ? `<div class="f-bar green" style="width: ${pct}%;"></div>` : ''}
-                        </div>
-                        <div class="flow-bar-right">
-                            ${isPos ? `<div class="f-bar red" style="width: ${pct}%;"></div>` : ''}
-                        </div>
+                        <div class="flow-bar-left">${!isPos ? `<div class="f-bar green" style="width: ${pct}%;"></div>` : ''}</div>
+                        <div class="flow-bar-right">${isPos ? `<div class="f-bar red" style="width: ${pct}%;"></div>` : ''}</div>
                     </div>
                     <span class="flow-val ${colorCls}">${sign}${this.formatFlowAmt(val)}</span>
                 </div>`;
             };
-
-            document.getElementById('ff-daily-breakdown').innerHTML = 
-                buildRow('超大单', xlNet) + buildRow('大单', lNet) + buildRow('中单', mNet) + buildRow('小单', sNet);
+            document.getElementById('ff-daily-breakdown').innerHTML = buildRow('超大单', xlNet) + buildRow('大单', lNet) + buildRow('中单', mNet) + buildRow('小单', sNet);
         } else {
-            flowArea.style.display = 'none'; 
+            // 如果没实时明细，清空提示
+            document.getElementById('ff-daily-breakdown').innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">暂无今日资金明细</div>';
         }
     } catch(e) {}
 
-    // --- 抓取历史10天主力资金流向 ---
+    // --- 3. 抓取历史10天主力资金流向 ---
     const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=10&secid=${secid}&fields1=f1&fields2=f51,f52&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(hisFlowUrl, 'cb');
         const klines = res?.data?.klines;
         if (klines && klines.length > 0) {
+            flowArea.style.display = 'block'; // 只要有历史数据，就显示整个区域
             const flowData = klines.map(str => {
                 const parts = str.split(',');
                 return { date: parts[0].slice(5), netFlow: parseFloat(parts[1]) || 0 };
@@ -1795,14 +1775,12 @@ rtManualRefreshMarket() {
         }
     } catch(e) {}
 
-    // --- 绘制图表所需数据 ---
+    // --- 4. 抓取走势图数据并补齐缺失的顶部数据 ---
     if (this.marketState.chartType === 'trend') { 
       const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`; 
       try { 
         const res = await fetchJSONP(trendUrl, 'cb'); 
         const trends = res?.data?.trends || []; 
-        
-        // 核心修复4：优先使用 trends 接口官方返回的昨收价 prePrice，避免由于 0 导致的 NaN
         const prePrice = res?.data?.prePrice;
         let finalPrevClose = (prePrice && !isNaN(prePrice) && prePrice > 0) ? prePrice : this.marketState.currentPrevClose;
         
@@ -1812,9 +1790,35 @@ rtManualRefreshMarket() {
             return { time: parts[0], price: parseFloat(parts[1]) || 0, avgPrice: parseFloat(parts[2]) || 0, volume: parseInt(parts[5] || 0) }; 
           }); 
           
-          // 如果到这里 finalPrevClose 依然是0 (极端异常情况)，则强制使用当天第一笔交易价作为基准防崩溃
-          if (finalPrevClose <= 0 && parsed.length > 0) {
-              finalPrevClose = parsed[0].price || 1; 
+          if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].price || 1;
+
+          // 核心修复：如果前面的基础接口没拿到数据(显示'--')，就用走势图数据“倒推”计算补上
+          const curPriceText = document.getElementById('md-price').innerText;
+          if (curPriceText === '--' || curPriceText === 'NaN') {
+               let validPrices = parsed.map(p => p.price).filter(p => p > 0);
+               if (validPrices.length > 0) {
+                   let latest = validPrices[validPrices.length - 1];
+                   let high = Math.max(...validPrices);
+                   let low = Math.min(...validPrices);
+                   let open = validPrices[0];
+                   let chgVal = latest - finalPrevClose;
+                   let chgRate = (chgVal / finalPrevClose) * 100;
+                   let col = chgRate >= 0 ? 'red' : 'green';
+
+                   document.getElementById('md-price').innerText = latest.toFixed(2);
+                   document.getElementById('md-price').className = col;
+                   document.getElementById('md-chg-val').innerText = (chgVal > 0 ? '+' : '') + chgVal.toFixed(2);
+                   document.getElementById('md-chg-val').className = col;
+                   document.getElementById('md-chg-rate').innerText = (chgRate > 0 ? '+' : '') + chgRate.toFixed(2) + '%';
+                   document.getElementById('md-chg-rate').className = col;
+
+                   document.getElementById('md-high').innerText = high.toFixed(2);
+                   document.getElementById('md-low').innerText = low.toFixed(2);
+                   document.getElementById('md-open').innerText = open.toFixed(2);
+                   document.getElementById('md-prev').innerText = finalPrevClose.toFixed(2);
+                   const dTime = new Date(); 
+                   document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`;
+               }
           }
 
           this.marketChartData = { 
@@ -1844,7 +1848,6 @@ rtManualRefreshMarket() {
             const parts = str.split(','); 
             return { date: parts[0], open: parseFloat(parts[1]) || 0, close: parseFloat(parts[2]) || 0, high: parseFloat(parts[3]) || 0, low: parseFloat(parts[4]) || 0, volume: parseInt(parts[5] || 0) }; 
           }); 
-          
           if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].close || 1;
 
           const calcMA = (data, days) => { 

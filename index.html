@@ -353,7 +353,7 @@
         <div id="mkt-sort-dir-btn" class="sort-dir-btn active" onclick="app.toggleMarketSortDir()">降序 ↓</div>
         <select id="mkt-sort-rule" class="sort-rule" onchange="app.setMarketSortRule()">
           <option value="default">默认添加顺序</option>
-          <option value="chg">按涨跌幅</option>
+          <option value="chg" selected>按涨跌幅</option>
           <option value="flow">按主力净流入</option>
         </select>
       </div>
@@ -393,6 +393,17 @@
 
   <!-- 弹窗:板块选择 -->
   <div id="modal-sector-select" class="modal-view" style="justify-content:flex-end;" onclick="app.closeOutside(event, 'sector-select')"><div style="background:var(--surface-color); border-radius:20px 20px 0 0; padding:20px 15px; min-height:40vh; border: 1px solid rgba(255,255,255,0.4);" onclick="app.stopProp(event)"><div style="display:flex; justify-content:space-between; margin-bottom:12px; font-weight:800; font-size: 14px;"><span>选择板块 (最多2个)</span><span style="color:#94a3b8; cursor:pointer; font-size: 16px;" onclick="app.closeModal('sector-select')">✕</span></div><div id="sector-select-list" class="tabs-scroll" style="flex-wrap:wrap; white-space:normal; gap:8px; cursor:auto;"></div></div></div>
+
+  <!-- 弹窗:行情绑定分组 -->
+  <div id="modal-market-group-select" class="modal-view" style="justify-content:flex-end;" onclick="app.closeOutside(event, 'market-group-select')">
+    <div style="background:var(--surface-color); border-radius:20px 20px 0 0; padding:20px 15px; min-height:35vh; border: 1px solid rgba(255,255,255,0.4);" onclick="app.stopProp(event)">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px; font-weight:800; font-size: 14px;">
+        <span>绑定基金分组 (单选)</span>
+        <span style="color:#94a3b8; cursor:pointer; font-size: 16px;" onclick="app.closeModal('market-group-select')">✕</span>
+      </div>
+      <div id="market-group-select-list" class="tabs-scroll" style="flex-wrap:wrap; white-space:normal; gap:8px; cursor:auto;"></div>
+    </div>
+  </div>
 
   <!-- 弹窗:基金搜索 -->
   <div id="modal-search" class="modal-view" onclick="app.closeOutside(event, 'search')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%; border-radius: 14px; padding: 6px 12px;"><div class="nav-btn" style="background:none; box-shadow:none; color: var(--text-sub);" onclick="app.closeModal('search')">取消</div></div><div class="scroll-area" id="search-results"></div></div></div>
@@ -582,9 +593,9 @@ const app = {
     ]
   },
 
-  // 1. 新增全局状态 (在 app 对象开头的数据区域补充)
-  marketSortRule: 'default', // default | chg | flow
-  marketSortDir: 'desc',     // desc | asc
+  marketSortRule: 'chg',     // 默认改为按涨跌幅排序
+  marketSortDir: 'desc',     // 降序
+  targetMarketSecid: '',     // 新增：用于记录当前正在绑定分组的行情代码
 
   // 1. 确保这个金额格式化函数存在 (如果之前漏了，这次补上)
   formatFlowAmt(val) {
@@ -1441,7 +1452,8 @@ rtManualRefreshMarket() {
     return `0.${c}`;
   },
 
-   async renderWatchedMarkets() { 
+   // --- 1. 完全替换 renderWatchedMarkets 函数 ---
+  async renderWatchedMarkets() { 
     const groupKey = this.currentMarketGroup; 
     const list = this.data.marketGroups[groupKey] || []; 
     const container = document.getElementById('market-watched-list'); 
@@ -1463,7 +1475,6 @@ rtManualRefreshMarket() {
         const res = await fetchJSONP(url, 'cb'); 
         let dataList = res?.data?.diff || []; 
 
-        // 揪出没有返回有效价格的顽固分子（失效的指数/板块）
         const missingItems = validList.filter(item => {
             const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.querySecid);
             return !quote || quote.f2 === '-' || quote.f2 === undefined;
@@ -1471,28 +1482,24 @@ rtManualRefreshMarket() {
         
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
-                // 终极自愈逻辑：提取纯净代码，同时拼接 4 种可能的市场前缀，进行地毯式并发查询
                 let rawCode = item.querySecid.includes('.') ? item.querySecid.split('.')[1] : item.querySecid;
                 let testSecids = `0.${rawCode},1.${rawCode},2.${rawCode},90.${rawCode}`;
                 let testUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f62,f82&secids=${testSecids}&_=${Date.now()}`;
                 
                 try {
                     let r2 = await fetchJSONP(testUrl, 'cb');
-                    // 找出批量查询中，唯一带有有效价格(f2)的那个正确标的
                     let validQuote = (r2?.data?.diff || []).find(d => d.f2 !== '-' && d.f2 !== undefined);
                     
                     if (validQuote) {
                         let correctSecid = `${validQuote.f13}.${validQuote.f12}`;
                         item.querySecid = correctSecid; 
                         
-                        // 永久修复本地数据库的 secid 前缀，下次秒开
                         const targetItem = this.data.marketGroups[groupKey].find(m => m.code === item.code);
                         if (targetItem) {
                             targetItem.secid = correctSecid;
                             this.saveData();
                         }
                         
-                        // 剔除旧的无效数据，装填正确数据
                         dataList = dataList.filter(x => x.f12 !== validQuote.f12);
                         dataList.push(validQuote);
                     }
@@ -1529,12 +1536,27 @@ rtManualRefreshMarket() {
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
             const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
             
+            // --- 核心修改：生成分组绑定标签 UI ---
+            let groupTagHtml = '';
+            let boundGroup = item.bindGroup ? this.data.groups.find(g => g.id === item.bindGroup) : null;
+            if (boundGroup) {
+                // 已绑定分组：显示蓝色标签（点击跳转），以及一个小的重选按钮
+                groupTagHtml = `
+                    <span class="c-tag" style="background:var(--blue); color:#fff; cursor:pointer; box-shadow: 0 2px 6px rgba(0,102,255,0.2);" onclick="app.jumpToFundGroup(event, '${boundGroup.id}')">📂 ${boundGroup.name}</span>
+                    <span class="c-tag" style="background:#f1f5f9; color:#94a3b8; cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}')">🔄</span>
+                `;
+            } else {
+                // 未绑定分组：显示类似基金界面的 + 分组 虚线按钮
+                groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}')">+ 分组</span>`;
+            }
+
             const html = `<div class="list-item" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')">
                 <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
                 <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:2px;">
-                    <div style="display:flex; align-items:center; gap:8px;">
+                    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px;">
                         <div style="font-weight:800; font-size:16px;">${item.name}</div>
                         <div style="font-size:11px; font-weight:700; color:#64748b; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${item.code || ''}</div>
+                        ${groupTagHtml}
                     </div>
                     ${flowDisplay}
                 </div>
@@ -1559,6 +1581,59 @@ rtManualRefreshMarket() {
     } catch(e) { 
         container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求失败或数据解析异常</div>'; 
     } 
+  },
+
+
+  // --- 2. 新增：打开行情绑定分组弹窗 ---
+  openMarketGroupSelect(e, secid) {
+      this.stopProp(e);
+      this.targetMarketSecid = secid;
+      const groupKey = this.currentMarketGroup;
+      const marketItem = this.data.marketGroups[groupKey].find(m => m.secid === secid || m.querySecid === secid);
+
+      // 渲染已有分组列表
+      let html = this.data.groups.map(g => {
+          let isSel = marketItem && marketItem.bindGroup === g.id;
+          return `<div class="action-pill ${isSel ? 'active' : ''}" onclick="app.bindMarketToGroup(event, '${g.id}')">${g.name}</div>`;
+      }).join('');
+      
+      // 增加一个清除绑定的按钮
+      html += `<div class="action-pill" style="background:#fff1f2; color:var(--red); border: 1px solid #ffe4e6;" onclick="app.bindMarketToGroup(event, null)">取消绑定</div>`;
+
+      document.getElementById('market-group-select-list').innerHTML = html;
+      this.openModal('market-group-select');
+  },
+
+  // --- 3. 新增：执行绑定/解绑行情到分组 ---
+  bindMarketToGroup(e, groupId) {
+      this.stopProp(e);
+      const groupKey = this.currentMarketGroup;
+      const marketItem = this.data.marketGroups[groupKey].find(m => m.secid === this.targetMarketSecid || m.querySecid === this.targetMarketSecid);
+      
+      if (marketItem) {
+          if (groupId === null) {
+              delete marketItem.bindGroup;
+              this.showToast('已取消绑定');
+          } else {
+              marketItem.bindGroup = groupId;
+              this.showToast('绑定分组成功');
+          }
+          this.saveData(); // 保存到本地存储
+          this.renderWatchedMarkets(); // 重新渲染列表刷新UI
+      }
+      this.closeModal('market-group-select');
+  },
+
+  // --- 4. 新增：点击已绑定的标签，跳转到自选页对应的分组 ---
+  jumpToFundGroup(e, groupId) {
+      this.stopProp(e);
+      const groupExists = this.data.groups.some(g => g.id === groupId);
+      if (!groupExists) {
+          this.showToast('该分组已不存在', 'error');
+          return;
+      }
+      this.currentGroupId = groupId; // 设置当前激活的分组 ID
+      this.switchTab('home');        // 切换到自选首页
   },
   
   delWatchedMarket(e, secid) { 

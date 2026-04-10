@@ -283,6 +283,16 @@
     color: #94a3b8;
     transform: scale(0.9);
 }
+/* 历史资金流向滚动容器 */
+#ff-history-chart {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -12px;
+    padding: 0 12px;
+}
+#ff-history-chart canvas {
+    display: block;
+}
 
     
     @media (min-width: 768px) {
@@ -605,8 +615,7 @@ const app = {
   currentMarketGroup: 'index',
   marketSortMode: 'default',
 
-  // 大盘指数配置
-  marketDict: {
+ marketDict: {
     'A': [
       {name: '上证指数', secid: '1.000001'},
       {name: '深证成指', secid: '0.399001'},
@@ -622,10 +631,10 @@ const app = {
     ],
     'US': [
       {name: '道琼斯', secid: '100.DJIA'},
-      {name: '纳斯达克', secid: '100.IXIC'}, 
-      {name: '标普500', secid: '100.SPX'},
-      {name: '纳指金龙中国', secid: '100.HXC'},
-      {name: '纳指全球', secid: '100.NQGI'}
+      {name: '纳斯达克', secid: '105.IXIC'},        // 修正
+      {name: '标普500', secid: '100.SPX'}, 
+      {name: '纳指金龙中国', secid: '105.HXC'},     // 修正
+      {name: '纳指全球', secid: '105.NQGI'}         // 修正
     ],
     'ASIA': [
       {name: '日经225', secid: '100.N225'},
@@ -633,13 +642,13 @@ const app = {
       {name: '孟买SENSEX', secid: '100.SENSEX'}
     ],
     'FUTURES': [
-      {name: '纽约金主连', secid: '114.GC00Y'}, // 指向 COMEX
-      {name: '布油主连', secid: '115.B00Y'},   // 指向 ICE
-      {name: '富时A50主连', secid: '104.CN00Y'}, // 指向 SGX
-      {name: '日经225主连', secid: '104.NK00Y'}, // 指向 SGX 日经
-      {name: '迷你道指', secid: '113.YM00Y'}    // 指向 CBOT
+      {name: '纽约金主连', secid: '114.GC00Y'},     // COMEX黄金
+      {name: '布油主连', secid: '115.B00Y'},       // ICE布伦特
+      {name: '富时A50主连', secid: '104.CN00Y'},
+      {name: '日经225主连', secid: '104.NK00Y'},
+      {name: '迷你道指', secid: '113.YM00Y'}
     ]
-  },
+},
 
   marketSortRule: 'chg',     // 默认改为按涨跌幅排序
   marketSortDir: 'desc',     // 降序
@@ -1416,33 +1425,34 @@ rtManualRefreshMarket() {
   
   async renderMarketTabs() { 
     const list = this.marketDict[this.marketState.currentTab]; 
+    // 先尝试批量获取
     const secids = list.map(item => item.secid).join(','); 
-    
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`; 
     try { 
         let res = await fetchJSONP(url, 'cb'); 
         let dataList = res?.data?.diff || []; 
 
-        // 找出未能成功获取数据的项目
+        // 找出未成功获取的项目
         const missingItems = list.filter(item => {
             const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
             return !quote || quote.f2 === '-' || quote.f2 === undefined || quote.f2 === null;
         });
 
-        // 对缺失项进行单品重试（多前缀 + 备用接口）
+        // 对缺失项逐个使用单品接口 + 多前缀重试
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
+                // 提取原始代码
                 let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
-                // 扩展备选前缀列表（覆盖更多市场）
+                // 扩展探测前缀（覆盖更多市场）
                 let prefixes = [100, 103, 104, 105, 111, 113, 114, 115, 116, 90, 1, 0, 2];
-                let testSecidsList = [`${item.secid}`];
+                let testSecidsList = [item.secid];
                 prefixes.forEach(p => testSecidsList.push(`${p}.${rawCode}`));
-                // 针对特殊品种增加别名映射
+                // 特殊品种别名（针对纳指金龙中国等）
                 const aliasMap = {
-                    '纳斯达克': ['100.IXIC', '105.IXIC', '116.IXIC'],
-                    '纳指金龙中国': ['100.HXC', '105.HXC'],
-                    '纳指全球': ['100.NQGI', '105.NQGI'],
-                    '纽约金主连': ['114.GC00Y', '111.GC00Y', '104.GC00Y', '115.GC00Y'],
+                    '纳斯达克': ['105.IXIC', '100.IXIC', '116.IXIC'],
+                    '纳指金龙中国': ['105.HXC', '100.HXC'],
+                    '纳指全球': ['105.NQGI', '100.NQGI'],
+                    '纽约金主连': ['114.GC00Y', '116.GC00Y', '111.GC00Y', '104.GC00Y'],
                     '布油主连': ['115.B00Y', '111.B00Y', '104.B00Y'],
                     '日经225主连': ['104.NK00Y', '103.NK22500Y', '111.NK00Y'],
                     '迷你道指': ['113.YM00Y', '114.YM00Y', '104.YM00Y']
@@ -1458,7 +1468,7 @@ rtManualRefreshMarket() {
                         let r2 = await fetchJSONP(testUrl, 'cb');
                         let d = r2?.data;
                         if (d && d.f43 !== '-' && d.f43 !== undefined && parseFloat(d.f43) > 0) {
-                            // 成功获取数据，更新secid并构造标准格式数据
+                            // 成功获取，更新本地配置
                             item.secid = testSecid;
                             const newQuote = {
                                 f13: parseInt(testSecid.split('.')[0]),
@@ -1467,7 +1477,6 @@ rtManualRefreshMarket() {
                                 f3: d.f170 !== '-' ? parseFloat(d.f170) : 0,
                                 f4: d.f169 !== '-' ? parseFloat(d.f169) : 0
                             };
-                            // 移除旧数据并加入新数据
                             dataList = dataList.filter(x => !(String(x.f13) === String(newQuote.f13) && String(x.f12) === String(newQuote.f12)));
                             dataList.push(newQuote);
                             break;
@@ -2055,38 +2064,80 @@ rtManualRefreshMarket() {
         return;
     }
 
+    // 转换为亿元单位
     const processedData = data.map(item => {
         const netFlow = item.netFlow / 100000000;
         return { ...item, netFlow: netFlow, absFlow: Math.abs(netFlow) };
     });
 
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    const maxBarHeight = 60;      // 最大柱子高度(px)
-    const minBarHeight = 4;
+    const barMaxHeight = 80;          // 柱子最大高度(px)
+    const barMinHeight = 4;
+    const itemWidth = 80;              // 每个数据点占用宽度(px)
+    const canvasHeight = 200;          // 固定高度
+    const yZero = canvasHeight - 40;   // 零轴位置（底部留出日期空间）
 
-    let innerHtml = `<div class="hist-flow-scroll"><div class="hist-flow-inner">`;
+    // 创建可滚动容器
+    const scrollDiv = document.createElement('div');
+    scrollDiv.style.overflowX = 'auto';
+    scrollDiv.style.overflowY = 'hidden';
+    scrollDiv.style.webkitOverflowScrolling = 'touch';
+    scrollDiv.style.margin = '0 -12px';
+    scrollDiv.style.padding = '0 12px';
 
-    processedData.forEach(item => {
+    const canvas = document.createElement('canvas');
+    const totalWidth = processedData.length * itemWidth;
+    canvas.width = totalWidth;
+    canvas.height = canvasHeight;
+    canvas.style.width = totalWidth + 'px';
+    canvas.style.height = canvasHeight + 'px';
+    scrollDiv.appendChild(canvas);
+    
+    // 清空原有内容并加入新容器
+    container.innerHTML = '';
+    container.appendChild(scrollDiv);
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, totalWidth, canvasHeight);
+
+    // 绘制零轴虚线
+    ctx.beginPath();
+    ctx.moveTo(0, yZero);
+    ctx.lineTo(totalWidth, yZero);
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.setLineDash([5, 5]);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 绘制每个柱子
+    processedData.forEach((item, idx) => {
+        const x = idx * itemWidth + itemWidth / 2;
         const isInflow = item.netFlow > 0;
-        const absVal = item.absFlow;
-        let barHeight = (absVal / maxAbs) * maxBarHeight;
-        barHeight = Math.min(barHeight, maxBarHeight);
-        barHeight = Math.max(barHeight, minBarHeight);
-        
-        const barColor = isInflow ? '#ff4d4f' : '#36c666';
-        const displayVal = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
-        
-        innerHtml += `
-            <div class="hist-flow-item">
-                <div class="hist-flow-value" style="color:${barColor};">${displayVal}</div>
-                <div class="hist-flow-bar" style="background:${barColor}; height:${barHeight}px;"></div>
-                <div class="hist-flow-date">${item.date}</div>
-            </div>
-        `;
-    });
+        const barHeight = Math.max(barMinHeight, (item.absFlow / maxAbs) * barMaxHeight);
+        let barY, barColor;
+        if (isInflow) {
+            barY = yZero - barHeight;
+            barColor = '#f43f5e';   // 红色（流入）
+        } else {
+            barY = yZero;
+            barColor = '#10b981';   // 绿色（流出）
+        }
+        ctx.fillStyle = barColor;
+        ctx.fillRect(x - 8, barY, 16, barHeight);
 
-    innerHtml += `</div></div>`;
-    container.innerHTML = innerHtml;
+        // 显示数值
+        const valueText = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
+        ctx.font = '11px sans-serif';
+        ctx.fillStyle = barColor;
+        ctx.textAlign = 'center';
+        ctx.fillText(valueText, x, barY - 4);
+
+        // 显示日期
+        ctx.font = '10px sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText(item.date, x, canvasHeight - 8);
+    });
 },
 
   async renderIntradayFlowChart(secid) {

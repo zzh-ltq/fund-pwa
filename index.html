@@ -580,38 +580,38 @@ const app = {
   marketSortMode: 'default',
 
  marketDict: {
-    'A': [
-      {name: '上证指数', secid: '1.000001'},
-      {name: '深证成指', secid: '0.399001'},
-      {name: '创业板指', secid: '0.399006'},
-      {name: '科创50', secid: '1.000688'},
-      {name: '北证50', secid: '0.899050'},
-      {name: '沪深300', secid: '1.000300'}
-    ],
-    'HK': [
-      {name: '恒生指数', secid: '100.HSI'},
-      {name: '恒生科技', secid: '124.HSTECH'},
-      {name: '国企指数', secid: '100.HSCEI'}
-    ],
-    'US': [
-      {name: '道琼斯', secid: '100.DJI'},
-      {name: '纳斯达克', secid: '100.IXIC'},
-      {name: '标普500', secid: '100.SPX'},
-      {name: '纳指金龙中国', secid: '100.HXC'},
-      {name: '纳指全球', secid: '100.NQGI'}
-    ],
-    'ASIA': [
-      {name: '日经225', secid: '100.N225'},
-      {name: '韩国KOSPI', secid: '100.KS11'},
-      {name: '孟买SENSEX', secid: '100.SENSEX'}
-    ],
-    'FUTURES': [
-      {name: '纽约金主连', secid: '113.GC00Y'},
-      {name: '布油主连', secid: '113.B00Y'},
-      {name: '富时A50主连', secid: '104.CN00Y'},
-      {name: '日经225主连', secid: '104.NK00Y'},
-      {name: '迷你道指', secid: '113.YM00Y'}
-    ]
+  'A': [
+    {name: '上证指数', secid: '1.000001'},
+    {name: '深证成指', secid: '0.399001'},
+    {name: '创业板指', secid: '0.399006'},
+    {name: '科创50', secid: '1.000688'},
+    {name: '北证50', secid: '0.899050'},
+    {name: '沪深300', secid: '1.000300'}
+  ],
+  'HK': [
+    {name: '恒生指数', secid: '100.HSI'},
+    {name: '恒生科技', secid: '124.HSTECH'},
+    {name: '国企指数', secid: '100.HSCEI'}
+  ],
+  'US': [
+    {name: '道琼斯', secid: '100.DJI'},
+    {name: '纳斯达克', secid: '100.IXIC'},
+    {name: '标普500', secid: '100.SPX'},
+    {name: '纳指金龙中国', secid: '100.HXC'},
+    {name: '纳指全球', secid: '100.NQGI'}
+  ],
+  'ASIA': [
+    {name: '日经225', secid: '100.N225'},
+    {name: '韩国KOSPI', secid: '100.KS11'},
+    {name: '孟买SENSEX', secid: '100.SENSEX'}
+  ],
+  'FUTURES': [
+    {name: '纽约金主连', secid: '123.GC00Y'},  // 修正前缀为123（原113无效）
+    {name: '布油主连', secid: '123.B00Y'},    // 修正前缀为123（原113无效）
+    {name: '富时A50主连', secid: '104.CN00Y'},
+    {name: '日经225主连', secid: '104.N225'},  // 修正后缀为N225（原NK00Y无效）
+    {name: '迷你道指', secid: '113.YM'}        // 修正后缀为YM（原YM00Y无效）
+  ]
 },
 
   marketSortRule: 'chg',     // 默认改为按涨跌幅排序
@@ -2023,85 +2023,91 @@ rtManualRefreshMarket() {
   },
 
    renderFundFlowChart(data) {
-    const container = document.getElementById('ff-history-chart');
-    if (!container || !data || data.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无历史资金数据</div>';
-        return;
+  const container = document.getElementById('ff-history-chart');
+  if (!container || !data || data.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无历史资金数据</div>';
+    return;
+  }
+
+  const processedData = data.map(item => {
+    const netFlow = item.netFlow / 100000000; // 转换为亿单位
+    return { ...item, netFlow: netFlow, absFlow: Math.abs(netFlow) };
+  });
+
+  const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01); // 最大绝对值（避免除零）
+  const barMaxHeight = 60;          // 柱子最大高度(px)
+  const barMinHeight = 4;           // 柱子最小高度(px)
+  const itemWidth = 80;              // 每个数据点宽度(px)
+  const canvasHeight = 200;          // 增加画布高度（原180→200）
+  const yZero = canvasHeight - 50;   // 零轴位置（向下调整）
+  const paddingBottom = 20;          // 底部留白(px)
+
+  // 创建可滚动容器
+  const scrollDiv = document.createElement('div');
+  scrollDiv.style.overflowX = 'auto';
+  scrollDiv.style.overflowY = 'hidden';
+  scrollDiv.style.webkitOverflowScrolling = 'touch';
+  scrollDiv.style.margin = '0 -12px';
+  scrollDiv.style.padding = `0 12px ${paddingBottom}px`; // 增加底部padding
+
+  const canvas = document.createElement('canvas');
+  const totalWidth = processedData.length * itemWidth;
+  canvas.width = totalWidth;
+  canvas.height = canvasHeight;
+  canvas.style.width = totalWidth + 'px';
+  canvas.style.height = canvasHeight + 'px';
+  scrollDiv.appendChild(canvas);
+  
+  container.innerHTML = '';
+  container.appendChild(scrollDiv);
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, totalWidth, canvasHeight);
+
+  // 绘制零轴虚线
+  ctx.beginPath();
+  ctx.moveTo(0, yZero);
+  ctx.lineTo(totalWidth, yZero);
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.setLineDash([5, 5]);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 绘制每个数据点的柱形和文字
+  processedData.forEach((item, idx) => {
+    const x = idx * itemWidth + itemWidth / 2; // 柱形中心X坐标
+    const isInflow = item.netFlow > 0;          // 是否为净流入
+    const barHeight = Math.max(barMinHeight, (item.absFlow / maxAbs) * barMaxHeight); // 柱形高度
+    let barY, barColor;
+
+    // 柱形位置（红涨绿跌）
+    if (isInflow) {
+      barY = yZero - barHeight;
+      barColor = '#f43f5e'; // 红色（流入）
+    } else {
+      barY = yZero;
+      barColor = '#10b981'; // 绿色（流出）
     }
 
-    const processedData = data.map(item => {
-        const netFlow = item.netFlow / 100000000;
-        return { ...item, netFlow: netFlow, absFlow: Math.abs(netFlow) };
-    });
+    // 绘制柱形
+    ctx.fillStyle = barColor;
+    ctx.fillRect(x - 8, barY, 16, barHeight);
 
-    const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    const barMaxHeight = 60;          // 柱子最大高度(px)
-    const barMinHeight = 4;
-    const itemWidth = 80;              // 每个数据点宽度(px)
-    const canvasHeight = 180;          // 画布高度（留出顶部和底部空间）
-    const yZero = canvasHeight - 40;   // 零轴位置
+    // 绘制数值文字（柱形上方/内部）
+    const valueText = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillStyle = barColor;
+    ctx.textAlign = 'center';
+    let valueY = barY - 6;
+    if (valueY < 12) valueY = barY + 14; // 空间不足时放内部
+    ctx.fillText(valueText, x, valueY);
 
-    // 创建可滚动容器
-    const scrollDiv = document.createElement('div');
-    scrollDiv.style.overflowX = 'auto';
-    scrollDiv.style.overflowY = 'hidden';
-    scrollDiv.style.webkitOverflowScrolling = 'touch';
-    scrollDiv.style.margin = '0 -12px';
-    scrollDiv.style.padding = '0 12px';
-
-    const canvas = document.createElement('canvas');
-    const totalWidth = processedData.length * itemWidth;
-    canvas.width = totalWidth;
-    canvas.height = canvasHeight;
-    canvas.style.width = totalWidth + 'px';
-    canvas.style.height = canvasHeight + 'px';
-    scrollDiv.appendChild(canvas);
-    
-    container.innerHTML = '';
-    container.appendChild(scrollDiv);
-
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, totalWidth, canvasHeight);
-
-    // 绘制零轴虚线
-    ctx.beginPath();
-    ctx.moveTo(0, yZero);
-    ctx.lineTo(totalWidth, yZero);
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.setLineDash([5, 5]);
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    processedData.forEach((item, idx) => {
-        const x = idx * itemWidth + itemWidth / 2;
-        const isInflow = item.netFlow > 0;
-        const barHeight = Math.max(barMinHeight, (item.absFlow / maxAbs) * barMaxHeight);
-        let barY, barColor;
-        if (isInflow) {
-            barY = yZero - barHeight;
-            barColor = '#f43f5e';
-        } else {
-            barY = yZero;
-            barColor = '#10b981';
-        }
-        ctx.fillStyle = barColor;
-        ctx.fillRect(x - 8, barY, 16, barHeight);
-
-        // 数值文字：放在柱子上方（若空间不足则放在柱子内部）
-        const valueText = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
-        ctx.font = 'bold 11px sans-serif';
-        ctx.fillStyle = barColor;
-        ctx.textAlign = 'center';
-        let valueY = barY - 6;
-        if (valueY < 12) valueY = barY + 14; // 柱子太靠顶，文字放入内部
-        ctx.fillText(valueText, x, valueY);
-
-        // 日期文字：放在柱子底部下方，避免遮挡
-        ctx.font = '10px sans-serif';
-        ctx.fillStyle = '#64748b';
-        ctx.fillText(item.date, x, canvasHeight - 8);
-    });
+    // 绘制日期文字（柱形下方，增加留白）
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(item.date, x, canvasHeight - 10); // 日期位置下移
+  });
 },
 
   async renderIntradayFlowChart(secid) {

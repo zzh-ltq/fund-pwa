@@ -192,10 +192,37 @@
     
     .flow-bar-wrap { margin-top: 15px; padding: 12px; background: #fff; border-radius: var(--radius-md); box-shadow: var(--shadow-sm);}
     .flow-title { font-size: 14px; font-weight: 800; margin-bottom: 12px; display: flex; justify-content: space-between;}
-    .flow-history { display: flex; align-items: flex-end; justify-content: space-between; height: 60px; margin-top: 10px; gap: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;}
-    .flow-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;}
-    .flow-stick { width: 100%; border-radius: 2px 2px 0 0; min-height: 2px;}
-    .flow-date { font-size: 9px; color: #94a3b8; margin-top: 4px; transform: scale(0.9);}
+    .flow-history {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 90px;            /* ✅ 原来60 → 90 */
+  margin-top: 14px;
+  gap: 6px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 12px;    /* ✅ 增加底部空间 */
+}
+
+.flow-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.flow-stick {
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  min-height: 3px;
+}
+
+.flow-date {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 6px;        /* ✅ 拉开距离 */
+  transform: none;        /* ❌ 移除缩放（会重叠） */
+}
 
     /* 分组管理 */
     .mgr-header { display: flex; padding: 10px 16px; font-size: 12px; color: #94a3b8; font-weight: bold;}
@@ -1388,98 +1415,56 @@ rtManualRefreshMarket() {
   },
   
   async renderMarketTabs() { 
-    const list = this.marketDict[this.marketState.currentTab]; 
-    // 批量获取
-    const secids = list.map(item => item.secid).join(','); 
-    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46&secids=${secids}&_=${Date.now()}`; 
-    try { 
-        let res = await fetchJSONP(url, 'cb'); 
-        let dataList = res?.data?.diff || []; 
+  const list = this.marketDict[this.marketState.currentTab] || [];
 
-        // 找出未成功获取的项目
-        const missingItems = list.filter(item => {
-            const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
-            return !quote || quote.f2 === '-' || quote.f2 === undefined || quote.f2 === null;
-        });
+  // ✅ 关键修复1：过滤非法 secid
+  const validList = list.filter(item => item.secid && String(item.secid).includes('.'));
 
-        // 对缺失项逐个单品重试，并处理期货的特殊字段
-        if (missingItems.length > 0) {
-            await Promise.all(missingItems.map(async (item) => {
-                let testSecids = [item.secid];
-                // 增加备用前缀
-                let prefixes = [100, 101, 102, 103, 104, 105, 111, 113, 114, 115, 116];
-                let rawCode = item.secid.split('.')[1];
-                prefixes.forEach(p => testSecids.push(`${p}.${rawCode}`));
-                testSecids = [...new Set(testSecids)];
+  if (validList.length === 0) {
+    document.getElementById('market-tab-list').innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;">暂无数据</div>';
+    return;
+  }
 
-                for (let testSecid of testSecids) {
-                    let testUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f43,f44,f45,f46,f47,f48,f169,f170&_=${Date.now()}`;
-                    try {
-                        let r2 = await fetchJSONP(testUrl, 'cb');
-                        let d = r2?.data;
-                        if (d && d.f43 !== '-' && d.f43 !== undefined) {
-                            let price = parseFloat(d.f43);
-                            if (!isNaN(price) && price > 0) {
-                                item.secid = testSecid;
-                                const newQuote = {
-                                    f13: parseInt(testSecid.split('.')[0]),
-                                    f12: testSecid.split('.')[1],
-                                    f2: price,
-                                    f3: d.f170 !== '-' ? parseFloat(d.f170) : 0,
-                                    f4: d.f169 !== '-' ? parseFloat(d.f169) : 0
-                                };
-                                dataList = dataList.filter(x => !(String(x.f13) === String(newQuote.f13) && String(x.f12) === String(newQuote.f12)));
-                                dataList.push(newQuote);
-                                break;
-                            }
-                        }
-                    } catch(e) { /* 继续尝试 */ }
-                }
-            }));
-        }
+  const secids = validList.map(item => item.secid).join(',');
 
-        // 渲染卡片
-        let html = list.map(item => { 
-            const parts = item.secid.split('.');
-            const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
-            
-            let price = '--';
-            if (quote.f2 !== undefined && quote.f2 !== '-' && !isNaN(quote.f2)) {
-                price = quote.f2.toFixed(2);
-            } else if (quote.f43 !== undefined && quote.f43 !== '-' && !isNaN(quote.f43)) {
-                price = parseFloat(quote.f43).toFixed(2);
-            }
-            
-            let chgRate = '--';
-            let rawRate = quote.f3;
-            if (rawRate !== undefined && rawRate !== '-' && !isNaN(rawRate)) {
-                chgRate = parseFloat(rawRate).toFixed(2);
-            } else if (quote.f170 !== undefined && quote.f170 !== '-' && !isNaN(quote.f170)) {
-                chgRate = parseFloat(quote.f170).toFixed(2);
-            }
-            
-            let chgVal = '--';
-            let rawVal = quote.f4;
-            if (rawVal !== undefined && rawVal !== '-' && !isNaN(rawVal)) {
-                chgVal = parseFloat(rawVal).toFixed(2);
-            } else if (quote.f169 !== undefined && quote.f169 !== '-' && !isNaN(quote.f169)) {
-                chgVal = parseFloat(quote.f169).toFixed(2);
-            }
-            
-            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
-            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
-            const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
-            
-            return `<div class="idx-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
-                      <div class="idx-name">${item.name}</div>
-                      <div class="idx-val ${col}">${price}</div>
-                      <div class="idx-chg ${col}"><span>${rateSign}${chgRate}%</span><span>${valSign}${chgVal}</span></div>
-                    </div>`; 
-        }).join(''); 
-        document.getElementById('market-idx-container').innerHTML = html; 
-    } catch(e) { 
-        document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8;">获取数据失败</div>'; 
-    } 
+  const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46,f170,f169&secids=${secids}&_=${Date.now()}`;
+
+  try { 
+    let res = await fetchJSONP(url, 'cb'); 
+    let dataList = res?.data?.diff || [];
+
+    const map = {};
+    dataList.forEach(d => {
+      map[`${d.f13}.${d.f12}`] = d;
+    });
+
+    let html = validList.map(item => {
+      const d = map[item.secid];
+
+      // ✅ 关键修复2：兜底逻辑
+      const price = d?.f43 ? (d.f43 / 100).toFixed(2) : '--';
+      const chg = d?.f170 ? (d.f170 / 100).toFixed(2) : '--';
+      const chgVal = d?.f169 ? (d.f169 / 100).toFixed(2) : '--';
+
+      const col = chg !== '--' && parseFloat(chg) >= 0 ? 'red' : 'green';
+
+      return `
+        <div class="mkt-card">
+          <div class="mkt-name">${item.name}</div>
+          <div class="mkt-price ${col}">${price}</div>
+          <div class="mkt-chg ${col}">
+            ${chgVal !== '--' ? (chgVal > 0 ? '+' : '') + chgVal : '--'} 
+            (${chg !== '--' ? (chg > 0 ? '+' : '') + chg + '%' : '--'})
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    document.getElementById('market-tab-list').innerHTML = html;
+
+  } catch(e) {
+    document.getElementById('market-tab-list').innerHTML = '<div style="padding:20px;text-align:center;color:red;">加载失败</div>';
+  }
 },
   
   switchMarketTab(tab, ev) { 
@@ -1789,15 +1774,32 @@ rtManualRefreshMarket() {
   },
   
   openMarketDetail(secid, name) { 
-    this.marketState.currentSecid = secid; 
-    this.marketState.chartType = 'trend'; 
-    this.crosshair = { active: false, x: 0, y: 0, index: -1 }; 
-    this.switchMarketChart('trend'); 
-    document.getElementById('md-title').innerText = name; 
-    this.openModal('market-detail'); 
-    this.refreshMarketDetail(); 
-    this.startIntradayTimer(); 
-  },
+  this.marketState.currentSecid = secid; 
+  this.marketState.chartType = 'trend'; 
+  this.crosshair = { active: false, x: 0, y: 0, index: -1 }; 
+
+  // ✅ 关键修复1：先清空旧数据（防止残留）
+  document.getElementById('md-price').innerText = '--';
+  document.getElementById('md-chg-val').innerText = '--';
+  document.getElementById('md-chg-rate').innerText = '--';
+
+  document.getElementById('md-open').innerText = '--';
+  document.getElementById('md-high').innerText = '--';
+  document.getElementById('md-low').innerText = '--';
+
+  // ✅ 标题更新
+  document.getElementById('md-title').innerText = name; 
+
+  this.openModal('market-detail'); 
+
+  // ✅ 关键修复2：强制重新拉取
+  this.refreshMarketDetail(); 
+
+  // ✅ 防止旧定时器叠加
+  if (this.intradayTimer) clearInterval(this.intradayTimer);
+
+  this.startIntradayTimer(); 
+},
   
   async refreshMarketDetail() { 
     const secid = this.marketState.currentSecid; 

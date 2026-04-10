@@ -173,7 +173,7 @@
     
     /* ========== 行情与资金模块 ========== */
     .market-tabs { display: flex; border-bottom: 1px solid #e2e8f0; margin-bottom: 10px; background: var(--surface-color); padding: 0 10px; }
-    .m-tab { padding: 12px 16px; font-size: 15px; font-weight: 800; color: #64748b; cursor: pointer; position: relative; transition: 0.3s;}
+    .m-tab { padding: 12px 14px; flex-shrink: 0; font-size: 15px; font-weight: 800; color: #64748b; cursor: pointer; position: relative; transition: 0.3s;}
     .m-tab.active { color: #f59e0b; }
     .m-tab.active::after { content:''; position:absolute; bottom:0; left:10px; right:10px; height:3px; background:#f59e0b; border-radius:3px 3px 0 0;}
     
@@ -320,11 +320,13 @@
 
   <!-- 滚动容器：包裹全部内容 → 整页可滑动 -->
   <div class="scroll-area" style="padding-top: 12px;">
-    <div class="market-tabs" id="market-tabs">
+    <div class="market-tabs" id="market-tabs" style="overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; gap: 5px;">
       <div class="m-tab active" onclick="app.switchMarketTab('A', event)">A股</div>
       <div class="m-tab" onclick="app.switchMarketTab('HK', event)">港股</div>
       <div class="m-tab" onclick="app.switchMarketTab('US', event)">美股</div>
       <div class="m-tab" onclick="app.switchMarketTab('ASIA', event)">亚太</div>
+      <!-- 新增的外期菜单 -->
+      <div class="m-tab" onclick="app.switchMarketTab('FUTURES', event)">外期</div>
     </div>
 
     <div class="idx-scroll" id="market-idx-container"></div>
@@ -584,12 +586,21 @@ const app = {
     'US': [
       {name: '道琼斯', secid: '100.DJIA'},
       {name: '纳斯达克', secid: '100.NDX'},
-      {name: '标普500', secid: '100.SPX'}
+      {name: '标普500', secid: '100.SPX'},
+      {name: '纳指金龙中国', secid: '100.HXC'}, // 新增美股
+      {name: '纳指全球', secid: '100.NQGI'}     // 新增美股
     ],
     'ASIA': [
       {name: '日经225', secid: '100.N225'},
       {name: '韩国KOSPI', secid: '100.KS11'},
       {name: '孟买SENSEX', secid: '100.SENSEX'}
+    ],
+    'FUTURES': [ // === 新增国外期货板块 ===
+      {name: '纽约金主连', secid: '104.GC00Y'},
+      {name: '布油主连', secid: '105.B00Y'}, // ICE欧洲布伦特原油
+      {name: '富时A50主连', secid: '104.CN00Y'},
+      {name: '日经225主连', secid: '104.NK00Y'},
+      {name: '迷你道指', secid: '104.YM00Y'}
     ]
   },
 

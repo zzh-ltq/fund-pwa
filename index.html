@@ -2064,20 +2064,18 @@ rtManualRefreshMarket() {
         return;
     }
 
-    // 转换为亿元单位
     const processedData = data.map(item => {
         const netFlow = item.netFlow / 100000000;
         return { ...item, netFlow: netFlow, absFlow: Math.abs(netFlow) };
     });
 
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    const barMaxHeight = 80;          // 柱子最大高度(px)
+    const barMaxHeight = 70;          // 柱子最大高度(px)
     const barMinHeight = 4;
-    const itemWidth = 80;              // 每个数据点占用宽度(px)
-    const canvasHeight = 200;          // 固定高度
-    const yZero = canvasHeight - 40;   // 零轴位置（底部留出日期空间）
+    const itemWidth = 80;              // 每个数据点宽度(px)
+    const canvasHeight = 200;          // 增加高度，为文字留出空间
+    const yZero = canvasHeight - 45;   // 零轴位置（底部留出日期空间）
 
-    // 创建可滚动容器
     const scrollDiv = document.createElement('div');
     scrollDiv.style.overflowX = 'auto';
     scrollDiv.style.overflowY = 'hidden';
@@ -2093,7 +2091,6 @@ rtManualRefreshMarket() {
     canvas.style.height = canvasHeight + 'px';
     scrollDiv.appendChild(canvas);
     
-    // 清空原有内容并加入新容器
     container.innerHTML = '';
     container.appendChild(scrollDiv);
 
@@ -2110,7 +2107,6 @@ rtManualRefreshMarket() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // 绘制每个柱子
     processedData.forEach((item, idx) => {
         const x = idx * itemWidth + itemWidth / 2;
         const isInflow = item.netFlow > 0;
@@ -2118,24 +2114,26 @@ rtManualRefreshMarket() {
         let barY, barColor;
         if (isInflow) {
             barY = yZero - barHeight;
-            barColor = '#f43f5e';   // 红色（流入）
+            barColor = '#f43f5e';   // 流入红
         } else {
             barY = yZero;
-            barColor = '#10b981';   // 绿色（流出）
+            barColor = '#10b981';   // 流出绿
         }
         ctx.fillStyle = barColor;
         ctx.fillRect(x - 8, barY, 16, barHeight);
 
-        // 显示数值
+        // 数值文字：放在柱子上方（若空间不足则放在柱子内部顶部）
         const valueText = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
         ctx.font = '11px sans-serif';
         ctx.fillStyle = barColor;
         ctx.textAlign = 'center';
-        ctx.fillText(valueText, x, barY - 4);
+        let valueY = barY - 6;
+        if (valueY < 12) valueY = barY + 14; // 柱子太靠顶时，文字放到柱子内部
+        ctx.fillText(valueText, x, valueY);
 
-        // 显示日期
+        // 日期文字：固定在最底部，避免遮挡
         ctx.font = '10px sans-serif';
-        ctx.fillStyle = '#94a3b8';
+        ctx.fillStyle = '#64748b';
         ctx.fillText(item.date, x, canvasHeight - 8);
     });
 },
@@ -2338,10 +2336,19 @@ drawIntradayFlowCanvas(data) {
     ctx.textAlign = 'center'; 
     const xStep = data.type === 'trend' ? Math.ceil(data.xLabels.length/6) : Math.ceil(data.xLabels.length/8); 
     for (let i=0;i<data.xLabels.length;i+=xStep) { 
-      let x = getX(i); 
-      let label = data.xLabels[i]; 
-      if (data.type === 'trend') label = label.slice(11,16); else label = label.slice(5,10); 
-      ctx.fillText(label, x, h-pad.b+12); 
+        let x = getX(i); 
+        let label = data.xLabels[i]; 
+        if (data.type === 'trend') label = label.slice(11,16); else label = label.slice(5,10); 
+        ctx.fillText(label, x, h-pad.b+12); 
+    }
+    // 强制绘制最后一个时间点（收盘时间）
+    if (data.xLabels.length > 0) {
+        let lastIdx = data.xLabels.length - 1;
+        let lastX = getX(lastIdx);
+        let lastLabel = data.xLabels[lastIdx];
+        if (data.type === 'trend') lastLabel = lastLabel.slice(11,16);
+        else lastLabel = lastLabel.slice(5,10);
+        ctx.fillText(lastLabel, lastX, h-pad.b+12);
     } 
     
     if (data.volumes && data.volumes.length > 0) { 

@@ -247,6 +247,43 @@
     .flow-val { width: 75px; text-align: right; font-weight: 900; font-size: 13px; white-space: nowrap; }
 
 
+    /* 历史资金流向滚动容器 */
+.hist-flow-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -12px;
+    padding: 0 12px;
+}
+.hist-flow-inner {
+    display: flex;
+    width: max-content;
+    gap: 8px;
+    padding-bottom: 10px;
+}
+.hist-flow-item {
+    flex: none;
+    width: 70px;
+    text-align: center;
+}
+.hist-flow-bar {
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+}
+.hist-flow-value {
+    font-size: 11px;
+    font-weight: bold;
+    margin-bottom: 4px;
+    white-space: nowrap;
+}
+.hist-flow-date {
+    font-size: 10px;
+    color: #94a3b8;
+    transform: scale(0.9);
+}
+
     
     @media (min-width: 768px) {
       .app-container { max-width: 1400px; flex-direction: row; align-items: stretch; padding: 20px; gap: 20px; }
@@ -1381,97 +1418,95 @@ rtManualRefreshMarket() {
     const list = this.marketDict[this.marketState.currentTab]; 
     const secids = list.map(item => item.secid).join(','); 
     
-    // 常规批量接口获取
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`; 
     try { 
-      const res = await fetchJSONP(url, 'cb'); 
-      let dataList = res?.data?.diff || []; 
+        let res = await fetchJSONP(url, 'cb'); 
+        let dataList = res?.data?.diff || []; 
 
-      // 揪出被常规接口屏蔽或丢失的“顽固分子”
-      const missingItems = list.filter(item => {
-          const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
-          return !quote || quote.f2 === '-' || quote.f2 === undefined;
-      });
+        // 找出未能成功获取数据的项目
+        const missingItems = list.filter(item => {
+            const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
+            return !quote || quote.f2 === '-' || quote.f2 === undefined || quote.f2 === null;
+        });
 
-      if (missingItems.length > 0) {
-          // 专治不服：精准备用代码字典（移除容易串台的错误代码）
-          const alternateMap = {
-              '纳指金龙中国': ['100.HXC', '105.HXC'],
-              '纳指全球': ['100.NQGI', '105.NQGI'],
-              '纽约金主连': ['114.GC00Y', '111.GC00Y', '104.GC00Y'],
-              '日经225主连': ['104.NK00Y', '103.NK22500Y', '111.NK00Y'],
-              '迷你道指': ['113.YM00Y', '114.YM00Y', '104.YM00Y'],
-              '纳斯达克': ['100.IXIC', '105.IXIC']
-          };
+        // 对缺失项进行单品重试（多前缀 + 备用接口）
+        if (missingItems.length > 0) {
+            await Promise.all(missingItems.map(async (item) => {
+                let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
+                // 扩展备选前缀列表（覆盖更多市场）
+                let prefixes = [100, 103, 104, 105, 111, 113, 114, 115, 116, 90, 1, 0, 2];
+                let testSecidsList = [`${item.secid}`];
+                prefixes.forEach(p => testSecidsList.push(`${p}.${rawCode}`));
+                // 针对特殊品种增加别名映射
+                const aliasMap = {
+                    '纳斯达克': ['100.IXIC', '105.IXIC', '116.IXIC'],
+                    '纳指金龙中国': ['100.HXC', '105.HXC'],
+                    '纳指全球': ['100.NQGI', '105.NQGI'],
+                    '纽约金主连': ['114.GC00Y', '111.GC00Y', '104.GC00Y', '115.GC00Y'],
+                    '布油主连': ['115.B00Y', '111.B00Y', '104.B00Y'],
+                    '日经225主连': ['104.NK00Y', '103.NK22500Y', '111.NK00Y'],
+                    '迷你道指': ['113.YM00Y', '114.YM00Y', '104.YM00Y']
+                };
+                if (aliasMap[item.name]) {
+                    testSecidsList.push(...aliasMap[item.name]);
+                }
+                testSecidsList = [...new Set(testSecidsList)];
 
-          await Promise.all(missingItems.map(async (item) => {
-              let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
-              
-              let testSecidsList = [item.secid]; 
-              if (alternateMap[item.name]) {
-                  testSecidsList = testSecidsList.concat(alternateMap[item.name]);
-              }
-              // 加入广域网段探测池
-              let prefixes = [100, 103, 104, 105, 111, 113, 114, 115];
-              prefixes.forEach(p => testSecidsList.push(`${p}.${rawCode}`));
-              
-              testSecidsList = [...new Set(testSecidsList)]; // 去重
-              
-              // 【核心修复】放弃批量接口，改用单品详情接口 (stock/get) 逐个强行突破屏蔽
-              for (let testSecid of testSecidsList) {
-                  let testUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f43,f169,f170&_=${Date.now()}`;
-                  try {
-                      let r2 = await fetchJSONP(testUrl, 'cb');
-                      let d = r2?.data;
-                      if (d && d.f43 !== '-' && d.f43 !== undefined) {
-                          // 成功抓取到真实数据！
-                          item.secid = testSecid; // 永久更新字典
-                          
-                          // 转化为常规格式并入数组
-                          dataList = dataList.filter(x => x.f12 !== testSecid.split('.')[1]);
-                          dataList.push({
-                              f13: parseInt(testSecid.split('.')[0]),
-                              f12: testSecid.split('.')[1],
-                              f2: parseFloat(d.f43),
-                              f3: d.f170 !== '-' ? parseFloat(d.f170) : '-',
-                              f4: d.f169 !== '-' ? parseFloat(d.f169) : '-'
-                          });
-                          break; // 找到即跳出循环
-                      }
-                  } catch(e) {}
-              }
-          }));
-      }
+                for (let testSecid of testSecidsList) {
+                    let testUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f43,f44,f45,f46,f47,f48,f169,f170&_=${Date.now()}`;
+                    try {
+                        let r2 = await fetchJSONP(testUrl, 'cb');
+                        let d = r2?.data;
+                        if (d && d.f43 !== '-' && d.f43 !== undefined && parseFloat(d.f43) > 0) {
+                            // 成功获取数据，更新secid并构造标准格式数据
+                            item.secid = testSecid;
+                            const newQuote = {
+                                f13: parseInt(testSecid.split('.')[0]),
+                                f12: testSecid.split('.')[1],
+                                f2: parseFloat(d.f43),
+                                f3: d.f170 !== '-' ? parseFloat(d.f170) : 0,
+                                f4: d.f169 !== '-' ? parseFloat(d.f169) : 0
+                            };
+                            // 移除旧数据并加入新数据
+                            dataList = dataList.filter(x => !(String(x.f13) === String(newQuote.f13) && String(x.f12) === String(newQuote.f12)));
+                            dataList.push(newQuote);
+                            break;
+                        }
+                    } catch(e) { /* 继续尝试下一个前缀 */ }
+                }
+            }));
+        }
 
-      let html = list.map(item => { 
-        const parts = item.secid.split('.');
-        const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
-        
-        let price = quote.f2; 
-        if (price === undefined || price === null || price === '-') price = '--'; 
-        else price = typeof price === 'number' ? price.toFixed(2) : price; 
-        
-        let chgRate = '--'; 
-        if (quote.f3 !== undefined && quote.f3 !== null && quote.f3 !== '-') chgRate = parseFloat(quote.f3).toFixed(2); 
-        
-        let chgVal = '--'; 
-        if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') chgVal = parseFloat(quote.f4).toFixed(2); 
-        
-        const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
-        const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
-        const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
-        
-        return `<div class="idx-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
-                  <div class="idx-name">${item.name}</div>
-                  <div class="idx-val ${col}">${price}</div>
-                  <div class="idx-chg ${col}"><span>${rateSign}${chgRate}%</span><span>${valSign}${chgVal}</span></div>
-                </div>`; 
-      }).join(''); 
-      document.getElementById('market-idx-container').innerHTML = html; 
+        // 渲染卡片
+        let html = list.map(item => { 
+            const parts = item.secid.split('.');
+            const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
+            
+            let price = quote.f2; 
+            if (price === undefined || price === null || price === '-') price = '--'; 
+            else price = typeof price === 'number' ? price.toFixed(2) : price; 
+            
+            let chgRate = '--'; 
+            if (quote.f3 !== undefined && quote.f3 !== null && quote.f3 !== '-') chgRate = parseFloat(quote.f3).toFixed(2); 
+            
+            let chgVal = '--'; 
+            if (quote.f4 !== undefined && quote.f4 !== null && quote.f4 !== '-') chgVal = parseFloat(quote.f4).toFixed(2); 
+            
+            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
+            const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
+            const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
+            
+            return `<div class="idx-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
+                      <div class="idx-name">${item.name}</div>
+                      <div class="idx-val ${col}">${price}</div>
+                      <div class="idx-chg ${col}"><span>${rateSign}${chgRate}%</span><span>${valSign}${chgVal}</span></div>
+                    </div>`; 
+        }).join(''); 
+        document.getElementById('market-idx-container').innerHTML = html; 
     } catch(e) { 
-      document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8;">获取数据失败</div>'; 
+        document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8;">获取数据失败</div>'; 
     } 
-  },
+},
   
   switchMarketTab(tab, ev) { 
     this.marketState.currentTab = tab; 
@@ -2025,61 +2060,34 @@ rtManualRefreshMarket() {
         return { ...item, netFlow: netFlow, absFlow: Math.abs(netFlow) };
     });
 
-    // 核心修改：调整安全高度，彻底避免红柱子顶到文字
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    const maxBarHeight = 90;     // 调低柱子最高限制
-    const minBarHeight = 4;      
-    const containerHeight = 280; // 调高容器总高度
-    const zeroLineY = 140;       // 零轴居中偏下，给顶部红字留足空间
-    const valueSafeGap = 20;     // 扩大文字与柱子顶部的距离
+    const maxBarHeight = 60;      // 最大柱子高度(px)
+    const minBarHeight = 4;
 
-    let html = `
-    <div style="width:100%; max-width:800px; margin:0 auto; padding:20px 16px; box-sizing:border-box;">
-        <div style="position:relative; height:${containerHeight}px; display:flex; justify-content:space-around; gap:6px;">
-            <div style="position:absolute; left:0; right:0; top:${zeroLineY}px; height:1px; background:#e0e0e0; z-index:1;"></div>
-    `;
+    let innerHtml = `<div class="hist-flow-scroll"><div class="hist-flow-inner">`;
 
     processedData.forEach(item => {
-        const isInflow = item.netFlow > 0; 
+        const isInflow = item.netFlow > 0;
         const absVal = item.absFlow;
-
         let barHeight = (absVal / maxAbs) * maxBarHeight;
-        barHeight = Math.min(barHeight, maxBarHeight); 
-        barHeight = Math.max(barHeight, minBarHeight); 
-
-        const barTop = isInflow ? (zeroLineY - barHeight) : zeroLineY;
-
-        let valueTop;
-        if (isInflow) {
-            // 红柱向上，字在柱子上面
-            valueTop = barTop - valueSafeGap;
-        } else {
-            // 绿柱向下，字悬停在零轴偏上方
-            valueTop = zeroLineY - valueSafeGap + 4;
-        }
-
-        const displayVal = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
+        barHeight = Math.min(barHeight, maxBarHeight);
+        barHeight = Math.max(barHeight, minBarHeight);
+        
         const barColor = isInflow ? '#ff4d4f' : '#36c666';
-
-        html += `
-        <div style="flex:1; min-width:45px; height:100%; position:relative; display:flex; flex-direction:column; align-items:center;">
-            <div style="position:absolute; top:${valueTop}px; left:0; right:0; text-align:center; 
-                       font-size:12px; color:${barColor}; font-weight:bold; z-index:3; white-space:nowrap;">
-                ${displayVal}
+        const displayVal = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
+        
+        innerHtml += `
+            <div class="hist-flow-item">
+                <div class="hist-flow-value" style="color:${barColor};">${displayVal}</div>
+                <div class="hist-flow-bar" style="background:${barColor}; height:${barHeight}px;"></div>
+                <div class="hist-flow-date">${item.date}</div>
             </div>
-            <div style="position:absolute; width:16px; top:${barTop}px; height:${barHeight}px; 
-                       background:${barColor}; border-radius:3px; z-index:1;"></div>
-            <div style="position:absolute; top:${zeroLineY + Math.max(maxBarHeight, barHeight) + 15}px; left:0; right:0; text-align:center; 
-                       font-size:11px; color:#94a3b8; z-index:2;">
-                ${item.date}
-            </div>
-        </div>`;
+        `;
     });
 
-    html += `</div></div>`;
-    container.innerHTML = html;
-    container.style.cssText = "display:flex; justify-content:center; align-items:center; width:100%; min-height:280px;";
-  },
+    innerHtml += `</div></div>`;
+    container.innerHTML = innerHtml;
+},
 
   async renderIntradayFlowChart(secid) {
     const container = document.getElementById('ff-intraday-chart');

@@ -596,11 +596,11 @@ const app = {
       {name: '孟买SENSEX', secid: '100.SENSEX'}
     ],
     'FUTURES': [
-      {name: '纽约金主连', secid: '111.GC00Y'},
-      {name: '布油主连', secid: '115.B00Y'},
-      {name: '富时A50主连', secid: '104.CN00Y'},
-      {name: '日经225主连', secid: '103.NK22500Y'}, 
-      {name: '迷你道指', secid: '113.YM00Y'}
+      {name: '纽约金主连', secid: '114.GC00Y'}, // 指向 COMEX
+      {name: '布油主连', secid: '115.B00Y'},   // 指向 ICE
+      {name: '富时A50主连', secid: '104.CN00Y'}, // 指向 SGX
+      {name: '日经225主连', secid: '104.NK00Y'}, // 指向 SGX 日经
+      {name: '迷你道指', secid: '113.YM00Y'}    // 指向 CBOT
     ]
   },
 
@@ -1380,55 +1380,66 @@ rtManualRefreshMarket() {
   async renderMarketTabs() { 
     const list = this.marketDict[this.marketState.currentTab]; 
     const secids = list.map(item => item.secid).join(','); 
+    
+    // 常规批量接口获取
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${secids}&_=${Date.now()}`; 
     try { 
       const res = await fetchJSONP(url, 'cb'); 
       let dataList = res?.data?.diff || []; 
 
-      // 找出请求失败或返回 "-" 的顽固指数
+      // 揪出被常规接口屏蔽或丢失的“顽固分子”
       const missingItems = list.filter(item => {
           const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
           return !quote || quote.f2 === '-' || quote.f2 === undefined;
       });
 
       if (missingItems.length > 0) {
-          // 针对顽固指数的“特制备用弹药库”
+          // 专治不服：精准备用代码字典（移除容易串台的错误代码）
           const alternateMap = {
-              '纳指金龙中国': ['100.HXC', '105.HXC', '106.HXC', '100.PGJ'],
-              '纳指全球': ['100.NQGI', '105.NQGI', '106.NQGI', '100.NDX'],
-              '纽约金主连': ['111.GC00Y', '112.GC00Y', '114.GC00Y', '104.GC00Y'],
-              '日经225主连': ['103.NK22500Y', '104.NK00Y', '114.NK00Y', '111.NK00Y', '104.NK22500Y'],
+              '纳指金龙中国': ['100.HXC', '105.HXC'],
+              '纳指全球': ['100.NQGI', '105.NQGI'],
+              '纽约金主连': ['114.GC00Y', '111.GC00Y', '104.GC00Y'],
+              '日经225主连': ['104.NK00Y', '103.NK22500Y', '111.NK00Y'],
               '迷你道指': ['113.YM00Y', '114.YM00Y', '104.YM00Y'],
-              '纳斯达克': ['100.IXIC', '105.IXIC', '100.NDX']
+              '纳斯达克': ['100.IXIC', '105.IXIC']
           };
 
           await Promise.all(missingItems.map(async (item) => {
               let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
               
-              // 1. 常规全网段前缀探测
-              let prefixes = [100, 103, 104, 105, 106, 107, 111, 112, 113, 114, 115, 116];
-              let testSecidsList = prefixes.map(p => `${p}.${rawCode}`);
-              
-              // 2. 注入特制备用代码
+              let testSecidsList = [item.secid]; 
               if (alternateMap[item.name]) {
                   testSecidsList = testSecidsList.concat(alternateMap[item.name]);
               }
+              // 加入广域网段探测池
+              let prefixes = [100, 103, 104, 105, 111, 113, 114, 115];
+              prefixes.forEach(p => testSecidsList.push(`${p}.${rawCode}`));
               
-              // 去重并拼接发送请求
-              let testSecids = [...new Set(testSecidsList)].join(',');
-              let testUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${testSecids}&_=${Date.now()}`;
+              testSecidsList = [...new Set(testSecidsList)]; // 去重
               
-              try {
-                  let r2 = await fetchJSONP(testUrl, 'cb');
-                  // 找到第一个真正有报价的数据
-                  let validQuote = (r2?.data?.diff || []).find(d => d.f2 !== '-' && d.f2 !== undefined);
-                  
-                  if (validQuote) {
-                      item.secid = `${validQuote.f13}.${validQuote.f12}`; 
-                      dataList = dataList.filter(x => x.f12 !== validQuote.f12);
-                      dataList.push(validQuote);
-                  }
-              } catch(e) {}
+              // 【核心修复】放弃批量接口，改用单品详情接口 (stock/get) 逐个强行突破屏蔽
+              for (let testSecid of testSecidsList) {
+                  let testUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f43,f169,f170&_=${Date.now()}`;
+                  try {
+                      let r2 = await fetchJSONP(testUrl, 'cb');
+                      let d = r2?.data;
+                      if (d && d.f43 !== '-' && d.f43 !== undefined) {
+                          // 成功抓取到真实数据！
+                          item.secid = testSecid; // 永久更新字典
+                          
+                          // 转化为常规格式并入数组
+                          dataList = dataList.filter(x => x.f12 !== testSecid.split('.')[1]);
+                          dataList.push({
+                              f13: parseInt(testSecid.split('.')[0]),
+                              f12: testSecid.split('.')[1],
+                              f2: parseFloat(d.f43),
+                              f3: d.f170 !== '-' ? parseFloat(d.f170) : '-',
+                              f4: d.f169 !== '-' ? parseFloat(d.f169) : '-'
+                          });
+                          break; // 找到即跳出循环
+                      }
+                  } catch(e) {}
+              }
           }));
       }
 

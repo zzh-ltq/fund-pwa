@@ -196,11 +196,13 @@
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  height: 90px;            /* ✅ 原来60 → 90 */
-  margin-top: 14px;
+
+  height: 110px;         /* ✅ 增加整体高度 */
+  padding-bottom: 20px;  /* ✅ 给日期留空间 */
+
   gap: 6px;
+  margin-top: 14px;
   border-bottom: 1px solid #e2e8f0;
-  padding-bottom: 12px;    /* ✅ 增加底部空间 */
 }
 
 .flow-col {
@@ -215,13 +217,16 @@
   width: 100%;
   border-radius: 3px 3px 0 0;
   min-height: 3px;
+
+  max-height: 60px;   /* ✅ 限制柱子高度（关键） */
 }
 
 .flow-date {
   font-size: 10px;
   color: #94a3b8;
-  margin-top: 6px;        /* ✅ 拉开距离 */
-  transform: none;        /* ❌ 移除缩放（会重叠） */
+  margin-top: 8px;
+
+  white-space: nowrap;   /* ✅ 防止挤压换行 */
 }
 
     /* 分组管理 */
@@ -1417,15 +1422,27 @@ rtManualRefreshMarket() {
   async renderMarketTabs() { 
   const list = this.marketDict[this.marketState.currentTab] || [];
 
-  // ✅ 关键修复1：过滤非法 secid
-  const validList = list.filter(item => item.secid && String(item.secid).includes('.'));
+  // ✅ 修复：自动补全 secid 前缀（而不是过滤）
+  const fixSecid = (secid) => {
+    if (!secid) return '';
 
-  if (validList.length === 0) {
-    document.getElementById('market-tab-list').innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;">暂无数据</div>';
-    return;
-  }
+    secid = String(secid);
 
-  const secids = validList.map(item => item.secid).join(',');
+    // 已经带前缀
+    if (secid.includes('.')) return secid;
+
+    // A股
+    if (secid.startsWith('6')) return '1.' + secid;
+    if (secid.startsWith('0') || secid.startsWith('3')) return '0.' + secid;
+
+    // 港股
+    if (secid.length === 5) return '116.' + secid;
+
+    // 美股指数常见写法（兜底）
+    return secid;
+  };
+
+  const secids = list.map(item => fixSecid(item.secid)).join(',');
 
   const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46,f170,f169&secids=${secids}&_=${Date.now()}`;
 
@@ -1438,10 +1455,10 @@ rtManualRefreshMarket() {
       map[`${d.f13}.${d.f12}`] = d;
     });
 
-    let html = validList.map(item => {
-      const d = map[item.secid];
+    let html = list.map(item => {
+      const key = fixSecid(item.secid);
+      const d = map[key];
 
-      // ✅ 关键修复2：兜底逻辑
       const price = d?.f43 ? (d.f43 / 100).toFixed(2) : '--';
       const chg = d?.f170 ? (d.f170 / 100).toFixed(2) : '--';
       const chgVal = d?.f169 ? (d.f169 / 100).toFixed(2) : '--';
@@ -1463,6 +1480,7 @@ rtManualRefreshMarket() {
     document.getElementById('market-tab-list').innerHTML = html;
 
   } catch(e) {
+    console.error(e);
     document.getElementById('market-tab-list').innerHTML = '<div style="padding:20px;text-align:center;color:red;">加载失败</div>';
   }
 },

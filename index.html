@@ -585,10 +585,10 @@ const app = {
     ],
     'US': [
       {name: '道琼斯', secid: '100.DJIA'},
-      {name: '纳斯达克', secid: '100.NDX'},
+      {name: '纳斯达克', secid: '100.IXIC'}, 
       {name: '标普500', secid: '100.SPX'},
-      {name: '纳指金龙中国', secid: '105.HXC'},
-      {name: '纳指全球', secid: '105.NQGI'}
+      {name: '纳指金龙中国', secid: '100.HXC'},
+      {name: '纳指全球', secid: '100.NQGI'}
     ],
     'ASIA': [
       {name: '日经225', secid: '100.N225'},
@@ -596,11 +596,11 @@ const app = {
       {name: '孟买SENSEX', secid: '100.SENSEX'}
     ],
     'FUTURES': [
-      {name: '纽约金主连', secid: '111.GC00Y'}, // 默认指向NYMEX/CME等外盘池
-      {name: '布油主连', secid: '115.B00Y'},   // 默认指向ICE
-      {name: '富时A50主连', secid: '104.CN00Y'}, // 默认指向SGX
-      {name: '日经225主连', secid: '104.NK00Y'},
-      {name: '迷你道指', secid: '113.YM00Y'}    // 默认指向CBOT
+      {name: '纽约金主连', secid: '111.GC00Y'},
+      {name: '布油主连', secid: '115.B00Y'},
+      {name: '富时A50主连', secid: '104.CN00Y'},
+      {name: '日经225主连', secid: '103.NK22500Y'}, 
+      {name: '迷你道指', secid: '113.YM00Y'}
     ]
   },
 
@@ -1385,30 +1385,46 @@ rtManualRefreshMarket() {
       const res = await fetchJSONP(url, 'cb'); 
       let dataList = res?.data?.diff || []; 
 
-      // 【核心修复：前缀自愈】找出请求失败或返回 "-" 的顽固指数/外期
+      // 找出请求失败或返回 "-" 的顽固指数
       const missingItems = list.filter(item => {
           const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
           return !quote || quote.f2 === '-' || quote.f2 === undefined;
       });
 
       if (missingItems.length > 0) {
+          // 针对顽固指数的“特制备用弹药库”
+          const alternateMap = {
+              '纳指金龙中国': ['100.HXC', '105.HXC', '106.HXC', '100.PGJ'],
+              '纳指全球': ['100.NQGI', '105.NQGI', '106.NQGI', '100.NDX'],
+              '纽约金主连': ['111.GC00Y', '112.GC00Y', '114.GC00Y', '104.GC00Y'],
+              '日经225主连': ['103.NK22500Y', '104.NK00Y', '114.NK00Y', '111.NK00Y', '104.NK22500Y'],
+              '迷你道指': ['113.YM00Y', '114.YM00Y', '104.YM00Y'],
+              '纳斯达克': ['100.IXIC', '105.IXIC', '100.NDX']
+          };
+
           await Promise.all(missingItems.map(async (item) => {
               let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
               
-              // 暴力探测池：涵盖纳斯达克、纽交所、CME、SGX、ICE、OSE等几乎所有外盘代码
+              // 1. 常规全网段前缀探测
               let prefixes = [100, 103, 104, 105, 106, 107, 111, 112, 113, 114, 115, 116];
-              let testSecids = prefixes.map(p => `${p}.${rawCode}`).join(',');
+              let testSecidsList = prefixes.map(p => `${p}.${rawCode}`);
+              
+              // 2. 注入特制备用代码
+              if (alternateMap[item.name]) {
+                  testSecidsList = testSecidsList.concat(alternateMap[item.name]);
+              }
+              
+              // 去重并拼接发送请求
+              let testSecids = [...new Set(testSecidsList)].join(',');
               let testUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14&secids=${testSecids}&_=${Date.now()}`;
               
               try {
                   let r2 = await fetchJSONP(testUrl, 'cb');
+                  // 找到第一个真正有报价的数据
                   let validQuote = (r2?.data?.diff || []).find(d => d.f2 !== '-' && d.f2 !== undefined);
                   
                   if (validQuote) {
-                      // 找到了正确的数据，永久更新本地内存中的配置字典
                       item.secid = `${validQuote.f13}.${validQuote.f12}`; 
-                      
-                      // 剔除旧的无效数据，把成功拿到的数据推入列表用于渲染
                       dataList = dataList.filter(x => x.f12 !== validQuote.f12);
                       dataList.push(validQuote);
                   }

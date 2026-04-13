@@ -606,10 +606,10 @@ const app = {
       {name: '孟买SENSEX', secid: '100.SENSEX'}
     ],
     'FUTURES': [
-      {name: '纽约金主连', secid: '111.GC00Y'},
-      {name: '布油主连', secid: '114.B00Y'},
+      {name: '纽约金主连', secid: '111.GC00Y'}, // 修复为111
+      {name: '布油主连', secid: '114.B00Y'},    // 修复为114
       {name: '富时A50主连', secid: '104.CN00Y'},
-      {name: '迷你道指', secid: '111.YM00Y'}
+      {name: '迷你道指', secid: '111.YM00Y'}    // 修复为111
     ]
   },
 
@@ -1390,57 +1390,84 @@ rtManualRefreshMarket() {
     const list = this.marketDict[this.marketState.currentTab]; 
     document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8; width:100%; text-align:center;">数据加载中...</div>';
 
-    // 并发请求每个指数的“单品详情接口(stock/get)”
-    // 彻底解决批量接口(ulist.np)在周末停盘时不返回备用字段的致命缺陷
-    const fetchPromises = list.map(async (item) => {
+    // 1. 组装批量查询代码 (加入常见备用前缀，争取一波带走)
+    let querySecids = [];
+    list.forEach(item => {
+        let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
+        querySecids.push(item.secid);
+        if (this.marketState.currentTab === 'US') querySecids.push(`100.${rawCode}`, `108.${rawCode}`);
+        if (this.marketState.currentTab === 'FUTURES') querySecids.push(`111.${rawCode}`, `113.${rawCode}`, `114.${rawCode}`, `104.${rawCode}`);
+    });
+    const finalSecids = [...new Set(querySecids)].join(',');
+    
+    let dataList = [];
+    
+    // 2. 第一轮：尝试使用批量接口快速获取（速度快，但不包含某些特定期货）
+    const ulistUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46,f60,f169,f170&secids=${finalSecids}&_=${Date.now()}`; 
+    try { 
+        let res = await fetchJSONP(ulistUrl, 'cb'); 
+        dataList = res?.data?.diff || []; 
+    } catch(e) { }
+
+    // 3. 第二轮：筛出失败项，改用串行单品详情接口进行“排队兜底”，绝对防拦截！
+    const results = [];
+    for (let item of list) {
         let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
         
-        // 构建需要尝试的备用前缀列表
-        let prefixes = [item.secid.split('.')[0]]; 
-        if (this.marketState.currentTab === 'US') prefixes.push('100', '108');
-        if (this.marketState.currentTab === 'FUTURES') prefixes.push('113', '111', '114', '104', '115');
-        prefixes = [...new Set(prefixes)]; // 去重
+        // 检查第一轮是否成功拿到了包含价格的数据
+        let validData = dataList.find(d => {
+            if (String(d.f12) !== rawCode) return false;
+            return (d.f2 !== '-' && d.f2 !== undefined) || 
+                   (d.f43 !== '-' && d.f43 !== undefined) || 
+                   (d.f60 !== '-' && d.f60 !== undefined);
+        });
 
-        let validData = null;
-        // 遍历猜测前缀，只要命中真实数据即刻跳出
-        for (let p of prefixes) {
-            let testSecid = `${p}.${rawCode}`;
-            // 抓取最详尽的单品数据：包含 f43(备用最新价), f60(昨收), f169(备用涨跌额), f170(备用涨跌幅)
-            let url = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f2,f3,f4,f43,f60,f169,f170&_=${Date.now()}`;
-            try {
-                let res = await fetchJSONP(url, 'cb');
-                let d = res?.data;
-                // 只要 f2, f43, f60 中有任何一个是有效数字，就视为命中有效数据
-                if (d && ((d.f2 !== '-' && d.f2 !== undefined) || (d.f43 !== '-' && d.f43 !== undefined) || (d.f60 !== '-' && d.f60 !== undefined))) {
-                    item.secid = testSecid; // 固化正确的前缀，下次点击进入详情页绝对无误
-                    validData = d;
-                    break;
-                }
-            } catch (e) { /* 静默进入下一个前缀测试 */ }
+        // 如果没拿到，启动兜底机制
+        if (!validData) {
+            let prefixes = [item.secid.split('.')[0]]; 
+            if (this.marketState.currentTab === 'US') prefixes.push('100', '108');
+            if (this.marketState.currentTab === 'FUTURES') prefixes.push('111', '113', '114', '104', '115');
+            prefixes = [...new Set(prefixes)]; 
+
+            // 排队查询，不触发高并发拦截
+            for (let p of prefixes) {
+                let testSecid = `${p}.${rawCode}`;
+                let url = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f2,f3,f4,f43,f60,f169,f170&_=${Date.now()}`;
+                try {
+                    let res = await fetchJSONP(url, 'cb');
+                    let d = res?.data;
+                    if (d && ((d.f2 !== '-' && d.f2 !== undefined) || (d.f43 !== '-' && d.f43 !== undefined) || (d.f60 !== '-' && d.f60 !== undefined))) {
+                        item.secid = testSecid; // 固化正确的前缀
+                        validData = d;
+                        break; // 拿到即跳出
+                    }
+                } catch (e) { /* 继续尝试下一个前缀 */ }
+            }
+        } else {
+            // 更新本地字典前缀为接口确认的正确前缀
+            if (validData.f13 !== undefined) item.secid = `${validData.f13}.${validData.f12}`;
         }
-        return { item, data: validData };
-    });
-
-    try {
-        // 等待所有并发请求完成
-        const results = await Promise.all(fetchPromises);
         
-        // 渲染卡片 UI
+        results.push({ item, data: validData });
+    }
+
+    // 4. 渲染 UI 卡片（兼容双接口的不同字段映射）
+    try {
         let html = results.map(({ item, data }) => {
             let price = '--', chgRate = '--', chgVal = '--';
             
             if (data) {
-                // 优先取 f2(最新), 其次 f43(备用最新), 最后 f60(昨收)
+                // 取价逻辑：最新价 -> 备用最新价 -> 昨收价(周末停盘用)
                 if (data.f2 !== undefined && data.f2 !== '-' && !isNaN(data.f2)) price = parseFloat(data.f2).toFixed(2);
                 else if (data.f43 !== undefined && data.f43 !== '-' && !isNaN(data.f43)) price = parseFloat(data.f43).toFixed(2);
                 else if (data.f60 !== undefined && data.f60 !== '-' && !isNaN(data.f60)) price = parseFloat(data.f60).toFixed(2);
 
-                // 优先取 f3(涨跌幅), 其次 f170(停盘备用涨跌幅)
+                // 取涨跌幅逻辑：涨跌幅 -> 备用涨跌幅 -> 0.00(周末停盘且有昨收价时)
                 if (data.f3 !== undefined && data.f3 !== '-' && !isNaN(data.f3)) chgRate = parseFloat(data.f3).toFixed(2);
                 else if (data.f170 !== undefined && data.f170 !== '-' && !isNaN(data.f170)) chgRate = parseFloat(data.f170).toFixed(2);
                 else if (price !== '--') chgRate = '0.00';
 
-                // 优先取 f4(涨跌额), 其次 f169(停盘备用涨跌额)
+                // 取涨跌额逻辑
                 if (data.f4 !== undefined && data.f4 !== '-' && !isNaN(data.f4)) chgVal = parseFloat(data.f4).toFixed(2);
                 else if (data.f169 !== undefined && data.f169 !== '-' && !isNaN(data.f169)) chgVal = parseFloat(data.f169).toFixed(2);
                 else if (price !== '--') chgVal = '0.00';
@@ -1459,7 +1486,7 @@ rtManualRefreshMarket() {
         
         document.getElementById('market-idx-container').innerHTML = html; 
     } catch(e) {
-        document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8; text-align:center;">获取数据失败</div>'; 
+        document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8; text-align:center;">渲染失败，请刷新</div>'; 
     }
   },
   

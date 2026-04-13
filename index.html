@@ -1820,9 +1820,9 @@ rtManualRefreshMarket() {
     const secid = this.marketState.currentSecid; 
     if (!secid) return; 
     
-    // 修复：不要直接隐藏整个流向区域，等待接口判定
+    // 获取资金流向DOM节点，先隐藏
     const flowArea = document.getElementById('md-fund-flow-area');
-    flowArea.style.display = 'none'; 
+    if (flowArea) flowArea.style.display = 'none'; 
     
     // --- 1. 抓取基本行情 ---
     const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f60,f104,f105,f169,f170&_=${Date.now()}`; 
@@ -1877,9 +1877,7 @@ rtManualRefreshMarket() {
       } 
     } catch(e) {} 
 
-   // --- 2. 抓取实时资金流向 (附带 DOM 防残留清空机制) ---
-    const flowArea = document.getElementById('md-fund-flow-area');
-    flowArea.style.display = 'none'; 
+    // --- 2. 抓取实时资金流向 (附带 DOM 防残留清空机制) ---
     const inOutEl = document.getElementById('ff-main-inout');
     if (inOutEl) inOutEl.innerHTML = '';
     const breakdownEl = document.getElementById('ff-daily-breakdown');
@@ -1900,7 +1898,7 @@ rtManualRefreshMarket() {
         );
 
         if (hasFlow) {
-            flowArea.style.display = 'block'; 
+            if (flowArea) flowArea.style.display = 'block'; 
             
             const xlNet = parseFloat(d.f64) || parseFloat(d.f139) || 0;
             const lNet = parseFloat(d.f70) || parseFloat(d.f142) || 0;
@@ -1915,7 +1913,7 @@ rtManualRefreshMarket() {
             const mainIn = xlIn + lIn;
             const mainOut = xlOut + lOut;
             
-            // 修复主力净流入为0的 Bug：如果直接取的值异常为0或空，则通过(特大单+大单)净额计算推演
+            // 修复主力净流入为0的 Bug
             let mainNet = xlNet + lNet;
             if (d.f62 !== undefined && d.f62 !== '-' && parseFloat(d.f62) !== 0) {
                 mainNet = parseFloat(d.f62);
@@ -1964,7 +1962,7 @@ rtManualRefreshMarket() {
         const res = await fetchJSONP(hisFlowUrl, 'cb');
         const klines = res?.data?.klines;
         if (klines && klines.length > 0) {
-            flowArea.style.display = 'block'; 
+            if (flowArea) flowArea.style.display = 'block'; 
             const flowData = klines.map(str => {
                 const parts = str.split(',');
                 return { date: parts[0].slice(5), netFlow: parseFloat(parts[1]) || 0 };
@@ -1994,7 +1992,7 @@ rtManualRefreshMarket() {
           
           if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].price || 1;
 
-          // 核心修复：如果前面的基础接口没拿到数据(显示'--')，就用走势图数据“倒推”计算补上
+          // 核心修复：用走势图数据“倒推”计算补上
           const curPriceText = document.getElementById('md-price').innerText;
           if (curPriceText === '--' || curPriceText === 'NaN') {
                let validPrices = parsed.map(p => p.price).filter(p => p > 0);

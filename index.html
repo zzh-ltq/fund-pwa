@@ -1390,89 +1390,81 @@ rtManualRefreshMarket() {
   async renderMarketTabs() { 
     const list = this.marketDict[this.marketState.currentTab]; 
     const secids = list.map(item => item.secid).join(','); 
-    // 1. 请求接口新增 f60(昨收价)，应对周末停盘获取不到最新价(f2)的情况
+    
+    // 基础请求：加入 f60(昨收价)
     const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46,f60&secids=${secids}&_=${Date.now()}`; 
     try { 
         let res = await fetchJSONP(url, 'cb'); 
         let dataList = res?.data?.diff || []; 
 
-        // 2. 找出未成功获取的项目 (需同时判断最新价 f2 和昨收价 f60 都为空才算失败)
+        // 核心排查：如果在基础列表中找不到，或者最新价(f2/f43)和昨收价(f60)全都是 '-' 或 undefined，则视为失效数据
         const missingItems = list.filter(item => {
             const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
-            return !quote || ( (quote.f2 === '-' || quote.f2 === undefined) && (quote.f60 === '-' || quote.f60 === undefined) );
+            if (!quote) return true;
+            const hasPrice = (quote.f2 !== '-' && quote.f2 !== undefined) || 
+                             (quote.f60 !== '-' && quote.f60 !== undefined) || 
+                             (quote.f43 !== '-' && quote.f43 !== undefined);
+            return !hasPrice;
         });
 
-        // 3. 对缺失项逐个重试，并处理外盘期货的特殊市场前缀
+        // 终极修复方案：使用批量接口进行前缀穷举盲猜
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
-                let testSecids = [item.secid];
-                // 扩充备用前缀，全面覆盖外盘与期货市场 (涵盖100-120常见ID)
-                let prefixes = [100, 101, 102, 103, 104, 105, 106, 107, 111, 112, 113, 114, 115, 116, 119, 120];
-                let rawCode = item.secid.split('.')[1];
-                prefixes.forEach(p => testSecids.push(`${p}.${rawCode}`));
-                testSecids = [...new Set(testSecids)];
+                let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
+                // 涵盖所有美股、港股、欧洲、全球期交所(CME, CBOT, NYMEX, ICE, SGX等)的代号前缀
+                let prefixes = [100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 111, 112, 113, 114, 115, 116, 118, 119, 120, 124];
+                // 一次性生成20个不同前缀的查询代码进行批量请求
+                let testSecids = prefixes.map(p => `${p}.${rawCode}`).join(',');
 
-                for (let testSecid of testSecids) {
-                    // 追加 f60 字段
-                    let testUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f43,f44,f45,f46,f47,f48,f60,f169,f170&_=${Date.now()}`;
-                    try {
-                        let r2 = await fetchJSONP(testUrl, 'cb');
-                        let d = r2?.data;
-                        if (d) {
-                            // 核心修复：如果停盘无最新价(f43为'-')，则降级使用昨收价(f60)
-                            let rawPrice = (d.f43 !== undefined && d.f43 !== '-') ? d.f43 : d.f60;
-                            let price = parseFloat(rawPrice);
-                            
-                            if (!isNaN(price) && price > 0) {
-                                item.secid = testSecid; // 缓存成功的前缀，下次直接命中
-                                const newQuote = {
-                                    f13: parseInt(testSecid.split('.')[0]),
-                                    f12: testSecid.split('.')[1],
-                                    f2: price,
-                                    f3: d.f170 !== '-' ? parseFloat(d.f170) : 0,
-                                    f4: d.f169 !== '-' ? parseFloat(d.f169) : 0
-                                };
-                                dataList = dataList.filter(x => !(String(x.f13) === String(newQuote.f13) && String(x.f12) === String(newQuote.f12)));
-                                dataList.push(newQuote);
-                                break;
-                            }
-                        }
-                    } catch(e) { /* 继续尝试 */ }
-                }
+                let testUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46,f60&secids=${testSecids}&_=${Date.now()}`;
+
+                try {
+                    let r2 = await fetchJSONP(testUrl, 'cb');
+                    let validQuotes = r2?.data?.diff || [];
+                    
+                    // 在返回的列表中，找出真正有价格数据的那一个交易所
+                    let validQuote = validQuotes.find(q => 
+                        (q.f2 !== undefined && q.f2 !== '-') || 
+                        (q.f60 !== undefined && q.f60 !== '-') ||
+                        (q.f43 !== undefined && q.f43 !== '-')
+                    );
+
+                    if (validQuote) {
+                        // 修正本地字典，下次刷新秒开
+                        item.secid = `${validQuote.f13}.${validQuote.f12}`; 
+                        // 从当前显示列表中剔除失效的旧数据，插入真实数据
+                        dataList = dataList.filter(x => !(String(x.f13) === String(validQuote.f13) && String(x.f12) === String(validQuote.f12)));
+                        dataList.push(validQuote);
+                    }
+                } catch(e) { /* 静默忽略单次请求错误 */ }
             }));
         }
 
-        // 4. 渲染卡片 UI
+        // 渲染卡片 UI
         let html = list.map(item => { 
             const parts = item.secid.split('.');
             const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
             
             let price = '--';
-            // 核心修复：按优先级读取 最新价(f2) -> 昨收价(f60) -> 详情备用价格(f43)
+            // 严谨的价格读取顺序：最新价(f2) -> 备用最新价(f43) -> 昨收价(f60，用于周末停盘显示)
             if (quote.f2 !== undefined && quote.f2 !== '-' && !isNaN(quote.f2)) {
                 price = parseFloat(quote.f2).toFixed(2);
-            } else if (quote.f60 !== undefined && quote.f60 !== '-' && !isNaN(quote.f60)) {
-                price = parseFloat(quote.f60).toFixed(2); // 停盘时安全退至昨收
             } else if (quote.f43 !== undefined && quote.f43 !== '-' && !isNaN(quote.f43)) {
                 price = parseFloat(quote.f43).toFixed(2);
+            } else if (quote.f60 !== undefined && quote.f60 !== '-' && !isNaN(quote.f60)) {
+                price = parseFloat(quote.f60).toFixed(2); 
             }
             
             let chgRate = '--';
-            let rawRate = quote.f3;
-            if (rawRate !== undefined && rawRate !== '-' && !isNaN(rawRate)) {
-                chgRate = parseFloat(rawRate).toFixed(2);
-            } else if (quote.f170 !== undefined && quote.f170 !== '-' && !isNaN(quote.f170)) {
-                chgRate = parseFloat(quote.f170).toFixed(2);
+            if (quote.f3 !== undefined && quote.f3 !== '-' && !isNaN(quote.f3)) {
+                chgRate = parseFloat(quote.f3).toFixed(2);
             } else if (price !== '--') {
-                chgRate = '0.00'; // 停盘期间即使有价格，涨跌幅可能未返回，补全0.00
+                chgRate = '0.00'; // 停盘时如果有昨收价，涨跌幅默认为0.00
             }
             
             let chgVal = '--';
-            let rawVal = quote.f4;
-            if (rawVal !== undefined && rawVal !== '-' && !isNaN(rawVal)) {
-                chgVal = parseFloat(rawVal).toFixed(2);
-            } else if (quote.f169 !== undefined && quote.f169 !== '-' && !isNaN(quote.f169)) {
-                chgVal = parseFloat(quote.f169).toFixed(2);
+            if (quote.f4 !== undefined && quote.f4 !== '-' && !isNaN(quote.f4)) {
+                chgVal = parseFloat(quote.f4).toFixed(2);
             } else if (price !== '--') {
                 chgVal = '0.00'; 
             }
@@ -1491,7 +1483,7 @@ rtManualRefreshMarket() {
     } catch(e) { 
         document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8;">获取数据失败</div>'; 
     } 
-},
+  },
   
   switchMarketTab(tab, ev) { 
     this.marketState.currentTab = tab; 

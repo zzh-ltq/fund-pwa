@@ -606,10 +606,10 @@ const app = {
       {name: '孟买SENSEX', secid: '100.SENSEX'}
     ],
     'FUTURES': [
-      {name: '纽约金主连', secid: '111.GC00Y'}, // 修复为111
-      {name: '布油主连', secid: '114.B00Y'},    // 修复为114
+      {name: '纽约金主连', secid: '113.GC00Y'},
+      {name: '布油主连', secid: '114.B00Y'},
       {name: '富时A50主连', secid: '104.CN00Y'},
-      {name: '迷你道指', secid: '111.YM00Y'}    // 修复为111
+      {name: '迷你道指', secid: '113.YM00Y'}
     ]
   },
 
@@ -1388,106 +1388,100 @@ rtManualRefreshMarket() {
   
   async renderMarketTabs() { 
     const list = this.marketDict[this.marketState.currentTab]; 
-    document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8; width:100%; text-align:center;">数据加载中...</div>';
-
-    // 1. 组装批量查询代码 (加入常见备用前缀，争取一波带走)
-    let querySecids = [];
-    list.forEach(item => {
-        let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
-        querySecids.push(item.secid);
-        if (this.marketState.currentTab === 'US') querySecids.push(`100.${rawCode}`, `108.${rawCode}`);
-        if (this.marketState.currentTab === 'FUTURES') querySecids.push(`111.${rawCode}`, `113.${rawCode}`, `114.${rawCode}`, `104.${rawCode}`);
-    });
-    const finalSecids = [...new Set(querySecids)].join(',');
+    const secids = list.map(item => item.secid).join(','); 
     
-    let dataList = [];
-    
-    // 2. 第一轮：尝试使用批量接口快速获取（速度快，但不包含某些特定期货）
-    const ulistUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46,f60,f169,f170&secids=${finalSecids}&_=${Date.now()}`; 
+    // 基础请求：加入 f60(昨收价)
+    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46,f60&secids=${secids}&_=${Date.now()}`; 
     try { 
-        let res = await fetchJSONP(ulistUrl, 'cb'); 
-        dataList = res?.data?.diff || []; 
-    } catch(e) { }
+        let res = await fetchJSONP(url, 'cb'); 
+        let dataList = res?.data?.diff || []; 
 
-    // 3. 第二轮：筛出失败项，改用串行单品详情接口进行“排队兜底”，绝对防拦截！
-    const results = [];
-    for (let item of list) {
-        let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
-        
-        // 检查第一轮是否成功拿到了包含价格的数据
-        let validData = dataList.find(d => {
-            if (String(d.f12) !== rawCode) return false;
-            return (d.f2 !== '-' && d.f2 !== undefined) || 
-                   (d.f43 !== '-' && d.f43 !== undefined) || 
-                   (d.f60 !== '-' && d.f60 !== undefined);
+        // 核心排查：如果在基础列表中找不到，或者最新价(f2/f43)和昨收价(f60)全都是 '-' 或 undefined，则视为失效数据
+        const missingItems = list.filter(item => {
+            const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
+            if (!quote) return true;
+            const hasPrice = (quote.f2 !== '-' && quote.f2 !== undefined) || 
+                             (quote.f60 !== '-' && quote.f60 !== undefined) || 
+                             (quote.f43 !== '-' && quote.f43 !== undefined);
+            return !hasPrice;
         });
 
-        // 如果没拿到，启动兜底机制
-        if (!validData) {
-            let prefixes = [item.secid.split('.')[0]]; 
-            if (this.marketState.currentTab === 'US') prefixes.push('100', '108');
-            if (this.marketState.currentTab === 'FUTURES') prefixes.push('111', '113', '114', '104', '115');
-            prefixes = [...new Set(prefixes)]; 
+        // 终极修复方案：使用批量接口进行前缀穷举盲猜
+        if (missingItems.length > 0) {
+            await Promise.all(missingItems.map(async (item) => {
+                let rawCode = item.secid.includes('.') ? item.secid.split('.')[1] : item.secid;
+                // 涵盖所有美股、港股、欧洲、全球期交所(CME, CBOT, NYMEX, ICE, SGX等)的代号前缀
+                let prefixes = [100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 111, 112, 113, 114, 115, 116, 118, 119, 120, 124];
+                // 一次性生成20个不同前缀的查询代码进行批量请求
+                let testSecids = prefixes.map(p => `${p}.${rawCode}`).join(',');
 
-            // 排队查询，不触发高并发拦截
-            for (let p of prefixes) {
-                let testSecid = `${p}.${rawCode}`;
-                let url = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f2,f3,f4,f43,f60,f169,f170&_=${Date.now()}`;
+                let testUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46,f60&secids=${testSecids}&_=${Date.now()}`;
+
                 try {
-                    let res = await fetchJSONP(url, 'cb');
-                    let d = res?.data;
-                    if (d && ((d.f2 !== '-' && d.f2 !== undefined) || (d.f43 !== '-' && d.f43 !== undefined) || (d.f60 !== '-' && d.f60 !== undefined))) {
-                        item.secid = testSecid; // 固化正确的前缀
-                        validData = d;
-                        break; // 拿到即跳出
+                    let r2 = await fetchJSONP(testUrl, 'cb');
+                    let validQuotes = r2?.data?.diff || [];
+                    
+                    // 在返回的列表中，找出真正有价格数据的那一个交易所
+                    let validQuote = validQuotes.find(q => 
+                        (q.f2 !== undefined && q.f2 !== '-') || 
+                        (q.f60 !== undefined && q.f60 !== '-') ||
+                        (q.f43 !== undefined && q.f43 !== '-')
+                    );
+
+                    if (validQuote) {
+                        // 修正本地字典，下次刷新秒开
+                        item.secid = `${validQuote.f13}.${validQuote.f12}`; 
+                        // 从当前显示列表中剔除失效的旧数据，插入真实数据
+                        dataList = dataList.filter(x => !(String(x.f13) === String(validQuote.f13) && String(x.f12) === String(validQuote.f12)));
+                        dataList.push(validQuote);
                     }
-                } catch (e) { /* 继续尝试下一个前缀 */ }
-            }
-        } else {
-            // 更新本地字典前缀为接口确认的正确前缀
-            if (validData.f13 !== undefined) item.secid = `${validData.f13}.${validData.f12}`;
+                } catch(e) { /* 静默忽略单次请求错误 */ }
+            }));
         }
-        
-        results.push({ item, data: validData });
-    }
 
-    // 4. 渲染 UI 卡片（兼容双接口的不同字段映射）
-    try {
-        let html = results.map(({ item, data }) => {
-            let price = '--', chgRate = '--', chgVal = '--';
+        // 渲染卡片 UI
+        let html = list.map(item => { 
+            const parts = item.secid.split('.');
+            const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
             
-            if (data) {
-                // 取价逻辑：最新价 -> 备用最新价 -> 昨收价(周末停盘用)
-                if (data.f2 !== undefined && data.f2 !== '-' && !isNaN(data.f2)) price = parseFloat(data.f2).toFixed(2);
-                else if (data.f43 !== undefined && data.f43 !== '-' && !isNaN(data.f43)) price = parseFloat(data.f43).toFixed(2);
-                else if (data.f60 !== undefined && data.f60 !== '-' && !isNaN(data.f60)) price = parseFloat(data.f60).toFixed(2);
-
-                // 取涨跌幅逻辑：涨跌幅 -> 备用涨跌幅 -> 0.00(周末停盘且有昨收价时)
-                if (data.f3 !== undefined && data.f3 !== '-' && !isNaN(data.f3)) chgRate = parseFloat(data.f3).toFixed(2);
-                else if (data.f170 !== undefined && data.f170 !== '-' && !isNaN(data.f170)) chgRate = parseFloat(data.f170).toFixed(2);
-                else if (price !== '--') chgRate = '0.00';
-
-                // 取涨跌额逻辑
-                if (data.f4 !== undefined && data.f4 !== '-' && !isNaN(data.f4)) chgVal = parseFloat(data.f4).toFixed(2);
-                else if (data.f169 !== undefined && data.f169 !== '-' && !isNaN(data.f169)) chgVal = parseFloat(data.f169).toFixed(2);
-                else if (price !== '--') chgVal = '0.00';
+            let price = '--';
+            // 严谨的价格读取顺序：最新价(f2) -> 备用最新价(f43) -> 昨收价(f60，用于周末停盘显示)
+            if (quote.f2 !== undefined && quote.f2 !== '-' && !isNaN(quote.f2)) {
+                price = parseFloat(quote.f2).toFixed(2);
+            } else if (quote.f43 !== undefined && quote.f43 !== '-' && !isNaN(quote.f43)) {
+                price = parseFloat(quote.f43).toFixed(2);
+            } else if (quote.f60 !== undefined && quote.f60 !== '-' && !isNaN(quote.f60)) {
+                price = parseFloat(quote.f60).toFixed(2); 
             }
-
+            
+            let chgRate = '--';
+            if (quote.f3 !== undefined && quote.f3 !== '-' && !isNaN(quote.f3)) {
+                chgRate = parseFloat(quote.f3).toFixed(2);
+            } else if (price !== '--') {
+                chgRate = '0.00'; // 停盘时如果有昨收价，涨跌幅默认为0.00
+            }
+            
+            let chgVal = '--';
+            if (quote.f4 !== undefined && quote.f4 !== '-' && !isNaN(quote.f4)) {
+                chgVal = parseFloat(quote.f4).toFixed(2);
+            } else if (price !== '--') {
+                chgVal = '0.00'; 
+            }
+            
             const col = (chgRate !== '--' && parseFloat(chgRate) > 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
             const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
-
+            
             return `<div class="idx-card" onclick="app.openMarketDetail('${item.secid}', '${item.name}')">
                       <div class="idx-name">${item.name}</div>
                       <div class="idx-val ${col}">${price}</div>
                       <div class="idx-chg ${col}"><span>${rateSign}${chgRate}%</span><span>${valSign}${chgVal}</span></div>
                     </div>`; 
-        }).join('');
-        
+        }).join(''); 
         document.getElementById('market-idx-container').innerHTML = html; 
-    } catch(e) {
-        document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8; text-align:center;">渲染失败，请刷新</div>'; 
-    }
+    } catch(e) { 
+        document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8;">获取数据失败</div>'; 
+    } 
   },
   
   switchMarketTab(tab, ev) { 
@@ -2060,14 +2054,13 @@ rtManualRefreshMarket() {
     });
 
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    
-    // 增加画布高度，调整零轴位置，防止上下遮挡
-    const barMaxHeight = 80;          
+    const barMaxHeight = 60;          // 柱子最大高度(px)
     const barMinHeight = 4;
-    const itemWidth = 80;              
-    const canvasHeight = 240;          // 画布总高增加到240px
-    const yZero = 120;                 // 零轴严格居中
+    const itemWidth = 80;              // 每个数据点宽度(px)
+    const canvasHeight = 180;          // 画布高度（留出顶部和底部空间）
+    const yZero = canvasHeight - 40;   // 零轴位置
 
+    // 创建可滚动容器
     const scrollDiv = document.createElement('div');
     scrollDiv.style.overflowX = 'auto';
     scrollDiv.style.overflowY = 'hidden';
@@ -2103,37 +2096,32 @@ rtManualRefreshMarket() {
         const x = idx * itemWidth + itemWidth / 2;
         const isInflow = item.netFlow > 0;
         const barHeight = Math.max(barMinHeight, (item.absFlow / maxAbs) * barMaxHeight);
-        
-        let barY, barColor, valueY;
-        
-        // 核心修复坐标计算：
-        // Canvas 的 Y 轴是越往下越大的
+        let barY, barColor;
         if (isInflow) {
-            barY = yZero - barHeight; // 正数：从零轴往上画
+            barY = yZero - barHeight;
             barColor = '#f43f5e';
-            valueY = barY - 8;        // 正数文字：悬浮在柱子上方
         } else {
-            barY = yZero;             // 负数：从零轴往下画
+            barY = yZero;
             barColor = '#10b981';
-            valueY = yZero + barHeight + 14; // 负数文字：悬挂在柱子下方
         }
-        
         ctx.fillStyle = barColor;
         ctx.fillRect(x - 8, barY, 16, barHeight);
 
-        // 数值文字
+        // 数值文字：放在柱子上方（若空间不足则放在柱子内部）
         const valueText = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
         ctx.font = 'bold 11px sans-serif';
         ctx.fillStyle = barColor;
         ctx.textAlign = 'center';
+        let valueY = barY - 6;
+        if (valueY < 12) valueY = barY + 14; // 柱子太靠顶，文字放入内部
         ctx.fillText(valueText, x, valueY);
 
-        // 日期文字：固定在画布最底部，避免与绿色负数文字重叠
+        // 日期文字：放在柱子底部下方，避免遮挡
         ctx.font = '10px sans-serif';
         ctx.fillStyle = '#64748b';
-        ctx.fillText(item.date, x, canvasHeight - 10);
+        ctx.fillText(item.date, x, canvasHeight - 8);
     });
-  },
+},
 
   async renderIntradayFlowChart(secid) {
     const container = document.getElementById('ff-intraday-chart');

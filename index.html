@@ -466,26 +466,24 @@
           <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
           <div style="position:relative; width:100%; height:220px;"><canvas id="md-canvas" style="width:100%; height:100%;"></canvas></div>
         </div>
-        <!-- 优化项：新版资金流向模块占位符 -->
+        <!-- 优化项：新版资金流向模块 -->
         <div class="flow-bar-wrap" id="md-fund-flow-area" style="display:none;">
-            <div style="border-left: 4px solid var(--blue); padding-left: 8px; margin-bottom: 15px; font-weight: 900; font-size: 15px; color: var(--text-main); display:flex; justify-content:space-between;">
-                <span>今日资金净流入明细</span>
-                <span id="ff-main-net-title" style="font-size: 14px;">--</span>
+            <div style="border-left: 4px solid var(--blue); padding-left: 8px; margin-bottom: 12px; font-weight: 900; font-size: 15px; color: var(--text-main);">
+                今日资金净流入明细
             </div>
+            
+            <!-- 新增：主力流入、流出、净流入 汇总信息 -->
+            <div id="ff-main-inout" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; font-size:12px; font-weight:bold; color:var(--text-sub); padding:10px; background:#f8fafc; border-radius:8px;">
+                <!-- 通过JS动态注入 -->
+            </div>
+
+            <!-- 横向条形图：特大单、大单、中单、小单 -->
             <div id="ff-daily-breakdown" style="padding: 0 5px;"></div>
 
             <div style="border-left: 4px solid var(--text-sub); padding-left: 8px; margin-top: 25px; font-weight: 900; font-size: 14px; color: var(--text-main);">
                 近 10 日主力净流入
             </div>
             <div class="hist-flow-wrap" id="ff-history-chart"></div>
-
-            <div style="border-left: 4px solid var(--green); padding-left: 8px; margin-top: 25px; font-weight: 900; font-size: 14px; color: var(--text-main);">
-                今日主力净流入走势 (分时)
-            </div>
-            <!-- 替换为（固定高度+不挤压布局） -->
-            <div id="ff-intraday-chart" style="height: 220px; margin-top:10px; position:relative; min-height:220px;">
-                <canvas id="ff-canvas" style="width:100%; height:100%;"></canvas>
-            </div>
          </div>
         <div style="height:30px;"></div>
       </div>
@@ -1879,25 +1877,47 @@ rtManualRefreshMarket() {
       } 
     } catch(e) {} 
 
-    // --- 2. 抓取实时资金流向 ---
-    const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f70,f76,f82,f139,f142,f145,f148&_=${Date.now()}`;
+   // --- 2. 抓取实时资金流向 ---
+    // 扩充字段：增加了 f66(超大流入), f67(超大流出), f72(大单流入), f73(大单流出) 等绝对值字段
+    const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f66,f67,f70,f72,f73,f76,f82,f139,f142,f145,f148&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(flowUrl, 'cb');
         const d = res?.data;
         if (d && (d.f64 !== undefined || d.f139 !== undefined || d.f62 !== undefined)) {
             flowArea.style.display = 'block'; 
+            
+            // 计算净流入
             const xlNet = parseFloat(d.f64) || parseFloat(d.f139) || 0;
             const lNet = parseFloat(d.f70) || parseFloat(d.f142) || 0;
             const mNet = parseFloat(d.f76) || parseFloat(d.f145) || 0;
             const sNet = parseFloat(d.f82) || parseFloat(d.f148) || 0;
             
+            // 计算绝对流入和流出 (主要针对个股，板块可能没有绝对值)
+            const xlIn = parseFloat(d.f66) || 0;
+            const xlOut = parseFloat(d.f67) || 0;
+            const lIn = parseFloat(d.f72) || 0;
+            const lOut = parseFloat(d.f73) || 0;
+
+            const mainIn = xlIn + lIn;
+            const mainOut = xlOut + lOut;
+            
             let mainNet = 0;
             if (d.f62 !== undefined && d.f62 !== '-') mainNet = parseFloat(d.f62);
             else mainNet = xlNet + lNet;
             
-            const mainNetEl = document.getElementById('ff-main-net-title');
-            mainNetEl.innerText = `主力 ${mainNet > 0 ? '+' : ''}${this.formatFlowAmt(mainNet)}`;
-            mainNetEl.className = mainNet >= 0 ? 'red' : 'green';
+            // 渲染汇总信息：如果API给了绝对流入流出就展示，没给就只展示净流入
+            const inOutEl = document.getElementById('ff-main-inout');
+            if (inOutEl) {
+                if (mainIn > 0 || mainOut > 0) {
+                    inOutEl.innerHTML = `
+                        <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流入</span><span class="red" style="font-size:14px;">${this.formatFlowAmt(mainIn)}</span></div>
+                        <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流出</span><span class="green" style="font-size:14px;">${this.formatFlowAmt(mainOut)}</span></div>
+                        <div style="display:flex; flex-direction:column; align-items:center;"><span>净流入</span><span class="${mainNet>=0?'red':'green'}" style="font-size:14px;">${mainNet>0?'+':''}${this.formatFlowAmt(mainNet)}</span></div>
+                    `;
+                } else {
+                    inOutEl.innerHTML = `<div style="width:100%; text-align:center;"><span>主力净流入</span><span class="${mainNet>=0?'red':'green'}" style="font-size:15px; margin-left:10px;">${mainNet>0?'+':''}${this.formatFlowAmt(mainNet)}</span></div>`;
+                }
+            }
 
             const maxAbs = Math.max(Math.abs(xlNet), Math.abs(lNet), Math.abs(mNet), Math.abs(sNet), 1);
             const buildRow = (label, val) => {
@@ -1915,9 +1935,9 @@ rtManualRefreshMarket() {
                     <span class="flow-val ${colorCls}">${sign}${this.formatFlowAmt(val)}</span>
                 </div>`;
             };
-            document.getElementById('ff-daily-breakdown').innerHTML = buildRow('超大单', xlNet) + buildRow('大单', lNet) + buildRow('中单', mNet) + buildRow('小单', sNet);
+            
+            document.getElementById('ff-daily-breakdown').innerHTML = buildRow('特大单', xlNet) + buildRow('大单', lNet) + buildRow('中单', mNet) + buildRow('小单', sNet);
         } else {
-            // 如果没实时明细，清空提示
             document.getElementById('ff-daily-breakdown').innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">暂无今日资金明细</div>';
         }
     } catch(e) {}
@@ -1928,13 +1948,13 @@ rtManualRefreshMarket() {
         const res = await fetchJSONP(hisFlowUrl, 'cb');
         const klines = res?.data?.klines;
         if (klines && klines.length > 0) {
-            flowArea.style.display = 'block'; // 只要有历史数据，就显示整个区域
+            flowArea.style.display = 'block'; 
             const flowData = klines.map(str => {
                 const parts = str.split(',');
                 return { date: parts[0].slice(5), netFlow: parseFloat(parts[1]) || 0 };
             });
             this.renderFundFlowChart(flowData);
-            setTimeout(() => { this.renderIntradayFlowChart(secid); }, 200);
+            // 删除了调用分时资金图表的代码，因为已经在HTML中移除了画布
         }
     } catch(e) {}
 

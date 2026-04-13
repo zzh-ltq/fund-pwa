@@ -594,11 +594,11 @@ const app = {
       {name: '国企指数', secid: '100.HSCEI'}
     ],
     'US': [
-      {name: '道琼斯', secid: '100.DJI'},
-      {name: '纳斯达克', secid: '100.IXIC'},
+      {name: '道琼斯', secid: '100.DJIA'},   // 修复：改为 DJIA
+      {name: '纳斯达克', secid: '100.NDX'},   // 修复：对应截图的 NDX
       {name: '标普500', secid: '100.SPX'},
       {name: '纳指金龙中国', secid: '100.HXC'},
-      {name: '纳指全球', secid: '100.NQGI'}
+      {name: '纳指全球', secid: '100.NQGM'}   // 修复：原 NQGI 改为 NQGM
     ],
     'ASIA': [
       {name: '日经225', secid: '100.N225'},
@@ -607,12 +607,12 @@ const app = {
     ],
     'FUTURES': [
       {name: '纽约金主连', secid: '113.GC00Y'},
-      {name: '布油主连', secid: '113.B00Y'},
+      {name: '布油主连', secid: '114.B00Y'},    // 修复：布油 ICE 交易所通常为 114
       {name: '富时A50主连', secid: '104.CN00Y'},
       {name: '日经225主连', secid: '104.NK00Y'},
       {name: '迷你道指', secid: '113.YM00Y'}
     ]
-},
+  },
 
   marketSortRule: 'chg',     // 默认改为按涨跌幅排序
   marketSortDir: 'desc',     // 降序
@@ -1389,38 +1389,42 @@ rtManualRefreshMarket() {
   
   async renderMarketTabs() { 
     const list = this.marketDict[this.marketState.currentTab]; 
-    // 批量获取
     const secids = list.map(item => item.secid).join(','); 
-    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46&secids=${secids}&_=${Date.now()}`; 
+    // 1. 请求接口新增 f60(昨收价)，应对周末停盘获取不到最新价(f2)的情况
+    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f44,f45,f46,f60&secids=${secids}&_=${Date.now()}`; 
     try { 
         let res = await fetchJSONP(url, 'cb'); 
         let dataList = res?.data?.diff || []; 
 
-        // 找出未成功获取的项目
+        // 2. 找出未成功获取的项目 (需同时判断最新价 f2 和昨收价 f60 都为空才算失败)
         const missingItems = list.filter(item => {
             const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.secid);
-            return !quote || quote.f2 === '-' || quote.f2 === undefined || quote.f2 === null;
+            return !quote || ( (quote.f2 === '-' || quote.f2 === undefined) && (quote.f60 === '-' || quote.f60 === undefined) );
         });
 
-        // 对缺失项逐个单品重试，并处理期货的特殊字段
+        // 3. 对缺失项逐个重试，并处理外盘期货的特殊市场前缀
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
                 let testSecids = [item.secid];
-                // 增加备用前缀
-                let prefixes = [100, 101, 102, 103, 104, 105, 111, 113, 114, 115, 116];
+                // 扩充备用前缀，全面覆盖外盘与期货市场 (涵盖100-120常见ID)
+                let prefixes = [100, 101, 102, 103, 104, 105, 106, 107, 111, 112, 113, 114, 115, 116, 119, 120];
                 let rawCode = item.secid.split('.')[1];
                 prefixes.forEach(p => testSecids.push(`${p}.${rawCode}`));
                 testSecids = [...new Set(testSecids)];
 
                 for (let testSecid of testSecids) {
-                    let testUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f43,f44,f45,f46,f47,f48,f169,f170&_=${Date.now()}`;
+                    // 追加 f60 字段
+                    let testUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${testSecid}&fields=f43,f44,f45,f46,f47,f48,f60,f169,f170&_=${Date.now()}`;
                     try {
                         let r2 = await fetchJSONP(testUrl, 'cb');
                         let d = r2?.data;
-                        if (d && d.f43 !== '-' && d.f43 !== undefined) {
-                            let price = parseFloat(d.f43);
+                        if (d) {
+                            // 核心修复：如果停盘无最新价(f43为'-')，则降级使用昨收价(f60)
+                            let rawPrice = (d.f43 !== undefined && d.f43 !== '-') ? d.f43 : d.f60;
+                            let price = parseFloat(rawPrice);
+                            
                             if (!isNaN(price) && price > 0) {
-                                item.secid = testSecid;
+                                item.secid = testSecid; // 缓存成功的前缀，下次直接命中
                                 const newQuote = {
                                     f13: parseInt(testSecid.split('.')[0]),
                                     f12: testSecid.split('.')[1],
@@ -1438,14 +1442,17 @@ rtManualRefreshMarket() {
             }));
         }
 
-        // 渲染卡片
+        // 4. 渲染卡片 UI
         let html = list.map(item => { 
             const parts = item.secid.split('.');
             const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
             
             let price = '--';
+            // 核心修复：按优先级读取 最新价(f2) -> 昨收价(f60) -> 详情备用价格(f43)
             if (quote.f2 !== undefined && quote.f2 !== '-' && !isNaN(quote.f2)) {
-                price = quote.f2.toFixed(2);
+                price = parseFloat(quote.f2).toFixed(2);
+            } else if (quote.f60 !== undefined && quote.f60 !== '-' && !isNaN(quote.f60)) {
+                price = parseFloat(quote.f60).toFixed(2); // 停盘时安全退至昨收
             } else if (quote.f43 !== undefined && quote.f43 !== '-' && !isNaN(quote.f43)) {
                 price = parseFloat(quote.f43).toFixed(2);
             }
@@ -1456,6 +1463,8 @@ rtManualRefreshMarket() {
                 chgRate = parseFloat(rawRate).toFixed(2);
             } else if (quote.f170 !== undefined && quote.f170 !== '-' && !isNaN(quote.f170)) {
                 chgRate = parseFloat(quote.f170).toFixed(2);
+            } else if (price !== '--') {
+                chgRate = '0.00'; // 停盘期间即使有价格，涨跌幅可能未返回，补全0.00
             }
             
             let chgVal = '--';
@@ -1464,9 +1473,11 @@ rtManualRefreshMarket() {
                 chgVal = parseFloat(rawVal).toFixed(2);
             } else if (quote.f169 !== undefined && quote.f169 !== '-' && !isNaN(quote.f169)) {
                 chgVal = parseFloat(quote.f169).toFixed(2);
+            } else if (price !== '--') {
+                chgVal = '0.00'; 
             }
             
-            const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
+            const col = (chgRate !== '--' && parseFloat(chgRate) > 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
             const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
             

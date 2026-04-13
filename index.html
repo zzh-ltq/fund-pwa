@@ -2054,13 +2054,14 @@ rtManualRefreshMarket() {
     });
 
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
-    const barMaxHeight = 60;          // 柱子最大高度(px)
+    
+    // 增加画布高度，调整零轴位置，防止上下遮挡
+    const barMaxHeight = 80;          
     const barMinHeight = 4;
-    const itemWidth = 80;              // 每个数据点宽度(px)
-    const canvasHeight = 180;          // 画布高度（留出顶部和底部空间）
-    const yZero = canvasHeight - 40;   // 零轴位置
+    const itemWidth = 80;              
+    const canvasHeight = 240;          // 画布总高增加到240px
+    const yZero = 120;                 // 零轴严格居中
 
-    // 创建可滚动容器
     const scrollDiv = document.createElement('div');
     scrollDiv.style.overflowX = 'auto';
     scrollDiv.style.overflowY = 'hidden';
@@ -2096,32 +2097,37 @@ rtManualRefreshMarket() {
         const x = idx * itemWidth + itemWidth / 2;
         const isInflow = item.netFlow > 0;
         const barHeight = Math.max(barMinHeight, (item.absFlow / maxAbs) * barMaxHeight);
-        let barY, barColor;
+        
+        let barY, barColor, valueY;
+        
+        // 核心修复坐标计算：
+        // Canvas 的 Y 轴是越往下越大的
         if (isInflow) {
-            barY = yZero - barHeight;
+            barY = yZero - barHeight; // 正数：从零轴往上画
             barColor = '#f43f5e';
+            valueY = barY - 8;        // 正数文字：悬浮在柱子上方
         } else {
-            barY = yZero;
+            barY = yZero;             // 负数：从零轴往下画
             barColor = '#10b981';
+            valueY = yZero + barHeight + 14; // 负数文字：悬挂在柱子下方
         }
+        
         ctx.fillStyle = barColor;
         ctx.fillRect(x - 8, barY, 16, barHeight);
 
-        // 数值文字：放在柱子上方（若空间不足则放在柱子内部）
+        // 数值文字
         const valueText = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
         ctx.font = 'bold 11px sans-serif';
         ctx.fillStyle = barColor;
         ctx.textAlign = 'center';
-        let valueY = barY - 6;
-        if (valueY < 12) valueY = barY + 14; // 柱子太靠顶，文字放入内部
         ctx.fillText(valueText, x, valueY);
 
-        // 日期文字：放在柱子底部下方，避免遮挡
+        // 日期文字：固定在画布最底部，避免与绿色负数文字重叠
         ctx.font = '10px sans-serif';
         ctx.fillStyle = '#64748b';
-        ctx.fillText(item.date, x, canvasHeight - 8);
+        ctx.fillText(item.date, x, canvasHeight - 10);
     });
-},
+  },
 
   async renderIntradayFlowChart(secid) {
     const container = document.getElementById('ff-intraday-chart');

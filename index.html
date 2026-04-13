@@ -481,7 +481,7 @@
             <div id="ff-daily-breakdown" style="padding: 0 5px;"></div>
 
             <div style="border-left: 4px solid var(--text-sub); padding-left: 8px; margin-top: 25px; font-weight: 900; font-size: 14px; color: var(--text-main);">
-                近 10 日主力净流入
+                近 20 日主力净流入
             </div>
             <div class="hist-flow-wrap" id="ff-history-chart"></div>
          </div>
@@ -1877,22 +1877,36 @@ rtManualRefreshMarket() {
       } 
     } catch(e) {} 
 
-   // --- 2. 抓取实时资金流向 ---
-    // 扩充字段：增加了 f66(超大流入), f67(超大流出), f72(大单流入), f73(大单流出) 等绝对值字段
+   // --- 2. 抓取实时资金流向 (附带 DOM 防残留清空机制) ---
+    const flowArea = document.getElementById('md-fund-flow-area');
+    flowArea.style.display = 'none'; 
+    const inOutEl = document.getElementById('ff-main-inout');
+    if (inOutEl) inOutEl.innerHTML = '';
+    const breakdownEl = document.getElementById('ff-daily-breakdown');
+    if (breakdownEl) breakdownEl.innerHTML = '<div style="text-align:center; padding:10px;">加载中...</div>';
+    const historyEl = document.getElementById('ff-history-chart');
+    if (historyEl) historyEl.innerHTML = '';
+
     const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f66,f67,f70,f72,f73,f76,f82,f139,f142,f145,f148&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(flowUrl, 'cb');
         const d = res?.data;
-        if (d && (d.f64 !== undefined || d.f139 !== undefined || d.f62 !== undefined)) {
+        // 判定是否真的有资金流数据 (防止外盘空数据串台)
+        const hasFlow = d && (
+            (d.f64 !== undefined && d.f64 !== '-') || 
+            (d.f139 !== undefined && d.f139 !== '-') || 
+            (d.f62 !== undefined && d.f62 !== '-') ||
+            (d.f70 !== undefined && d.f70 !== '-')
+        );
+
+        if (hasFlow) {
             flowArea.style.display = 'block'; 
             
-            // 计算净流入
             const xlNet = parseFloat(d.f64) || parseFloat(d.f139) || 0;
             const lNet = parseFloat(d.f70) || parseFloat(d.f142) || 0;
             const mNet = parseFloat(d.f76) || parseFloat(d.f145) || 0;
             const sNet = parseFloat(d.f82) || parseFloat(d.f148) || 0;
             
-            // 计算绝对流入和流出 (主要针对个股，板块可能没有绝对值)
             const xlIn = parseFloat(d.f66) || 0;
             const xlOut = parseFloat(d.f67) || 0;
             const lIn = parseFloat(d.f72) || 0;
@@ -1901,12 +1915,12 @@ rtManualRefreshMarket() {
             const mainIn = xlIn + lIn;
             const mainOut = xlOut + lOut;
             
-            let mainNet = 0;
-            if (d.f62 !== undefined && d.f62 !== '-') mainNet = parseFloat(d.f62);
-            else mainNet = xlNet + lNet;
-            
-            // 渲染汇总信息：如果API给了绝对流入流出就展示，没给就只展示净流入
-            const inOutEl = document.getElementById('ff-main-inout');
+            // 修复主力净流入为0的 Bug：如果直接取的值异常为0或空，则通过(特大单+大单)净额计算推演
+            let mainNet = xlNet + lNet;
+            if (d.f62 !== undefined && d.f62 !== '-' && parseFloat(d.f62) !== 0) {
+                mainNet = parseFloat(d.f62);
+            }
+
             if (inOutEl) {
                 if (mainIn > 0 || mainOut > 0) {
                     inOutEl.innerHTML = `
@@ -1936,14 +1950,16 @@ rtManualRefreshMarket() {
                 </div>`;
             };
             
-            document.getElementById('ff-daily-breakdown').innerHTML = buildRow('特大单', xlNet) + buildRow('大单', lNet) + buildRow('中单', mNet) + buildRow('小单', sNet);
+            if (breakdownEl) breakdownEl.innerHTML = buildRow('特大单', xlNet) + buildRow('大单', lNet) + buildRow('中单', mNet) + buildRow('小单', sNet);
         } else {
-            document.getElementById('ff-daily-breakdown').innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">暂无今日资金明细</div>';
+            if (breakdownEl) breakdownEl.innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">该标的暂无资金明细数据</div>';
         }
-    } catch(e) {}
+    } catch(e) {
+        if (breakdownEl) breakdownEl.innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">获取明细数据失败</div>';
+    }
 
-    // --- 3. 抓取历史10天主力资金流向 ---
-    const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=10&secid=${secid}&fields1=f1&fields2=f51,f52&_=${Date.now()}`;
+    // --- 3. 抓取历史 20 天主力资金流向 ---
+    const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=20&secid=${secid}&fields1=f1&fields2=f51,f52&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(hisFlowUrl, 'cb');
         const klines = res?.data?.klines;
@@ -1954,9 +1970,12 @@ rtManualRefreshMarket() {
                 return { date: parts[0].slice(5), netFlow: parseFloat(parts[1]) || 0 };
             });
             this.renderFundFlowChart(flowData);
-            // 删除了调用分时资金图表的代码，因为已经在HTML中移除了画布
+        } else {
+            if (historyEl) historyEl.innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">该标的暂无历史资金数据</div>';
         }
-    } catch(e) {}
+    } catch(e) {
+        if (historyEl) historyEl.innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">获取历史资金失败</div>';
+    }
 
     // --- 4. 抓取走势图数据并补齐缺失的顶部数据 ---
     if (this.marketState.chartType === 'trend') { 
@@ -2075,12 +2094,11 @@ rtManualRefreshMarket() {
 
     const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
     
-    // 增加画布高度，调整零轴位置，防止上下遮挡
     const barMaxHeight = 80;          
     const barMinHeight = 4;
-    const itemWidth = 80;              
-    const canvasHeight = 240;          // 画布总高增加到240px
-    const yZero = 120;                 // 零轴严格居中
+    const itemWidth = 65; // 为容纳20根，微调了柱子占用的间距宽度
+    const canvasHeight = 240;          
+    const yZero = 120;                 
 
     const scrollDiv = document.createElement('div');
     scrollDiv.style.overflowX = 'auto';
@@ -2090,7 +2108,7 @@ rtManualRefreshMarket() {
     scrollDiv.style.padding = '0 12px';
 
     const canvas = document.createElement('canvas');
-    const totalWidth = processedData.length * itemWidth;
+    const totalWidth = Math.max(processedData.length * itemWidth, window.innerWidth);
     canvas.width = totalWidth;
     canvas.height = canvasHeight;
     canvas.style.width = totalWidth + 'px';
@@ -2115,34 +2133,32 @@ rtManualRefreshMarket() {
 
     processedData.forEach((item, idx) => {
         const x = idx * itemWidth + itemWidth / 2;
-        const isInflow = item.netFlow > 0;
+        const isInflow = item.netFlow >= 0;
         const barHeight = Math.max(barMinHeight, (item.absFlow / maxAbs) * barMaxHeight);
         
         let barY, barColor, valueY;
         
-        // 核心修复坐标计算：
-        // Canvas 的 Y 轴是越往下越大的
         if (isInflow) {
-            barY = yZero - barHeight; // 正数：从零轴往上画
+            barY = yZero - barHeight; 
             barColor = '#f43f5e';
-            valueY = barY - 8;        // 正数文字：悬浮在柱子上方
+            valueY = barY - 8;        
         } else {
-            barY = yZero;             // 负数：从零轴往下画
+            barY = yZero;             
             barColor = '#10b981';
-            valueY = yZero + barHeight + 14; // 负数文字：悬挂在柱子下方
+            valueY = yZero + barHeight + 14; 
         }
         
         ctx.fillStyle = barColor;
-        ctx.fillRect(x - 8, barY, 16, barHeight);
+        ctx.fillRect(x - 6, barY, 12, barHeight); // 柱子变细以防拥挤
 
         // 数值文字
         const valueText = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
-        ctx.font = 'bold 11px sans-serif';
+        ctx.font = 'bold 10px sans-serif';
         ctx.fillStyle = barColor;
         ctx.textAlign = 'center';
         ctx.fillText(valueText, x, valueY);
 
-        // 日期文字：固定在画布最底部，避免与绿色负数文字重叠
+        // 日期文字
         ctx.font = '10px sans-serif';
         ctx.fillStyle = '#64748b';
         ctx.fillText(item.date, x, canvasHeight - 10);

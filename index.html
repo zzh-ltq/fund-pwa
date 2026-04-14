@@ -2900,7 +2900,7 @@ if (data.xLabels.length > 0) {
   },
 
   // ==========================================
-  // 12. AI 量化预判
+  // 12. AI 量化预判 (支持智能降级筛选)
   // ==========================================
   renderSectorAIPrediction() { 
     document.getElementById('sector-top-tools').style.display = 'none'; 
@@ -2910,22 +2910,43 @@ if (data.xLabels.length > 0) {
     container.innerHTML = '<div style="text-align:center; padding: 60px 20px; color:#94a3b8; font-weight:bold;">🤖 全库深度量化演算中，请稍候...</div>'; 
     
     setTimeout(() => { 
-      let qualifyingFunds = []; 
+      let allAnalyzedFunds = []; 
+      
+      // 1. 遍历计算所有基金的量化评分与模型共振数
       for (let code in this.data.fundsCache) { 
         const f = this.data.fundsCache[code]; 
         if (!f.netWorth || f.netWorth.length < 60) continue; 
         const aiRes = this.getFundQuantAnalysis(code); 
         if (!aiRes.isValid) continue; 
+        
         let addCount = 0; 
         aiRes.models.forEach(m => { if (m.adv.includes('加')) addCount++; }); 
-        if (addCount === aiRes.models.length) { 
-          qualifyingFunds.push({ code: code, score: aiRes.totalScore }); 
-        } 
+        
+        // 保存所有具备计算资格的基金
+        allAnalyzedFunds.push({ code: code, score: aiRes.totalScore, addCount: addCount }); 
+      } 
+      
+      // 2. 核心优化：动态降级筛选机制 (从 5 降到 1)
+      let targetCount = 5;
+      let qualifyingFunds = [];
+      while(targetCount >= 1) {
+          qualifyingFunds = allAnalyzedFunds.filter(f => f.addCount === targetCount);
+          if (qualifyingFunds.length > 0) {
+              break; // 找到了当前最高满足度的基金群体，停止降级
+          }
+          targetCount--;
+      }
+      
+      // 3. 终极兜底：如果降到 1 都没有，说明全盘皆墨
+      if (targetCount === 0 || qualifyingFunds.length === 0) { 
+        container.innerHTML = `<div style="text-align:center; padding: 40px; color:#94a3b8;"><div style="font-size:40px; margin-bottom:10px;">📉</div><div style="font-weight:bold; color:var(--text-main);">当前库中，暂无任何具备加仓信号的基金</div><div style="font-size:12px; margin-top:8px;">(所有量化模型均处于看空或观望状态)</div><button class="btn-primary" style="margin-top:30px; width:140px; border-radius:20px;" onclick="app.renderSector()">🔙 退出 AI 模式</button></div>`; 
+        return; 
       } 
       
       let finalSelectedCodes = new Set(); 
       let finalSelectedFunds = []; 
       
+      // 4. 在降级后的最优群体中，选出每个用户分组里“综合得分最高”的那一只
       this.data.groups.forEach(g => { 
         if (g.id === 'default') return; 
         let groupFunds = qualifyingFunds.filter(qf => g.fundCodes.includes(qf.code)); 
@@ -2941,11 +2962,11 @@ if (data.xLabels.length > 0) {
         } 
       }); 
       
+      // 处理未分组（孤儿）基金中的最优解
       let orphanFunds = qualifyingFunds.filter(qf => { 
         let inCustomGroup = this.data.groups.some(g => g.id !== 'default' && g.fundCodes.includes(qf.code)); 
         return !inCustomGroup; 
       }); 
-      
       if (orphanFunds.length > 0) { 
         orphanFunds.sort((a, b) => b.score - a.score); 
         const bestOrphan = orphanFunds[0]; 
@@ -2957,18 +2978,27 @@ if (data.xLabels.length > 0) {
         } 
       } 
       
-      if (finalSelectedFunds.length === 0) { 
-        container.innerHTML = `<div style="text-align:center; padding: 40px; color:#94a3b8;"><div style="font-size:40px; margin-bottom:10px;">📉</div><div style="font-weight:bold; color:var(--text-main);">当前库中，暂无满足条件的“黄金坑”基金</div><div style="font-size:12px; margin-top:8px;">(要求所有核心 AI 模型必须同时发出加仓信号)</div><button class="btn-primary" style="margin-top:30px; width:140px; border-radius:20px;" onclick="app.renderSector()">🔙 退出 AI 模式</button></div>`; 
-        return; 
-      } 
-      
       container.className = this.secViewMode === 'card' ? 'card-grid' : ''; 
-      let html = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 4px; grid-column: 1 / -1;"><span style="font-size:14px; font-weight:800; color:var(--text-main);">🤖 所有模型一致看多基金</span><span class="action-pill" style="margin:0; background:var(--blue-light); color:var(--blue);" onclick="app.renderSector()">🔙 退出AI模式</span></div>`; 
       
+      // 5. 动态生成标题与徽章样式
+      let matchTitle = targetCount === 5 ? '🤖 所有模型一致看多基金' : `🤖 降级筛选：${targetCount}/5 模型看多基金`;
+      let html = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 4px; grid-column: 1 / -1;"><span style="font-size:14px; font-weight:800; color:var(--text-main);">${matchTitle}</span><span class="action-pill" style="margin:0; background:var(--blue-light); color:var(--blue);" onclick="app.renderSector()">🔙 退出AI模式</span></div>`; 
+      
+      // 不同的匹配度给予不同的视觉警示颜色
+      const rankStyles = {
+          5: { text: "🎯 强烈看多 (5/5 共振)", col: "#f43f5e", bg: "#fff1f2", border: "#ffe4e6" }, // 红
+          4: { text: "🔥 积极看多 (4/5 模型)", col: "#f59e0b", bg: "#fffbeb", border: "#fef3c7" }, // 橙
+          3: { text: "✨ 谨慎看多 (3/5 模型)", col: "#8b5cf6", bg: "#f5f3ff", border: "#ede9fe" }, // 紫
+          2: { text: "👀 弱势看多 (2/5 模型)", col: "#3b82f6", bg: "#eff6ff", border: "#e0e7ff" }, // 蓝
+          1: { text: "⚠️ 极弱看多 (1/5 模型)", col: "#64748b", bg: "#f8fafc", border: "#e2e8f0" }  // 灰
+      };
+      const rs = rankStyles[targetCount];
+
       if (this.secViewMode === 'card') { 
         html += finalSelectedFunds.map(f => { 
           let cardHtml = this.buildCardHtml(f, false); 
-          return cardHtml.replace('<div class="c-title-area">', `<div style="font-size:10px; color:#f43f5e; font-weight:900; background:#fff1f2; padding:3px 8px; border-radius:6px; display:inline-block; margin-bottom:6px; border:1px solid #ffe4e6;">🎯 强烈看多 | ${f.aiBadge}</div><div class="c-title-area">`); 
+          // 动态注入带有颜色的提示徽章
+          return cardHtml.replace('<div class="c-title-area">', `<div style="font-size:10px; color:${rs.col}; font-weight:900; background:${rs.bg}; padding:3px 8px; border-radius:6px; display:inline-block; margin-bottom:6px; border:1px solid ${rs.border};">${rs.text} | ${f.aiBadge}</div><div class="c-title-area">`); 
         }).join(''); 
       } else { 
         html += this.buildListHtml(finalSelectedFunds, false, true); 

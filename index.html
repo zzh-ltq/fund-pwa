@@ -2046,7 +2046,7 @@ rtManualRefreshMarket() {
         if (flowArea) flowArea.style.display = 'none';
     }
 
-    // --- 4. 抓取走势图数据并补齐缺失的顶部数据 ---
+   // --- 4. 抓取走势图数据并补齐缺失的顶部数据 ---
     if (this.marketState.chartType === 'trend') { 
       const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`; 
       try { 
@@ -2063,7 +2063,6 @@ rtManualRefreshMarket() {
           
           if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].price || 1;
 
-          // 核心修复：用走势图数据“倒推”计算补上
           const curPriceText = document.getElementById('md-price').innerText;
           if (curPriceText === '--' || curPriceText === 'NaN') {
                let validPrices = parsed.map(p => p.price).filter(p => p > 0);
@@ -2092,6 +2091,12 @@ rtManualRefreshMarket() {
                }
           }
 
+          // 核心修复：引入各市场的日内总分钟数，防止盘中走势被横向过度拉伸
+          let totalPts = parsed.length;
+          if (this.marketState.currentTab === 'A') totalPts = 241;
+          else if (this.marketState.currentTab === 'HK') totalPts = 331;
+          else if (this.marketState.currentTab === 'US') totalPts = 391;
+
           this.marketChartData = { 
             type: 'trend', 
             xLabels: parsed.map(p => p.time), 
@@ -2100,7 +2105,8 @@ rtManualRefreshMarket() {
             volumes: parsed.map(p => p.volume), 
             prevClose: finalPrevClose, 
             lastPrice: parsed[parsed.length-1]?.price || 0, 
-            timeStr: new Date().toLocaleTimeString() 
+            timeStr: new Date().toLocaleTimeString(),
+            totalPoints: totalPts // 传入总刻度数
           }; 
           this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
           this.bindChartEvents(); 
@@ -2375,9 +2381,7 @@ drawIntradayFlowCanvas(data) {
     
     const data = this.marketChartData; 
     if (!data || !data.prices || data.prices.length === 0) return; 
-    // ======== 添加以下这一行 ========
     if (data.prevClose <= 0) data.prevClose = data.prices[0] || 1;
-    // ================================
     
     const pad = { l: 50, r: 50, t: 20, b: 35 }; 
     const dw = w - pad.l - pad.r, dh = h - pad.t - pad.b; 
@@ -2386,23 +2390,29 @@ drawIntradayFlowCanvas(data) {
     const validPrices = data.prices.filter(p => !isNaN(p) && p > 0); 
     if (validPrices.length === 0) return; 
     
+    // 核心修复：收紧 Y轴 的留白比例，放大波动视觉效果
     if (data.type === 'trend') { 
       const allPrices = data.avgPrices ? [...data.prices, ...data.avgPrices] : data.prices; 
       const validAllPrices = allPrices.filter(p => !isNaN(p) && p > 0); 
-      const diffMax = Math.max(Math.abs(Math.max(...validAllPrices) - data.prevClose), Math.abs(data.prevClose - Math.min(...validAllPrices))) * 1.1 || 10; 
+      let diffMax = Math.max(Math.abs(Math.max(...validAllPrices) - data.prevClose), Math.abs(data.prevClose - Math.min(...validAllPrices))); 
+      if (diffMax === 0) diffMax = data.prevClose * 0.005; // 极小波动时的保底
+      diffMax *= 1.05; // 仅保留5%空白，之前是10%
       yMax = data.prevClose + diffMax; 
       yMin = data.prevClose - diffMax; 
     } else { 
       const allVals = [...data.prices, ...(data.ma5||[]), ...(data.ma10||[]), ...(data.ma20||[]), ...(data.ma60||[])].filter(v => v !== null && !isNaN(v)); 
       const maxP = Math.max(...allVals), minP = Math.min(...allVals); 
-      const margin = (maxP - minP) * 0.1 || maxP * 0.01 || 1; 
+      const margin = (maxP - minP) * 0.05 || maxP * 0.01 || 1; 
       yMax = maxP + margin; 
       yMin = minP - margin; 
     } 
     
-    const getX = idx => pad.l + (idx / (data.prices.length - 1)) * dw; 
+    // 核心修复：引入最大点数概念，盘中未走完的时间会在右侧留白
+    const maxPoints = (data.type === 'trend' && data.totalPoints) ? Math.max(data.totalPoints, data.prices.length) : data.prices.length;
+    const getX = idx => pad.l + (idx / Math.max(maxPoints - 1, 1)) * dw; 
     const getY = price => pad.t + dh - ((price - yMin) / (yMax - yMin)) * dh; 
     
+    // 画横向虚线
     ctx.strokeStyle = '#e2e8f0'; 
     ctx.lineWidth = 0.5; 
     for (let i=0;i<=4;i++) { 
@@ -2413,15 +2423,16 @@ drawIntradayFlowCanvas(data) {
       ctx.stroke(); 
     } 
     
-    const step = data.type === 'trend' ? Math.ceil(data.prices.length/6) : Math.ceil(data.prices.length/10); 
-    for (let i=0;i<data.prices.length;i+=step) { 
-      let x = getX(i); 
-      ctx.beginPath(); 
-      ctx.moveTo(x, pad.t); 
-      ctx.lineTo(x, h-pad.b); 
-      ctx.stroke(); 
-    } 
+    // 画纵向虚线：改为固定3条内侧线，平分画布
+    for (let i = 1; i <= 3; i++) {
+        let x = pad.l + (i / 4) * dw;
+        ctx.beginPath();
+        ctx.moveTo(x, pad.t);
+        ctx.lineTo(x, h - pad.b);
+        ctx.stroke();
+    }
     
+    // 画 Y 轴文字
     ctx.font = '10px sans-serif'; 
     ctx.fillStyle = '#64748b'; 
     for (let i=0;i<=4;i++) { 
@@ -2436,35 +2447,33 @@ drawIntradayFlowCanvas(data) {
       ctx.fillStyle = '#64748b'; 
     } 
     
-    // 绘制 x 轴标签（强制显示最后一个时间点）
-ctx.textAlign = 'center';
-ctx.fillStyle = '#64748b';
-ctx.font = '10px sans-serif';
-
-// 先绘制等间隔的标签
-const xStep = data.type === 'trend' ? Math.ceil(data.xLabels.length / 6) : Math.ceil(data.xLabels.length / 8);
-for (let i = 0; i < data.xLabels.length; i += xStep) {
-    let x = getX(i);
-    let label = data.xLabels[i];
-    if (data.type === 'trend') label = label.slice(11, 16);
-    else label = label.slice(5, 10);
-    ctx.fillText(label, x, h - pad.b + 12);
-}
-// 强制绘制最后一个标签（确保收盘时间可见）
-if (data.xLabels.length > 0) {
-    let lastIdx = data.xLabels.length - 1;
-    let lastX = getX(lastIdx);
-    let lastLabel = data.xLabels[lastIdx];
-    if (data.type === 'trend') lastLabel = lastLabel.slice(11, 16);
-    else lastLabel = lastLabel.slice(5, 10);
-    ctx.fillText(lastLabel, lastX, h - pad.b + 12);
-} 
+    // 画 X 轴时间标签
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px sans-serif';
+    const xStep = data.type === 'trend' ? Math.ceil(data.xLabels.length / 6) : Math.ceil(data.xLabels.length / 8);
+    for (let i = 0; i < data.xLabels.length; i += xStep) {
+        let x = getX(i);
+        let label = data.xLabels[i];
+        if (data.type === 'trend') label = label.slice(11, 16);
+        else label = label.slice(5, 10);
+        ctx.fillText(label, x, h - pad.b + 12);
+    }
+    if (data.xLabels.length > 0) {
+        let lastIdx = data.xLabels.length - 1;
+        let lastX = getX(lastIdx);
+        let lastLabel = data.xLabels[lastIdx];
+        if (data.type === 'trend') lastLabel = lastLabel.slice(11, 16);
+        else lastLabel = lastLabel.slice(5, 10);
+        ctx.fillText(lastLabel, lastX, h - pad.b + 12);
+    } 
     
+    // 绘制成交量柱子
     if (data.volumes && data.volumes.length > 0) { 
       const maxVol = Math.max(...data.volumes.filter(v=>!isNaN(v))) || 1; 
       const volHeight = h*0.15; 
       const volY = h-pad.b-volHeight; 
-      const barW = Math.max((dw/data.prices.length)*0.6,1); 
+      const barW = Math.max((dw / Math.max(maxPoints, 1)) * 0.6, 1); 
       for (let i=0;i<data.volumes.length;i++) { 
         let x = getX(i)-barW/2; 
         let hBar = (data.volumes[i]/maxVol)*volHeight; 
@@ -2495,15 +2504,20 @@ if (data.xLabels.length > 0) {
       drawMALine(data.ma5, '#3b82f6'); 
     } 
     
+    // 绘制黄色的均价线
     if (data.type === 'trend' && data.avgPrices && data.avgPrices.length>0) { 
       ctx.beginPath(); 
       ctx.moveTo(getX(0), getY(data.avgPrices[0])); 
-      for(let i=1;i<data.avgPrices.length;i++) ctx.lineTo(getX(i), getY(data.avgPrices[i])); 
-      ctx.strokeStyle = '#f59e0b'; 
-      ctx.lineWidth=1; 
+      for(let i=1;i<data.avgPrices.length;i++) {
+          if (isNaN(data.avgPrices[i]) || data.avgPrices[i] === 0) continue;
+          ctx.lineTo(getX(i), getY(data.avgPrices[i])); 
+      }
+      ctx.strokeStyle = '#f59e0b'; // 黄色加深
+      ctx.lineWidth = 1; 
       ctx.stroke(); 
     } 
     
+    // 绘制蓝色价格主线
     ctx.beginPath(); 
     ctx.moveTo(getX(0), getY(data.prices[0])); 
     for(let i=1;i<data.prices.length;i++) { 
@@ -2511,10 +2525,11 @@ if (data.xLabels.length > 0) {
       if (isNaN(price) || price===0) continue; 
       ctx.lineTo(getX(i), getY(price)); 
     } 
-    ctx.strokeStyle = data.type === 'trend' ? '#0066ff' : '#1e293b'; 
-    ctx.lineWidth=1.5; 
+    ctx.strokeStyle = data.type === 'trend' ? '#3b82f6' : '#1e293b'; // 颜色调为明亮蓝
+    ctx.lineWidth = 1.5; 
     ctx.stroke(); 
     
+    // 绘制价格线底部的渐变面积
     if (data.type === 'trend') { 
       ctx.beginPath(); 
       ctx.moveTo(getX(0), getY(data.prices[0])); 
@@ -2523,12 +2538,13 @@ if (data.xLabels.length > 0) {
       ctx.lineTo(getX(0), h-pad.b); 
       ctx.closePath(); 
       const grd = ctx.createLinearGradient(0, pad.t, 0, h-pad.b); 
-      grd.addColorStop(0, 'rgba(0,102,255,0.12)'); 
-      grd.addColorStop(1, 'rgba(0,102,255,0.01)'); 
+      grd.addColorStop(0, 'rgba(59,130,246,0.25)'); // 加深蓝色投影
+      grd.addColorStop(1, 'rgba(59,130,246,0.01)'); 
       ctx.fillStyle = grd; 
       ctx.fill(); 
     } 
     
+    // 绘制详情文本等 (此处保持原样)
     const timeDisplayEl = document.getElementById('md-chart-time-display'); 
     const infoDiv = document.getElementById('md-chart-info'); 
     const titleName = document.getElementById('md-title')?.innerText || ''; 
@@ -2566,6 +2582,7 @@ if (data.xLabels.length > 0) {
       timeDisplayEl.style.display = 'none'; 
     } 
     
+    // 绘制十字准星
     if (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) { 
       const cx = getX(crosshairIdx), cy = getY(data.prices[crosshairIdx]); 
       ctx.beginPath(); 
@@ -2634,11 +2651,16 @@ if (data.xLabels.length > 0) {
     
     const pad = { l: 50, r: 50 }; 
     const dw = rect.width - pad.l - pad.r; 
+    
+    // 核心修复：根据是否完全画满来限制交互的触控区域
+    const maxPoints = (data.type === 'trend' && data.totalPoints) ? Math.max(data.totalPoints, data.prices.length) : data.prices.length;
+    const maxX = pad.l + ((data.prices.length - 1) / Math.max(maxPoints - 1, 1)) * dw;
+
     const getIdx = (clientX) => { 
       const x = clientX - rect.left; 
       if (x < pad.l) return 0; 
-      if (x > rect.width - pad.r) return data.prices.length - 1; 
-      return Math.round((x - pad.l) / dw * (data.prices.length - 1)); 
+      if (x > maxX) return data.prices.length - 1; 
+      return Math.round((x - pad.l) / dw * Math.max(maxPoints - 1, 1)); 
     }; 
     
     canvas.onmousemove = (e) => { 

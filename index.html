@@ -425,7 +425,57 @@
   <div id="modal-loading" class="modal-view"><div style="width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: transparent; margin-top: -10vh;"><div class="loading-spinner"></div><div id="loading-modal-title" style="font-weight: 800; color: var(--text-main); font-size: 16px; text-shadow: 0 2px 4px rgba(255,255,255,0.8);">数据极速更新中...</div><div id="loading-progress-text" style="font-size: 18px; color: var(--blue); font-weight: 900; margin-top: 8px;">0 / 0</div><div style="font-size: 12px; color: var(--text-sub); margin-top: 8px; font-weight: bold;">更新保存后将自动重载页面</div></div></div>
 
   <!-- 弹窗:基金详情 -->
-  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div><div class="nav-title">基金详情</div><div style="width:60px;"></div></div><div class="scroll-area"><div class="card" style="margin-bottom: 12px;"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2><span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span><select id="det-group-select" onchange="app.addToGroupFromDetail()" style="margin-left:8px; padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);"><option value="">+ 加自选</option></select></div><div id="det-rt-block" style="text-align:right; display:none;"><div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div><div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;"><div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div></div><div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div></div></div></div><div class="detail-tabs" id="det-tabs"><div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div><div class="action-pill" onclick="app.renderDetailTab(30)">30日</div><div class="action-pill" onclick="app.renderDetailTab(60)">60日</div><div class="action-pill" onclick="app.renderDetailTab(90)">90日</div><div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div><div class="action-pill" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff;" onclick="app.renderDetailTab('analysis')">🤖 AI波段研判</div></div><div id="det-chart-area"><div class="card" style="padding:12px; margin-bottom: 12px;"><div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px; padding:0 2px;"><span style="color:#1e293b; font-weight:800;">业绩走势(累计涨跌)</span><span style="color:#64748b;">最大回撤 <span id="det-maxdrop" class="green">--</span></span></div><canvas id="det-canvas" onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()" ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas></div><div style="font-weight:800; font-size:14px; margin-bottom:8px; padding-left: 2px;">历史净值明细</div><div id="det-table-area"></div></div><div id="det-hold-area" style="display:none;"></div><div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div></div></div></div>
+  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')">
+    <div class="modal-content" onclick="app.stopProp(event)">
+      <div class="nav-bar">
+        <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
+        <div class="nav-title">基金详情</div>
+        <div style="width:60px;"></div>
+      </div>
+      <div class="scroll-area">
+        <div class="card" style="margin-bottom: 12px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div><h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2>
+              <span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span>
+              <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="margin-left:8px; padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);">
+                <option value="">+ 加自选</option>
+              </select>
+            </div>
+            <div id="det-rt-block" style="text-align:right; display:none;">
+              <div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div>
+              <div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;">
+                <div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div>
+              </div>
+              <div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div>
+            </div>
+          </div>
+        </div>
+        <div class="detail-tabs" id="det-tabs">
+        <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
+        <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
+        <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
+        <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
+        <div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div>
+        <div class="action-pill" onclick="app.renderDetailTab('perf')">🏆 业绩</div>
+        <div class="action-pill" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff;" onclick="app.renderDetailTab('analysis')">🤖 AI波段</div>
+      </div>
+      <div id="det-chart-area">
+        <div class="card" style="padding:12px; margin-bottom: 12px;">
+          <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px; padding:0 2px;">
+            <span style="color:#1e293b; font-weight:800;">业绩走势(累计涨跌)</span>
+            <span style="color:#64748b;">最大回撤 <span id="det-maxdrop" class="green">--</span></span>
+          </div>
+          <canvas id="det-canvas" onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()" ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas>
+        </div>
+        <div style="font-weight:800; font-size:14px; margin-bottom:8px; padding-left: 2px;">历史净值明细</div>
+        <div id="det-table-area"></div>
+      </div>
+      <div id="det-hold-area" style="display:none;"></div>
+      <div id="det-perf-area" style="display:none; padding-bottom: 20px;"></div>
+      <div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div>
+    </div>
+  </div>
+</div>
 
   <!-- 弹窗:行情详情 -->
   <div id="modal-market-detail" class="modal-view" onclick="app.closeOutside(event, 'market-detail')">
@@ -935,13 +985,7 @@ rtManualRefreshMarket() {
   formatFund(code) { 
     const f = this.data.fundsCache[code]; 
     if (!f || !f.netWorth) {
-      return { 
-        code, 
-        name: f ? f.name : '加载中...', 
-        isLoad: false, 
-        isStarred: f ? !!f.isStarred : false, 
-        sectors: f ? (f.sectors||[]) : [] 
-      }; 
+      return { code, name: f ? f.name : '加载中...', isLoad: false, isStarred: f ? !!f.isStarred : false, sectors: f ? (f.sectors||[]) : [], scale: f ? (f.scale||'--') : '--' }; 
     }
     const nw = f.netWorth; 
     const calcRate = (n, d) => { 
@@ -951,21 +995,12 @@ rtManualRefreshMarket() {
       return (((last - prev)/prev)*100).toFixed(2); 
     }; 
     const rates = [
-      {label:'3日',val:calcRate(nw,3)},
-      {label:'5日',val:calcRate(nw,5)},
-      {label:'7日',val:calcRate(nw,7)},
-      {label:'10日',val:calcRate(nw,10)},
-      {label:'15日',val:calcRate(nw,15)},
-      {label:'20日',val:calcRate(nw,20)}
+      {label:'3日',val:calcRate(nw,3)}, {label:'5日',val:calcRate(nw,5)}, {label:'7日',val:calcRate(nw,7)},
+      {label:'10日',val:calcRate(nw,10)}, {label:'15日',val:calcRate(nw,15)}, {label:'20日',val:calcRate(nw,20)}
     ]; 
     const listRates = [
-      ...rates,
-      {label:'1月',val:calcRate(nw,21)},
-      {label:'3月',val:calcRate(nw,63)},
-      {label:'6月',val:calcRate(nw,126)},
-      {label:'1年',val:calcRate(nw,252)}
+      ...rates, {label:'1月',val:calcRate(nw,21)}, {label:'3月',val:calcRate(nw,63)}, {label:'6月',val:calcRate(nw,126)}, {label:'1年',val:calcRate(nw,252)}
     ]; 
-    
     const maxDropIn20 = (() => { 
       if (!nw || nw.length < 2) return null; 
       const slice = nw.slice(-20); 
@@ -977,20 +1012,10 @@ rtManualRefreshMarket() {
       } 
       return maxDrop === 0 ? null : maxDrop.toFixed(2); 
     })(); 
-    
     const change = calcRate(nw, 2); 
     return { 
-      ...f, 
-      isLoad: true, 
-      latestDate: this.formatEMDate(nw[nw.length-1].x,10), 
-      latest: nw[nw.length-1].y.toFixed(4), 
-      change, 
-      rates, 
-      listRates, 
-      maxDropIn20, 
-      isRisk: maxDropIn20 !== null && parseFloat(maxDropIn20) <= -8.5, 
-      isDailyRisk: change !== '--' && parseFloat(change) <= -5.0, 
-      isStarred: !!f.isStarred 
+      ...f, isLoad: true, latestDate: this.formatEMDate(nw[nw.length-1].x,10), latest: nw[nw.length-1].y.toFixed(4), change, rates, listRates, maxDropIn20, 
+      isRisk: maxDropIn20 !== null && parseFloat(maxDropIn20) <= -8.5, isDailyRisk: change !== '--' && parseFloat(change) <= -5.0, isStarred: !!f.isStarred, scale: f.scale || '--'
     }; 
   },
   
@@ -1012,27 +1037,26 @@ rtManualRefreshMarket() {
         if (window.Data_netWorthTrend) { 
           let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
           if (nw.length > 260) nw = nw.slice(-260); 
+          
+          // 获取基金最新规模
+          let scaleStr = '--';
+          if (window.Data_fluctuateScale && window.Data_fluctuateScale.series && window.Data_fluctuateScale.series.length > 0) {
+              const sData = window.Data_fluctuateScale.series[0].data;
+              if (sData && sData.length > 0) scaleStr = sData[sData.length - 1] + '亿';
+          }
+
           const oldCache = this.data.fundsCache[code] || {}; 
           const fund = { 
-            code, 
-            name: window.fS_name || code, 
-            netWorth: nw, 
-            sectors: oldCache.sectors || [], 
-            isStarred: oldCache.isStarred || false 
+            code, name: window.fS_name || code, netWorth: nw, scale: scaleStr, sectors: oldCache.sectors || [], isStarred: oldCache.isStarred || false 
           }; 
           this.data.fundsCache[code] = fund; 
           if (!isBatch) this.saveData(); 
           window.Data_netWorthTrend = null; 
           window.fS_name = null; 
           finish(fund); 
-        } else { 
-          finish(null); 
-        } 
+        } else { finish(null); } 
       }; 
-      script.onerror = () => { 
-        clearTimeout(timeout); 
-        finish(null); 
-      }; 
+      script.onerror = () => { clearTimeout(timeout); finish(null); }; 
       document.head.appendChild(script); 
     }); 
   },
@@ -1124,7 +1148,6 @@ rtManualRefreshMarket() {
     
     const rt = this.rtData[f.code]; 
     let rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 盘中估算</div><div style="font-size:11px; color:#cbd5e1;">待更新...</div></div>`; 
-    
     if (rt) { 
       const rtCol = rt.gszzl >= 0 ? 'red' : 'green'; 
       rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 估算 ${rt.gztime.slice(11)}</div><div style="display:flex; gap:8px; align-items:baseline;"><span class="${rtCol}" style="font-size:15px; font-weight:900;">${rt.gsz.toFixed(4)}</span><span class="${rtCol}" style="font-size:13px; font-weight:bold; background:rgba(0,0,0,0.03); padding:0 4px; border-radius:4px;">${rt.gszzl > 0 ? '+' : ''}${rt.gszzl.toFixed(2)}%</span></div></div>`; 
@@ -1136,6 +1159,7 @@ rtManualRefreshMarket() {
         <div class="c-title-area">
           <span class="c-title">${titleHtml}</span>
           <span class="c-code">${f.code}</span>
+          <span class="c-tag" style="background:#f1f5f9; color:#64748b;">${f.scale}</span>
           ${tagsHtml}${sectorBtn}
         </div>
       </div>
@@ -1159,9 +1183,7 @@ rtManualRefreshMarket() {
     
     const renderTh = (label, colKey) => { 
       let arrow = ''; 
-      if (curSortRule === colKey) { 
-        arrow = curSortDir === 'desc' ? ' <span style="color:var(--red);">↓</span>' : ' <span style="color:var(--green);">↑</span>'; 
-      } 
+      if (curSortRule === colKey) arrow = curSortDir === 'desc' ? ' <span style="color:var(--red);">↓</span>' : ' <span style="color:var(--green);">↑</span>'; 
       return `<div class="l-col-rate th" onclick="app.handleListSortClick('${colKey}', ${isSector})">${label}${arrow}</div>`; 
     }; 
     
@@ -1187,8 +1209,8 @@ rtManualRefreshMarket() {
       return `<div id="fund-row-${f.code}" class="${f.isStarred ? 'l-row starred-row' : 'l-row'}" onclick="app.openDetail('${f.code}')">
         ${delBtn}
         <div class="l-col-name">
-          <div style="font-weight:800; font-size:13px;">${titleHtml}</div>
-          <div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">${f.code}</div>
+          <div style="font-weight:800; font-size:13px; white-space:normal; line-height:1.2;">${titleHtml}</div>
+          <div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:4px;">${f.code} | ${f.scale}</div>
         </div>
         ${rtColHtml}
         <div class="l-col-rate" style="width:70px; background:rgba(0,0,0,0.01);">
@@ -3320,21 +3342,26 @@ drawIntradayFlowCanvas(data) {
     const tabs = document.querySelectorAll('#det-tabs .action-pill'); 
     tabs.forEach(el => el.classList.remove('active')); 
     
-    // 修复：移除全局 event 依赖，直接根据 days 参数精准高亮对应的 Tab
     if (days === 15 && tabs[0]) tabs[0].classList.add('active');
     else if (days === 30 && tabs[1]) tabs[1].classList.add('active');
     else if (days === 60 && tabs[2]) tabs[2].classList.add('active');
     else if (days === 90 && tabs[3]) tabs[3].classList.add('active');
     else if (days === 'hold' && tabs[4]) tabs[4].classList.add('active');
-    else if (days === 'analysis' && tabs[5]) tabs[5].classList.add('active');
+    else if (days === 'perf' && tabs[5]) tabs[5].classList.add('active');
+    else if (days === 'analysis' && tabs[6]) tabs[6].classList.add('active');
 
     document.getElementById('det-chart-area').style.display = 'none'; 
     document.getElementById('det-hold-area').style.display = 'none'; 
+    document.getElementById('det-perf-area').style.display = 'none'; 
     document.getElementById('det-analysis-area').style.display = 'none'; 
     
     if(days === 'hold') { 
       document.getElementById('det-hold-area').style.display = 'block'; 
       this.loadHoldings(this.currentDetailCode); 
+      return; 
+    } else if (days === 'perf') { 
+      document.getElementById('det-perf-area').style.display = 'block'; 
+      this.loadPerformance(this.currentDetailCode); 
       return; 
     } else if (days === 'analysis') { 
       document.getElementById('det-analysis-area').style.display = 'block'; 
@@ -3367,6 +3394,76 @@ drawIntradayFlowCanvas(data) {
     document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%'; 
     this.chartInfo.touchIdx = -1; 
     this.drawChart(); 
+  },
+
+  async loadPerformance(code) {
+    document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">拉取业绩数据中...</div>';
+    try {
+      // 获取阶段收益 (近1月, 3月, 等)
+      const pUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNPeriodIncrease?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
+      const pData = await fetchJSONP(pUrl, 'callback');
+      if(pData && pData.Datas) {
+          let html = `<div style="font-weight:800; font-size:14px; margin: 0 0 8px 4px;">阶段表现对比</div>`;
+          html += `<div class="card" style="padding:0; overflow:hidden;"><table style="width:100%; text-align:center; border-collapse: collapse; font-size:13px;">
+          <tr style="background:#f8fafc; color:var(--text-sub); border-bottom:1px solid #e2e8f0; height:36px;">
+            <th>周期</th><th>本基金</th><th>沪深300</th><th>超额收益</th>
+          </tr>`;
+          
+          pData.Datas.forEach(item => {
+              if(['近1月','近3月','近6月','近1年','近3年','今年来'].includes(item.title)) {
+                  let fVal = parseFloat(item.syl) || 0;
+                  let hsVal = parseFloat(item.hs300) || 0;
+                  let overVal = fVal - hsVal;
+                  
+                  let fCol = fVal >= 0 ? 'red' : 'green';
+                  let hCol = hsVal >= 0 ? 'red' : 'green';
+                  let oCol = overVal >= 0 ? 'red' : 'green';
+                  
+                  html += `<tr style="border-bottom:1px solid #f1f5f9; height:44px;">
+                    <td style="color:var(--text-sub); font-weight:bold;">${item.title}</td>
+                    <td class="${fCol}" style="font-weight:bold;">${fVal>0?'+':''}${fVal.toFixed(2)}%</td>
+                    <td class="${hCol}">${hsVal>0?'+':''}${hsVal.toFixed(2)}%</td>
+                    <td class="${oCol}" style="font-weight:800;">${overVal>0?'+':''}${overVal.toFixed(2)}%</td>
+                  </tr>`;
+              }
+          });
+          html += `</table></div>`;
+          
+          // 获取年度收益
+          const yUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNYearCompare?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
+          const yData = await fetchJSONP(yUrl, 'callback');
+          if (yData && yData.Datas && yData.Datas.length > 0) {
+              html += `<div style="font-weight:800; font-size:14px; margin: 18px 0 8px 4px;">年度表现对比</div>`;
+              html += `<div class="card" style="padding:0; overflow:hidden;"><table style="width:100%; text-align:center; border-collapse: collapse; font-size:13px;">
+              <tr style="background:#f8fafc; color:var(--text-sub); border-bottom:1px solid #e2e8f0; height:36px;">
+                <th>年份</th><th>本基金</th><th>同类平均</th><th>沪深300</th>
+              </tr>`;
+              yData.Datas.slice(0, 5).forEach(item => {
+                  let fVal = parseFloat(item.syl) || 0;
+                  let hsVal = parseFloat(item.hs300) || 0;
+                  let avgVal = parseFloat(item.avg) || 0;
+                  
+                  let fCol = fVal >= 0 ? 'red' : 'green';
+                  let hCol = hsVal >= 0 ? 'red' : 'green';
+                  let aCol = avgVal >= 0 ? 'red' : 'green';
+                  
+                  html += `<tr style="border-bottom:1px solid #f1f5f9; height:44px;">
+                    <td style="color:var(--text-sub); font-weight:bold;">${item.title}</td>
+                    <td class="${fCol}" style="font-weight:bold;">${fVal>0?'+':''}${fVal.toFixed(2)}%</td>
+                    <td class="${aCol}">${avgVal>0?'+':''}${avgVal.toFixed(2)}%</td>
+                    <td class="${hCol}">${hsVal>0?'+':''}${hsVal.toFixed(2)}%</td>
+                  </tr>`;
+              });
+              html += `</table></div>`;
+          }
+          
+          document.getElementById('det-perf-area').innerHTML = html;
+      } else {
+          document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无业绩数据</div>';
+      }
+    } catch(e) {
+      document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:var(--red);">获取业绩数据失败，请检查网络</div>';
+    }
   },
   
   drawChart() { 

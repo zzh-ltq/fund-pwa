@@ -1002,7 +1002,7 @@ rtManualRefreshMarket() {
     }; 
   },
   
-  aasync loadFundData(code, isBatch = false) { 
+  async loadFundData(code, isBatch = false) { 
   return new Promise((resolve) => { 
     const script = document.createElement('script'); 
     let isDone = false; 
@@ -1069,7 +1069,21 @@ async fetchFundScale(code) {
         }).catch(() => resolve('--'));
     });
 },
-
+// 批量加载所有缺失规模的基金的规模数据
+async preloadMissingScales() {
+    const funds = Object.values(this.data.fundsCache);
+    for (let fund of funds) {
+        if (!fund.scale || fund.scale === '--') {
+            const scale = await this.fetchFundScale(fund.code);
+            fund.scale = scale;
+            await this.saveData();
+        }
+    }
+    // 刷新当前视图
+    if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+    if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+},
+  
   // 获取阶段、季度、年度涨幅
 async fetchPerformanceData(code) {
     const result = { phase: [], quarter: [], year: [] };
@@ -3829,6 +3843,7 @@ drawIntradayFlowCanvas(data) {
       titleText.innerText = '数据极速更新中...'; 
       loadingModal.style.display = 'flex'; 
       progressText.innerText = `0 / ${total}`; 
+      
     } 
     
     let completed = 0; 
@@ -3849,6 +3864,8 @@ drawIntradayFlowCanvas(data) {
         this.processGroupRisks(); 
         this.renderHome(); 
         this.showToast('✅ 最新净值数据已更新'); 
+        
+        this.preloadMissingScales(); // 新增：后台加载规模
       } else { 
         this.processGroupRisks(); 
         if(document.getElementById('view-home').classList.contains('active')) this.renderHome(); 

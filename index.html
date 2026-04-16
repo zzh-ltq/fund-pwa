@@ -1037,49 +1037,34 @@ rtManualRefreshMarket() {
         if (window.Data_netWorthTrend) { 
           let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
           if (nw.length > 260) nw = nw.slice(-260); 
-          
-          // 1. 获取规模
-          let scaleStr = '--';
-          if (window.Data_fluctuateScale && window.Data_fluctuateScale.series && window.Data_fluctuateScale.series.length > 0) {
-              const sData = window.Data_fluctuateScale.series[0].data;
-              if (sData) {
-                  for (let i = sData.length - 1; i >= 0; i--) {
-                      if (sData[i] !== null && sData[i] !== undefined) {
-                          scaleStr = sData[i] + '亿';
-                          break;
-                      }
-                  }
-              }
-          }
-          // 如果还是没规模，尝试查资产配置里的最后一条
-          if (scaleStr === '--' && window.Data_assetAllocation && window.Data_assetAllocation.series && window.Data_assetAllocation.series.length > 0) {
-              const aData = window.Data_assetAllocation.series[window.Data_assetAllocation.series.length-1].data;
-              if (aData && aData.length>0 && aData[0] !== null) scaleStr = '规模未公开'; 
-          }
 
-          // 2. 将走势总数据缓存下来供本地计算业绩用
-          const grandTotal = window.Data_grandTotal || [];
           const oldCache = this.data.fundsCache[code] || {}; 
-          
           const fund = { 
             code, 
             name: window.fS_name || code, 
             netWorth: nw, 
-            scale: scaleStr, 
-            grandTotal: grandTotal, // 保存累计走势数据，用于业绩模块无跨域计算
+            scale: oldCache.scale || '--', // 先用缓存兜底
             sectors: oldCache.sectors || [], 
             isStarred: oldCache.isStarred || false 
           }; 
           this.data.fundsCache[code] = fund; 
 
+          // 核心修复：独立、强制拉取官方基础信息接口获取真实规模
+          const baseInfoUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNBaseInfo?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
+          fetchJSONP(baseInfoUrl, 'callback').then(d => {
+              if (d && d.Datas && d.Datas.FUND_SCALE) {
+                  let s = d.Datas.FUND_SCALE;
+                  if (!s.includes('亿')) s += '亿';
+                  this.data.fundsCache[code].scale = s;
+                  this.saveData(); // 静默保存到本地数据库
+                  // 如果停留在首页，触发局部刷新以显示规模
+                  if (!isBatch && document.getElementById('view-home').classList.contains('active')) this.renderHome();
+              }
+          }).catch(()=>{});
+
           if (!isBatch) this.saveData(); 
-          
-          // 清理全局变量，防止串台
           window.Data_netWorthTrend = null; 
           window.fS_name = null; 
-          window.Data_grandTotal = null;
-          window.Data_fluctuateScale = null;
-
           finish(fund); 
         } else { finish(null); } 
       }; 
@@ -3424,102 +3409,91 @@ drawIntradayFlowCanvas(data) {
   },
 
   async loadPerformance(code) {
-    const f = this.data.fundsCache[code];
-    if (!f || !f.grandTotal || f.grandTotal.length === 0) {
-        document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无业绩数据，请点击刷新重新拉取</div>';
-        return;
-    }
+    const container = document.getElementById('det-perf-area');
+    container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">拉取官方业绩数据中...</div>';
 
     try {
-        // 提取本基金和沪深300的累计数据数组
-        const myData = f.grandTotal.find(i => i.name !== "沪深300" && i.name !== "同类平均")?.data || [];
-        const hsData = f.grandTotal.find(i => i.name === "沪深300")?.data || [];
-
-        if (myData.length < 2) {
-            document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">成立时间过短，暂无对比业绩</div>';
-            return;
-        }
-
-        // 获取最新一天的数据
-        const latestMy = myData[myData.length - 1];
-        const latestTs = latestMy[0];
-        const latestMyVal = latestMy[1];
-        
-        // 匹配最新的沪深300值
-        let latestHsVal = 0;
-        const lastHsItem = hsData.find(i => i[0] === latestTs) || hsData[hsData.length - 1];
-        if (lastHsItem) latestHsVal = lastHsItem[1];
-
-        // 核心辅助函数：根据时间偏移量寻找对应日期的基准值，精准算出阶段涨跌
-        const calcPeriod = (daysOffset) => {
-            const targetTs = latestTs - (daysOffset * 24 * 60 * 60 * 1000);
-            
-            // 找到距离目标时间戳最近的交易日
-            let myBaseIdx = 0;
-            for (let i = myData.length - 1; i >= 0; i--) {
-                if (myData[i][0] <= targetTs) { myBaseIdx = i; break; }
-            }
-            
-            let hsBaseIdx = 0;
-            for (let i = hsData.length - 1; i >= 0; i--) {
-                if (hsData[i][0] <= targetTs) { hsBaseIdx = i; break; }
-            }
-
-            const myRet = latestMyVal - myData[myBaseIdx][1];
-            const hsRet = latestHsVal - (hsData[hsBaseIdx] ? hsData[hsBaseIdx][1] : 0);
-            
-            return {
-                fVal: myRet,
-                hsVal: hsRet,
-                overVal: myRet - hsRet
-            };
-        };
-
-        // 计算各个阶段的业绩
-        const periods = [
-            { title: '近1月', data: calcPeriod(30) },
-            { title: '近3月', data: calcPeriod(90) },
-            { title: '近6月', data: calcPeriod(180) },
-            { title: '近1年', data: calcPeriod(365) }
+        // 并发请求天天基金官方移动端 JSONP 接口 (支持跨域)
+        const urls = [
+            `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNPeriodIncrease?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`,
+            `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNQuarterCompare?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`,
+            `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNYearCompare?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`
         ];
 
-        // 计算今年以来 (找到今年第一天的数据)
-        const currentYear = new Date(latestTs).getFullYear();
-        const startOfYearTs = new Date(`${currentYear}-01-01`).getTime();
-        let myYtdBase = 0, hsYtdBase = 0;
-        for (let i = myData.length - 1; i >= 0; i--) { if (myData[i][0] <= startOfYearTs) { myYtdBase = myData[i][1]; break; } }
-        for (let i = hsData.length - 1; i >= 0; i--) { if (hsData[i][0] <= startOfYearTs) { hsYtdBase = hsData[i][1]; break; } }
-        periods.unshift({
-            title: '今年来',
-            data: { fVal: latestMyVal - myYtdBase, hsVal: latestHsVal - hsYtdBase, overVal: (latestMyVal - myYtdBase) - (latestHsVal - hsYtdBase) }
-        });
+        const [stageRes, quarterRes, yearRes] = await Promise.all(urls.map(u => fetchJSONP(u, 'callback')));
 
-        // 渲染表格
-        let html = `<div style="font-weight:800; font-size:14px; margin: 0 0 8px 4px;">阶段表现对比</div>`;
-        html += `<div class="card" style="padding:0; overflow:hidden;"><table style="width:100%; text-align:center; border-collapse: collapse; font-size:13px;">
-        <tr style="background:#f8fafc; color:var(--text-sub); border-bottom:1px solid #e2e8f0; height:36px;">
-          <th>周期</th><th>本基金</th><th>沪深300</th><th>超额收益</th>
-        </tr>`;
-        
-        periods.forEach(p => {
-            let fCol = p.data.fVal >= 0 ? 'red' : 'green';
-            let hCol = p.data.hsVal >= 0 ? 'red' : 'green';
-            let oCol = p.data.overVal >= 0 ? 'red' : 'green';
+        // 内部通用的表格生成器
+        const buildTable = (dataArray, headers, keys) => {
+            if (!dataArray || dataArray.length === 0) return '<div style="padding:30px; text-align:center; color:#94a3b8;">暂无数据</div>';
             
-            html += `<tr style="border-bottom:1px solid #f1f5f9; height:44px;">
-              <td style="color:var(--text-sub); font-weight:bold;">${p.title}</td>
-              <td class="${fCol}" style="font-weight:bold;">${p.data.fVal>0?'+':''}${p.data.fVal.toFixed(2)}%</td>
-              <td class="${hCol}">${p.data.hsVal>0?'+':''}${p.data.hsVal.toFixed(2)}%</td>
-              <td class="${oCol}" style="font-weight:800;">${p.data.overVal>0?'+':''}${p.data.overVal.toFixed(2)}%</td>
-            </tr>`;
-        });
-        html += `</table></div>`;
-        
-        document.getElementById('det-perf-area').innerHTML = html;
-        
-    } catch(e) {
-        document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:var(--red);">计算业绩数据出错</div>';
+            let html = `<div class="list-table-container" style="margin-bottom:0; box-shadow:none; border:1px solid #e2e8f0;">
+                <table style="width:100%; text-align:center; border-collapse: collapse; font-size:13px; white-space:nowrap;">`;
+            html += `<tr style="background:#f8fafc; color:var(--text-sub); border-bottom:1px solid #e2e8f0; height:36px;">`;
+            headers.forEach(h => html += `<th style="padding:0 10px; font-weight:800;">${h}</th>`);
+            html += `</tr>`;
+
+            dataArray.forEach(item => {
+                html += `<tr style="border-bottom:1px solid #f1f5f9; height:44px; transition:background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">`;
+                keys.forEach((k, idx) => {
+                    let val = item[k];
+                    if (idx === 0) { // 周期标题列
+                        html += `<td style="color:var(--text-sub); font-weight:bold; padding:0 10px;">${val}</td>`;
+                    } else if (k === 'rank') { // 排名列 (如 123 | 456)
+                        html += `<td style="color:#64748b; font-size:12px; padding:0 10px;">${val || '--'}</td>`;
+                    } else { // 涨跌幅数字列
+                        let num = parseFloat(val);
+                        let col = isNaN(num) ? '' : (num >= 0 ? 'red' : 'green');
+                        let sign = (!isNaN(num) && num > 0) ? '+' : '';
+                        let displayVal = isNaN(num) ? '--' : `${sign}${num.toFixed(2)}%`;
+                        let fw = idx === 1 ? '900' : 'bold'; // 本基金加粗
+                        html += `<td class="${col}" style="font-weight:${fw}; padding:0 10px;">${displayVal}</td>`;
+                    }
+                });
+                html += `</tr>`;
+            });
+            html += `</table></div>`;
+            return html;
+        };
+
+        // 处理阶段数据 (过滤出常用周期)
+        const stageData = stageRes?.Datas || [];
+        const allowedStages = ['近1周', '近1月', '近3月', '近6月', '今年来', '近1年', '近2年', '近3年'];
+        const filteredStage = stageData.filter(d => allowedStages.includes(d.title));
+
+        const quarterData = quarterRes?.Datas || [];
+        const yearData = yearRes?.Datas || [];
+
+        // 定义表格的列头和对应的 JSON Key
+        const headers = ['周期', '本基金', '同类平均', '沪深300', '同类排名'];
+        const keys = ['title', 'syl', 'avg', 'hs300', 'rank'];
+
+        // 渲染包含内部 Tab 切换的 UI
+        let html = `
+            <div style="display:flex; gap:15px; margin-bottom:12px; padding:0 4px; border-bottom:2px solid #f1f5f9;">
+                <div id="perf-tab-stage" class="m-tab active" style="padding:6px 4px; font-size:14px;" onclick="app.switchPerfTab('stage')">阶段涨幅</div>
+                <div id="perf-tab-quarter" class="m-tab" style="padding:6px 4px; font-size:14px;" onclick="app.switchPerfTab('quarter')">季度涨幅</div>
+                <div id="perf-tab-year" class="m-tab" style="padding:6px 4px; font-size:14px;" onclick="app.switchPerfTab('year')">年度涨幅</div>
+            </div>
+            <div id="perf-box-stage">${buildTable(filteredStage, headers, keys)}</div>
+            <div id="perf-box-quarter" style="display:none;">${buildTable(quarterData, headers, keys)}</div>
+            <div id="perf-box-year" style="display:none;">${buildTable(yearData, headers, keys)}</div>
+        `;
+
+        container.innerHTML = html;
+
+    } catch (e) {
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--red);">获取业绩数据失败，请稍后重试</div>';
     }
+  },
+
+  // 内部业绩 Tab 切换逻辑
+  switchPerfTab(tab) {
+      ['stage', 'quarter', 'year'].forEach(t => {
+          document.getElementById(`perf-tab-${t}`).classList.remove('active');
+          document.getElementById(`perf-box-${t}`).style.display = 'none';
+      });
+      document.getElementById(`perf-tab-${tab}`).classList.add('active');
+      document.getElementById(`perf-box-${tab}`).style.display = 'block';
   },
   
   drawChart() { 

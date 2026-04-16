@@ -1038,29 +1038,41 @@ rtManualRefreshMarket() {
           let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
           if (nw.length > 260) nw = nw.slice(-260); 
 
+          // 1. 尝试从图表数据获取规模
+          let scaleStr = '--';
+          if (window.Data_fluctuateScale && window.Data_fluctuateScale.series && window.Data_fluctuateScale.series.length > 0) {
+              const sData = window.Data_fluctuateScale.series[0].data;
+              if (sData) {
+                  for (let i = sData.length - 1; i >= 0; i--) {
+                      if (sData[i] !== null && sData[i] !== undefined) {
+                          scaleStr = sData[i] + '亿';
+                          break;
+                      }
+                  }
+              }
+          }
+
           const oldCache = this.data.fundsCache[code] || {}; 
           const fund = { 
-            code, 
-            name: window.fS_name || code, 
-            netWorth: nw, 
-            scale: oldCache.scale || '--', // 先用缓存兜底
-            sectors: oldCache.sectors || [], 
-            isStarred: oldCache.isStarred || false 
+            code, name: window.fS_name || code, netWorth: nw, scale: scaleStr, sectors: oldCache.sectors || [], isStarred: oldCache.isStarred || false 
           }; 
           this.data.fundsCache[code] = fund; 
 
-          // 核心修复：独立、强制拉取官方基础信息接口获取真实规模
-          const baseInfoUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNBaseInfo?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
-          fetchJSONP(baseInfoUrl, 'callback').then(d => {
-              if (d && d.Datas && d.Datas.FUND_SCALE) {
-                  let s = d.Datas.FUND_SCALE;
-                  if (!s.includes('亿')) s += '亿';
-                  this.data.fundsCache[code].scale = s;
-                  this.saveData(); // 静默保存到本地数据库
-                  // 如果停留在首页，触发局部刷新以显示规模
-                  if (!isBatch && document.getElementById('view-home').classList.contains('active')) this.renderHome();
-              }
-          }).catch(()=>{});
+          // 2. 核心修复：如果规模仍为'--'，使用标准的 fetch 请求去拿官方基础数据
+          if (scaleStr === '--') {
+              const baseInfoUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNBaseInfo?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
+              fetch(baseInfoUrl)
+                  .then(r => r.json())
+                  .then(d => {
+                      if (d && d.Datas && d.Datas.FUND_SCALE) {
+                          let s = d.Datas.FUND_SCALE;
+                          if (!String(s).includes('亿')) s += '亿';
+                          this.data.fundsCache[code].scale = s;
+                          this.saveData(); // 静默保存
+                          if (!isBatch && document.getElementById('view-home').classList.contains('active')) this.renderHome();
+                      }
+                  }).catch(()=>{});
+          }
 
           if (!isBatch) this.saveData(); 
           window.Data_netWorthTrend = null; 
@@ -3413,14 +3425,15 @@ drawIntradayFlowCanvas(data) {
     container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">拉取官方业绩数据中...</div>';
 
     try {
-        // 并发请求天天基金官方移动端 JSONP 接口 (支持跨域)
+        // 核心修复：必须使用标准的 fetch 获取纯 JSON 数据，不可用 fetchJSONP
         const urls = [
             `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNPeriodIncrease?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`,
             `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNQuarterCompare?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`,
             `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNYearCompare?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`
         ];
 
-        const [stageRes, quarterRes, yearRes] = await Promise.all(urls.map(u => fetchJSONP(u, 'callback')));
+        // 并发标准 fetch 请求
+        const [stageRes, quarterRes, yearRes] = await Promise.all(urls.map(u => fetch(u).then(r => r.json())));
 
         // 内部通用的表格生成器
         const buildTable = (dataArray, headers, keys) => {
@@ -3438,14 +3451,14 @@ drawIntradayFlowCanvas(data) {
                     let val = item[k];
                     if (idx === 0) { // 周期标题列
                         html += `<td style="color:var(--text-sub); font-weight:bold; padding:0 10px;">${val}</td>`;
-                    } else if (k === 'rank') { // 排名列 (如 123 | 456)
+                    } else if (k === 'rank') { // 排名列
                         html += `<td style="color:#64748b; font-size:12px; padding:0 10px;">${val || '--'}</td>`;
                     } else { // 涨跌幅数字列
                         let num = parseFloat(val);
                         let col = isNaN(num) ? '' : (num >= 0 ? 'red' : 'green');
                         let sign = (!isNaN(num) && num > 0) ? '+' : '';
                         let displayVal = isNaN(num) ? '--' : `${sign}${num.toFixed(2)}%`;
-                        let fw = idx === 1 ? '900' : 'bold'; // 本基金加粗
+                        let fw = idx === 1 ? '900' : 'bold'; 
                         html += `<td class="${col}" style="font-weight:${fw}; padding:0 10px;">${displayVal}</td>`;
                     }
                 });
@@ -3455,7 +3468,7 @@ drawIntradayFlowCanvas(data) {
             return html;
         };
 
-        // 处理阶段数据 (过滤出常用周期)
+        // 处理阶段数据 
         const stageData = stageRes?.Datas || [];
         const allowedStages = ['近1周', '近1月', '近3月', '近6月', '今年来', '近1年', '近2年', '近3年'];
         const filteredStage = stageData.filter(d => allowedStages.includes(d.title));
@@ -3463,11 +3476,9 @@ drawIntradayFlowCanvas(data) {
         const quarterData = quarterRes?.Datas || [];
         const yearData = yearRes?.Datas || [];
 
-        // 定义表格的列头和对应的 JSON Key
         const headers = ['周期', '本基金', '同类平均', '沪深300', '同类排名'];
         const keys = ['title', 'syl', 'avg', 'hs300', 'rank'];
 
-        // 渲染包含内部 Tab 切换的 UI
         let html = `
             <div style="display:flex; gap:15px; margin-bottom:12px; padding:0 4px; border-bottom:2px solid #f1f5f9;">
                 <div id="perf-tab-stage" class="m-tab active" style="padding:6px 4px; font-size:14px;" onclick="app.switchPerfTab('stage')">阶段涨幅</div>
@@ -3484,6 +3495,15 @@ drawIntradayFlowCanvas(data) {
     } catch (e) {
         container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--red);">获取业绩数据失败，请稍后重试</div>';
     }
+  },
+
+  switchPerfTab(tab) {
+      ['stage', 'quarter', 'year'].forEach(t => {
+          document.getElementById(`perf-tab-${t}`).classList.remove('active');
+          document.getElementById(`perf-box-${t}`).style.display = 'none';
+      });
+      document.getElementById(`perf-tab-${tab}`).classList.add('active');
+      document.getElementById(`perf-box-${tab}`).style.display = 'block';
   },
 
   // 内部业绩 Tab 切换逻辑

@@ -425,7 +425,34 @@
   <div id="modal-loading" class="modal-view"><div style="width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: transparent; margin-top: -10vh;"><div class="loading-spinner"></div><div id="loading-modal-title" style="font-weight: 800; color: var(--text-main); font-size: 16px; text-shadow: 0 2px 4px rgba(255,255,255,0.8);">数据极速更新中...</div><div id="loading-progress-text" style="font-size: 18px; color: var(--blue); font-weight: 900; margin-top: 8px;">0 / 0</div><div style="font-size: 12px; color: var(--text-sub); margin-top: 8px; font-weight: bold;">更新保存后将自动重载页面</div></div></div>
 
   <!-- 弹窗:基金详情 -->
-  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div><div class="nav-title">基金详情</div><div style="width:60px;"></div></div><div class="scroll-area"><div class="card" style="margin-bottom: 12px;"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2><span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span><select id="det-group-select" onchange="app.addToGroupFromDetail()" style="margin-left:8px; padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);"><option value="">+ 加自选</option></select></div><div id="det-rt-block" style="text-align:right; display:none;"><div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div><div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;"><div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div></div><div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div></div></div></div><div class="detail-tabs" id="det-tabs"><div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div><div class="action-pill" onclick="app.renderDetailTab(30)">30日</div><div class="action-pill" onclick="app.renderDetailTab(60)">60日</div><div class="action-pill" onclick="app.renderDetailTab(90)">90日</div><div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div><div class="action-pill" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff;" onclick="app.renderDetailTab('analysis')">🤖 AI波段研判</div></div><div id="det-chart-area"><div class="card" style="padding:12px; margin-bottom: 12px;"><div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px; padding:0 2px;"><span style="color:#1e293b; font-weight:800;">业绩走势(累计涨跌)</span><span style="color:#64748b;">最大回撤 <span id="det-maxdrop" class="green">--</span></span></div><canvas id="det-canvas" onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()" ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas></div><div style="font-weight:800; font-size:14px; margin-bottom:8px; padding-left: 2px;">历史净值明细</div><div id="det-table-area"></div></div><div id="det-hold-area" style="display:none;"></div><div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div></div></div></div>
+  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div><div class="nav-title">基金详情</div><div style="width:60px;"></div></div><div class="scroll-area"><div class="card" style="margin-bottom: 12px;"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2><span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span><select id="det-group-select" onchange="app.addToGroupFromDetail()" style="margin-left:8px; padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);"><option value="">+ 加自选</option></select></div><div id="det-rt-block" style="text-align:right; display:none;"><div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div><div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;"><div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div></div><div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div></div></div></div>
+    <div class="detail-tabs" id="det-tabs">
+      <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
+      <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
+      <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
+      <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
+      <div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div>
+      <div class="action-pill" onclick="app.renderDetailTab('performance')">📊 业绩</div>
+      <div class="action-pill" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff;" onclick="app.renderDetailTab('analysis')">🤖 AI波段研判</div>
+    </div>
+    <div id="det-chart-area">
+      <div class="card" style="padding:12px; margin-bottom: 12px;">
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px; padding:0 2px;">
+          <span style="color:#1e293b; font-weight:800;">业绩走势(累计涨跌)</span>
+          <span style="color:#64748b;">最大回撤 <span id="det-maxdrop" class="green">--</span>
+          </span>
+        </div>
+        <canvas id="det-canvas" onmousedown="app.onChartTouch(event)" onmousemove="app.onChartTouch(event)" onmouseup="app.onChartEnd()" onmouseleave="app.onChartEnd()" ontouchstart="app.onChartTouch(event)" ontouchmove="app.onChartTouch(event)" ontouchend="app.onChartEnd()"></canvas>
+      </div>
+      <div style="font-weight:800; font-size:14px; margin-bottom:8px; padding-left: 2px;">历史净值明细</div>
+      <div id="det-table-area"></div>
+    </div>
+    <div id="det-hold-area" style="display:none;"></div>
+    <div id="det-performance-area" style="display:none; padding-bottom: 20px;"></div>   
+    <div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div>
+  </div>
+  </div>
+  </div>
 
   <!-- 弹窗:行情详情 -->
   <div id="modal-market-detail" class="modal-view" onclick="app.closeOutside(event, 'market-detail')">
@@ -995,47 +1022,51 @@ rtManualRefreshMarket() {
   },
   
   async loadFundData(code, isBatch = false) { 
-    return new Promise((resolve) => { 
-      const script = document.createElement('script'); 
-      let isDone = false; 
-      const finish = (result) => { 
-        if (isDone) return; 
-        isDone = true; 
-        script.remove(); 
-        resolve(result); 
-      }; 
-      const timeout = setTimeout(() => finish(null), 6000); 
-      
-      script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`; 
-      script.onload = () => { 
-        clearTimeout(timeout); 
-        if (window.Data_netWorthTrend) { 
-          let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
-          if (nw.length > 260) nw = nw.slice(-260); 
-          const oldCache = this.data.fundsCache[code] || {}; 
-          const fund = { 
-            code, 
-            name: window.fS_name || code, 
-            netWorth: nw, 
-            sectors: oldCache.sectors || [], 
-            isStarred: oldCache.isStarred || false 
-          }; 
-          this.data.fundsCache[code] = fund; 
-          if (!isBatch) this.saveData(); 
-          window.Data_netWorthTrend = null; 
-          window.fS_name = null; 
-          finish(fund); 
-        } else { 
-          finish(null); 
-        } 
-      }; 
-      script.onerror = () => { 
-        clearTimeout(timeout); 
+  return new Promise((resolve) => { 
+    const script = document.createElement('script'); 
+    let isDone = false; 
+    const finish = (result) => { 
+      if (isDone) return; 
+      isDone = true; 
+      script.remove(); 
+      resolve(result); 
+    }; 
+    const timeout = setTimeout(() => finish(null), 6000); 
+    
+    script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`; 
+    script.onload = () => { 
+      clearTimeout(timeout); 
+      if (window.Data_netWorthTrend) { 
+        let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
+        if (nw.length > 260) nw = nw.slice(-260); 
+        const oldCache = this.data.fundsCache[code] || {}; 
+        // 新增：获取基金规模（单位：亿元）
+        const fundAsset = window.fS_Asset || '未知';
+        const fund = { 
+          code, 
+          name: window.fS_name || code, 
+          netWorth: nw, 
+          sectors: oldCache.sectors || [], 
+          isStarred: oldCache.isStarred || false,
+          asset: fundAsset // 保存规模到缓存
+        }; 
+        this.data.fundsCache[code] = fund; 
+        if (!isBatch) this.saveData(); 
+        window.Data_netWorthTrend = null; 
+        window.fS_name = null;
+        window.fS_Asset = null; // 清空全局变量
+        finish(fund); 
+      } else { 
         finish(null); 
-      }; 
-      document.head.appendChild(script); 
-    }); 
-  },
+      } 
+    }; 
+    script.onerror = () => { 
+      clearTimeout(timeout); 
+      finish(null); 
+    }; 
+    document.head.appendChild(script); 
+  }); 
+},
   
   // ==========================================
   // 8. 基金 UI 渲染
@@ -1108,49 +1139,53 @@ rtManualRefreshMarket() {
   },
   
   buildCardHtml(f, isHomeGroup = false) { 
-    if(!f.isLoad) {
-      return `<div class="card"><div class="c-title">${f.name || f.code}</div><div style="color:#94a3b8;font-size:12px;margin-top:10px;">需点击右上角刷新获取数据...</div></div>`; 
-    }
-    
-    const col = f.change >= 0 ? 'red' : 'green'; 
-    let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join(''); 
-    let showDel = isHomeGroup && this.currentGroupId !== 'default'; 
-    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join(''); 
-    
-    let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : ''; 
-    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(this, '${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`; 
-    let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`; 
-    let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`; 
-    
-    const rt = this.rtData[f.code]; 
-    let rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 盘中估算</div><div style="font-size:11px; color:#cbd5e1;">待更新...</div></div>`; 
-    
-    if (rt) { 
-      const rtCol = rt.gszzl >= 0 ? 'red' : 'green'; 
-      rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 估算 ${rt.gztime.slice(11)}</div><div style="display:flex; gap:8px; align-items:baseline;"><span class="${rtCol}" style="font-size:15px; font-weight:900;">${rt.gsz.toFixed(4)}</span><span class="${rtCol}" style="font-size:13px; font-weight:bold; background:rgba(0,0,0,0.03); padding:0 4px; border-radius:4px;">${rt.gszzl > 0 ? '+' : ''}${rt.gszzl.toFixed(2)}%</span></div></div>`; 
-    } 
-    
-    return `<div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">
-      ${delBtn} ${starBtn}
-      <div class="card-head" style="padding-right: ${showDel ? '55px' : '25px'};">
-        <div class="c-title-area">
-          <span class="c-title">${titleHtml}</span>
-          <span class="c-code">${f.code}</span>
-          ${tagsHtml}${sectorBtn}
-        </div>
+  if(!f.isLoad) {
+    return `<div class="card"><div class="c-title">${f.name || f.code}</div><div style="color:#94a3b8;font-size:12px;margin-top:10px;">需点击右上角刷新获取数据...</div></div>`; 
+  }
+  
+  const col = f.change >= 0 ? 'red' : 'green'; 
+  let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join(''); 
+  let showDel = isHomeGroup && this.currentGroupId !== 'default'; 
+  let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join(''); 
+  
+  let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : ''; 
+  let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(this, '${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`; 
+  let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`; 
+  let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`; 
+  
+  const rt = this.rtData[f.code]; 
+  let rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 盘中估算</div><div style="font-size:11px; color:#cbd5e1;">待更新...</div></div>`; 
+  
+  if (rt) { 
+    const rtCol = rt.gszzl >= 0 ? 'red' : 'green'; 
+    rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 估算 ${rt.gztime.slice(11)}</div><div style="display:flex; gap:8px; align-items:baseline;"><span class="${rtCol}" style="font-size:15px; font-weight:900;">${rt.gsz.toFixed(4)}</span><span class="${rtCol}" style="font-size:13px; font-weight:bold; background:rgba(0,0,0,0.03); padding:0 4px; border-radius:4px;">${rt.gszzl > 0 ? '+' : ''}${rt.gszzl.toFixed(2)}%</span></div></div>`; 
+  } 
+
+  // 新增：基金规模标签
+  let assetHtml = `<div class="maxdrop-tag" style="margin-bottom:6px;background: #e6f0ff;color: var(--blue);">规模：${f.asset}亿元</div>`;
+  
+  return `<div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">
+    ${delBtn} ${starBtn}
+    <div class="card-head" style="padding-right: ${showDel ? '55px' : '25px'};">
+      <div class="c-title-area">
+        <span class="c-title">${titleHtml}</span>
+        <span class="c-code">${f.code}</span>
+        ${tagsHtml}${sectorBtn}
       </div>
-      <div class="c-main">
-        <span style="font-size:12px; font-weight:700; color:#94a3b8;">${f.latestDate}</span>
-        <div style="display:flex; gap:10px; align-items:center;">
-          <div class="c-val">${f.latest}</div>
-          <div class="c-chg ${col}">${f.change > 0 ? '+' : ''}${f.change}%</div>
-        </div>
+    </div>
+    <div class="c-main">
+      <span style="font-size:12px; font-weight:700; color:#94a3b8;">${f.latestDate}</span>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <div class="c-val">${f.latest}</div>
+        <div class="c-chg ${col}">${f.change > 0 ? '+' : ''}${f.change}%</div>
       </div>
-      <div class="rates-row">${ratesHtml}</div>
-      ${f.maxDropIn20 !== null ? `<div class="maxdrop-tag" style="margin-bottom:6px;">20日跌幅 ${f.maxDropIn20}%</div>` : ''}
-      ${rtHtml}
-    </div>`; 
-  },
+    </div>
+    <div class="rates-row">${ratesHtml}</div>
+    ${f.maxDropIn20 !== null ? `<div class="maxdrop-tag" style="margin-bottom:6px;">20日跌幅 ${f.maxDropIn20}%</div>` : ''}
+    ${assetHtml} <!-- 新增：规模显示 -->
+    ${rtHtml}
+  </div>`; 
+},
   
   buildListHtml(funds, showDel = false, isSector = false) { 
     if(funds.length === 0) return ''; 
@@ -3317,57 +3352,67 @@ drawIntradayFlowCanvas(data) {
   },
   
   renderDetailTab(days) { 
-    const tabs = document.querySelectorAll('#det-tabs .action-pill'); 
-    tabs.forEach(el => el.classList.remove('active')); 
-    
-    // 修复：移除全局 event 依赖，直接根据 days 参数精准高亮对应的 Tab
-    if (days === 15 && tabs[0]) tabs[0].classList.add('active');
-    else if (days === 30 && tabs[1]) tabs[1].classList.add('active');
-    else if (days === 60 && tabs[2]) tabs[2].classList.add('active');
-    else if (days === 90 && tabs[3]) tabs[3].classList.add('active');
-    else if (days === 'hold' && tabs[4]) tabs[4].classList.add('active');
-    else if (days === 'analysis' && tabs[5]) tabs[5].classList.add('active');
+  const tabs = document.querySelectorAll('#det-tabs .action-pill'); 
+  tabs.forEach(el => el.classList.remove('active')); 
+  
+  // 适配新增的业绩标签
+  if (days === 15 && tabs[0]) tabs[0].classList.add('active');
+  else if (days === 30 && tabs[1]) tabs[1].classList.add('active');
+  else if (days === 60 && tabs[2]) tabs[2].classList.add('active');
+  else if (days === 90 && tabs[3]) tabs[3].classList.add('active');
+  else if (days === 'hold' && tabs[4]) tabs[4].classList.add('active');
+  else if (days === 'performance' && tabs[5]) tabs[5].classList.add('active');
+  else if (days === 'analysis' && tabs[6]) tabs[6].classList.add('active');
 
-    document.getElementById('det-chart-area').style.display = 'none'; 
-    document.getElementById('det-hold-area').style.display = 'none'; 
-    document.getElementById('det-analysis-area').style.display = 'none'; 
-    
-    if(days === 'hold') { 
-      document.getElementById('det-hold-area').style.display = 'block'; 
-      this.loadHoldings(this.currentDetailCode); 
-      return; 
-    } else if (days === 'analysis') { 
-      document.getElementById('det-analysis-area').style.display = 'block'; 
-      this.generateAnalysisReport(this.currentDetailCode); 
-      return; 
-    } 
-    
-    document.getElementById('det-chart-area').style.display = 'block'; 
-    const f = this.data.fundsCache[this.currentDetailCode]; 
-    if(!f || !f.netWorth) return; 
-    const nw = f.netWorth.slice(-days); 
-    if(nw.length < 2) return; 
-    
-    let tbl = nw.slice().reverse().map((item, i, arr) => { 
-      let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--'; 
-      return `<div class="list-item" style="padding:10px 14px;"><span style="color:var(--text-sub); font-size:13px; flex:1; font-weight:600;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:800; font-size:14px; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right; font-weight:800;">${chg>0?'+':''}${chg}%</span></div>`; 
-    }).join(''); 
-    document.getElementById('det-table-area').innerHTML = tbl; 
-    
-    const base = nw[0].y; 
-    let maxDrawdown = 0, maxPeak = nw[0].y; 
-    this.chartInfo.data = nw.map(item => { 
-      const rate = ((item.y-base)/base*100); 
-      if(item.y > maxPeak) maxPeak = item.y; 
-      const drop = ((maxPeak - item.y) / maxPeak * 100); 
-      if(drop > maxDrawdown) maxDrawdown = drop; 
-      return { date: this.formatEMDate(item.x, 5, 5), fullDate: this.formatEMDate(item.x, 10), y: item.y, rate }; 
-    }); 
-    
-    document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%'; 
-    this.chartInfo.touchIdx = -1; 
-    this.drawChart(); 
-  },
+  // 隐藏所有区域
+  document.getElementById('det-chart-area').style.display = 'none'; 
+  document.getElementById('det-hold-area').style.display = 'none'; 
+  document.getElementById('det-performance-area').style.display = 'none'; 
+  document.getElementById('det-analysis-area').style.display = 'none'; 
+  
+  // 切换对应区域
+  if(days === 'hold') { 
+    document.getElementById('det-hold-area').style.display = 'block'; 
+    this.loadHoldings(this.currentDetailCode); 
+    return; 
+  } else if (days === 'performance') { 
+    // 显示业绩页面
+    document.getElementById('det-performance-area').style.display = 'block'; 
+    this.renderPerformanceTab(this.currentDetailCode); 
+    return;
+  } else if (days === 'analysis') { 
+    document.getElementById('det-analysis-area').style.display = 'block'; 
+    this.generateAnalysisReport(this.currentDetailCode); 
+    return; 
+  } 
+  
+  // 原有日期走势逻辑
+  document.getElementById('det-chart-area').style.display = 'block'; 
+  const f = this.data.fundsCache[this.currentDetailCode]; 
+  if(!f || !f.netWorth) return; 
+  const nw = f.netWorth.slice(-days); 
+  if(nw.length < 2) return; 
+  
+  let tbl = nw.slice().reverse().map((item, i, arr) => { 
+    let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--'; 
+    return `<div class="list-item" style="padding:10px 14px;"><span style="color:var(--text-sub); font-size:13px; flex:1; font-weight:600;">${this.formatEMDate(item.x, 10)}</span><span style="font-weight:800; font-size:14px; flex:1; text-align:center;">${item.y.toFixed(4)}</span><span class="${chg>=0?'red':'green'}" style="flex:1; text-align:right; font-weight:800;">${chg>0?'+':''}${chg}%</span></div>`; 
+  }).join(''); 
+  document.getElementById('det-table-area').innerHTML = tbl; 
+  
+  const base = nw[0].y; 
+  let maxDrawdown = 0, maxPeak = nw[0].y; 
+  this.chartInfo.data = nw.map(item => { 
+    const rate = ((item.y-base)/base*100); 
+    if(item.y > maxPeak) maxPeak = item.y; 
+    const drop = ((maxPeak - item.y) / maxPeak * 100); 
+    if(drop > maxDrawdown) maxDrawdown = drop; 
+    return { date: this.formatEMDate(item.x, 5, 5), fullDate: this.formatEMDate(item.x, 10), y: item.y, rate }; 
+  }); 
+  
+  document.getElementById('det-maxdrop').innerText = '-' + maxDrawdown.toFixed(2) + '%'; 
+  this.chartInfo.touchIdx = -1; 
+  this.drawChart(); 
+},
   
   drawChart() { 
     const canvas = document.getElementById('det-canvas'); 
@@ -3499,6 +3544,78 @@ drawIntradayFlowCanvas(data) {
     
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
+
+  // 新增：获取基金业绩数据（阶段、季度、年度）
+async getFundPerformance(code) {
+  try {
+    // 并行请求3类业绩数据
+    const [stageRes, quarterRes, yearRes] = await Promise.all([
+      fetchJSONP(`https://fund.eastmoney.com/f10/F10DataApi.aspx?type=jdzf&code=${code}&rt=${Date.now()}`, 'callback'),
+      fetchJSONP(`https://fund.eastmoney.com/f10/F10DataApi.aspx?type=jdzf&code=${code}&rt=${Date.now()}`, 'callback'),
+      fetchJSONP(`https://fund.eastmoney.com/f10/F10DataApi.aspx?type=jnzf&code=${code}&rt=${Date.now()}`, 'callback')
+    ]);
+    
+    return {
+      stage: stageRes?.table || [],
+      quarter: quarterRes?.table || [],
+      year: yearRes?.table || []
+    };
+  } catch (e) {
+    return { stage: [], quarter: [], year: [] };
+  }
+},
+
+// 新增：渲染基金业绩页面（阶段/季度/年度涨跌）
+renderPerformanceTab(code) {
+  const area = document.getElementById('det-performance-area');
+  area.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">加载业绩数据中...</div>';
+  
+  this.getFundPerformance(code).then(data => {
+    // 1. 阶段涨幅渲染
+    let stageHtml = '<div class="ana-block"><div class="ana-header"><span class="ana-title">📈 阶段涨幅</span></div>';
+    if (data.stage.length > 0) {
+      stageHtml += '<div class="list-table-container"><div class="l-header"><div class="l-col-name th">阶段</div><div class="l-col-rate th">涨幅</div></div>';
+      data.stage.forEach(item => {
+        const rate = item[1] || '0.00%';
+        const color = rate.includes('-') ? 'green' : 'red';
+        stageHtml += `<div class="l-row"><div class="l-col-name">${item[0]}</div><div class="l-col-rate ${color}">${rate}</div></div>`;
+      });
+      stageHtml += '</div></div>';
+    } else {
+      stageHtml += '<div style="padding:10px; text-align:center;">暂无阶段涨幅数据</div></div>';
+    }
+
+    // 2. 季度涨幅渲染
+    let quarterHtml = '<div class="ana-block"><div class="ana-header"><span class="ana-title">📅 季度涨幅</span></div>';
+    if (data.quarter.length > 0) {
+      quarterHtml += '<div class="list-table-container"><div class="l-header"><div class="l-col-name th">季度</div><div class="l-col-rate th">涨幅</div></div>';
+      data.quarter.forEach(item => {
+        const rate = item[1] || '0.00%';
+        const color = rate.includes('-') ? 'green' : 'red';
+        quarterHtml += `<div class="l-row"><div class="l-col-name">${item[0]}</div><div class="l-col-rate ${color}">${rate}</div></div>`;
+      });
+      quarterHtml += '</div></div>';
+    } else {
+      quarterHtml += '<div style="padding:10px; text-align:center;">暂无季度涨幅数据</div></div>';
+    }
+
+    // 3. 年度涨幅渲染
+    let yearHtml = '<div class="ana-block"><div class="ana-header"><span class="ana-title">📆 年度涨幅</span></div>';
+    if (data.year.length > 0) {
+      yearHtml += '<div class="list-table-container"><div class="l-header"><div class="l-col-name th">年度</div><div class="l-col-rate th">涨幅</div></div>';
+      data.year.forEach(item => {
+        const rate = item[1] || '0.00%';
+        const color = rate.includes('-') ? 'green' : 'red';
+        yearHtml += `<div class="l-row"><div class="l-col-name">${item[0]}</div><div class="l-col-rate ${color}">${rate}</div></div>`;
+      });
+      yearHtml += '</div></div>';
+    } else {
+      yearHtml += '<div style="padding:10px; text-align:center;">暂无年度涨幅数据</div></div>';
+    }
+
+    area.innerHTML = stageHtml + quarterHtml + yearHtml;
+  });
+},
   
   async loadHoldings(code) { 
     document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>'; 

@@ -1019,7 +1019,7 @@ rtManualRefreshMarket() {
     }; 
   },
   
-  async loadFundData(code, isBatch = false) { 
+  aasync loadFundData(code, isBatch = false) { 
     return new Promise((resolve) => { 
       const script = document.createElement('script'); 
       let isDone = false; 
@@ -1037,8 +1037,8 @@ rtManualRefreshMarket() {
         if (window.Data_netWorthTrend) { 
           let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
           if (nw.length > 260) nw = nw.slice(-260); 
-
-          // 1. 尝试从图表数据获取规模
+          
+          // 1. 尝试从图表数据获取规模 (过滤掉数组中可能存在的 null 导致报错)
           let scaleStr = '--';
           if (window.Data_fluctuateScale && window.Data_fluctuateScale.series && window.Data_fluctuateScale.series.length > 0) {
               const sData = window.Data_fluctuateScale.series[0].data;
@@ -1058,20 +1058,20 @@ rtManualRefreshMarket() {
           }; 
           this.data.fundsCache[code] = fund; 
 
-          // 2. 核心修复：如果规模仍为'--'，使用标准的 fetch 请求去拿官方基础数据
+          // 2. 核心修复：如果图表里死活找不到规模，启动静默后台兜底请求！
           if (scaleStr === '--') {
-              const baseInfoUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNBaseInfo?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
-              fetch(baseInfoUrl)
-                  .then(r => r.json())
-                  .then(d => {
-                      if (d && d.Datas && d.Datas.FUND_SCALE) {
-                          let s = d.Datas.FUND_SCALE;
-                          if (!String(s).includes('亿')) s += '亿';
-                          this.data.fundsCache[code].scale = s;
-                          this.saveData(); // 静默保存
-                          if (!isBatch && document.getElementById('view-home').classList.contains('active')) this.renderHome();
-                      }
-                  }).catch(()=>{});
+              fetch(`https://fundmobapi.eastmoney.com/FundMNewApi/FundMNBaseInfo?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`)
+              .then(r => r.json())
+              .then(d => {
+                  if (d && d.Datas && d.Datas.FUND_SCALE) {
+                      let realScale = d.Datas.FUND_SCALE;
+                      if (!realScale.includes('亿')) realScale += '亿';
+                      this.data.fundsCache[code].scale = realScale;
+                      this.saveData(); // 静默保存
+                      // 如果在首页，触发局部渲染更新 UI
+                      if (!isBatch && document.getElementById('view-home').classList.contains('active')) this.renderHome();
+                  }
+              }).catch(()=>{});
           }
 
           if (!isBatch) this.saveData(); 
@@ -3421,79 +3421,76 @@ drawIntradayFlowCanvas(data) {
   },
 
   async loadPerformance(code) {
-    const container = document.getElementById('det-perf-area');
-    container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">拉取官方业绩数据中...</div>';
-
+    document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">拉取业绩数据中...</div>';
     try {
-        // 核心修复：必须使用标准的 fetch 获取纯 JSON 数据，不可用 fetchJSONP
-        const urls = [
-            `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNPeriodIncrease?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`,
-            `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNQuarterCompare?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`,
-            `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNYearCompare?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`
-        ];
-
-        // 并发标准 fetch 请求
-        const [stageRes, quarterRes, yearRes] = await Promise.all(urls.map(u => fetch(u).then(r => r.json())));
-
-        // 内部通用的表格生成器
-        const buildTable = (dataArray, headers, keys) => {
-            if (!dataArray || dataArray.length === 0) return '<div style="padding:30px; text-align:center; color:#94a3b8;">暂无数据</div>';
-            
-            let html = `<div class="list-table-container" style="margin-bottom:0; box-shadow:none; border:1px solid #e2e8f0;">
-                <table style="width:100%; text-align:center; border-collapse: collapse; font-size:13px; white-space:nowrap;">`;
-            html += `<tr style="background:#f8fafc; color:var(--text-sub); border-bottom:1px solid #e2e8f0; height:36px;">`;
-            headers.forEach(h => html += `<th style="padding:0 10px; font-weight:800;">${h}</th>`);
-            html += `</tr>`;
-
-            dataArray.forEach(item => {
-                html += `<tr style="border-bottom:1px solid #f1f5f9; height:44px; transition:background 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">`;
-                keys.forEach((k, idx) => {
-                    let val = item[k];
-                    if (idx === 0) { // 周期标题列
-                        html += `<td style="color:var(--text-sub); font-weight:bold; padding:0 10px;">${val}</td>`;
-                    } else if (k === 'rank') { // 排名列
-                        html += `<td style="color:#64748b; font-size:12px; padding:0 10px;">${val || '--'}</td>`;
-                    } else { // 涨跌幅数字列
-                        let num = parseFloat(val);
-                        let col = isNaN(num) ? '' : (num >= 0 ? 'red' : 'green');
-                        let sign = (!isNaN(num) && num > 0) ? '+' : '';
-                        let displayVal = isNaN(num) ? '--' : `${sign}${num.toFixed(2)}%`;
-                        let fw = idx === 1 ? '900' : 'bold'; 
-                        html += `<td class="${col}" style="font-weight:${fw}; padding:0 10px;">${displayVal}</td>`;
-                    }
-                });
-                html += `</tr>`;
-            });
-            html += `</table></div>`;
-            return html;
-        };
-
-        // 处理阶段数据 
-        const stageData = stageRes?.Datas || [];
-        const allowedStages = ['近1周', '近1月', '近3月', '近6月', '今年来', '近1年', '近2年', '近3年'];
-        const filteredStage = stageData.filter(d => allowedStages.includes(d.title));
-
-        const quarterData = quarterRes?.Datas || [];
-        const yearData = yearRes?.Datas || [];
-
-        const headers = ['周期', '本基金', '同类平均', '沪深300', '同类排名'];
-        const keys = ['title', 'syl', 'avg', 'hs300', 'rank'];
-
-        let html = `
-            <div style="display:flex; gap:15px; margin-bottom:12px; padding:0 4px; border-bottom:2px solid #f1f5f9;">
-                <div id="perf-tab-stage" class="m-tab active" style="padding:6px 4px; font-size:14px;" onclick="app.switchPerfTab('stage')">阶段涨幅</div>
-                <div id="perf-tab-quarter" class="m-tab" style="padding:6px 4px; font-size:14px;" onclick="app.switchPerfTab('quarter')">季度涨幅</div>
-                <div id="perf-tab-year" class="m-tab" style="padding:6px 4px; font-size:14px;" onclick="app.switchPerfTab('year')">年度涨幅</div>
-            </div>
-            <div id="perf-box-stage">${buildTable(filteredStage, headers, keys)}</div>
-            <div id="perf-box-quarter" style="display:none;">${buildTable(quarterData, headers, keys)}</div>
-            <div id="perf-box-year" style="display:none;">${buildTable(yearData, headers, keys)}</div>
-        `;
-
-        container.innerHTML = html;
-
-    } catch (e) {
-        container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--red);">获取业绩数据失败，请稍后重试</div>';
+      // 核心修复：改用标准 fetch 请求 (该 API 支持 CORS，不可用 JSONP 包装)
+      const pUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNPeriodIncrease?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
+      const pRes = await fetch(pUrl);
+      const pData = await pRes.json();
+      
+      if(pData && pData.Datas) {
+          let html = `<div style="font-weight:800; font-size:14px; margin: 0 0 8px 4px;">阶段表现对比</div>`;
+          html += `<div class="card" style="padding:0; overflow:hidden;"><table style="width:100%; text-align:center; border-collapse: collapse; font-size:13px;">
+          <tr style="background:#f8fafc; color:var(--text-sub); border-bottom:1px solid #e2e8f0; height:36px;">
+            <th>周期</th><th>本基金</th><th>沪深300</th><th>超额收益</th>
+          </tr>`;
+          
+          pData.Datas.forEach(item => {
+              if(['近1月','近3月','近6月','近1年','近3年','今年来'].includes(item.title)) {
+                  let fVal = parseFloat(item.syl) || 0;
+                  let hsVal = parseFloat(item.hs300) || 0;
+                  let overVal = fVal - hsVal;
+                  
+                  let fCol = fVal >= 0 ? 'red' : 'green';
+                  let hCol = hsVal >= 0 ? 'red' : 'green';
+                  let oCol = overVal >= 0 ? 'red' : 'green';
+                  
+                  html += `<tr style="border-bottom:1px solid #f1f5f9; height:44px;">
+                    <td style="color:var(--text-sub); font-weight:bold;">${item.title}</td>
+                    <td class="${fCol}" style="font-weight:bold;">${fVal>0?'+':''}${fVal.toFixed(2)}%</td>
+                    <td class="${hCol}">${hsVal>0?'+':''}${hsVal.toFixed(2)}%</td>
+                    <td class="${oCol}" style="font-weight:800;">${overVal>0?'+':''}${overVal.toFixed(2)}%</td>
+                  </tr>`;
+              }
+          });
+          html += `</table></div>`;
+          
+          // 获取年度收益 (同样改用标准 fetch)
+          const yUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNYearCompare?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
+          const yRes = await fetch(yUrl);
+          const yData = await yRes.json();
+          
+          if (yData && yData.Datas && yData.Datas.length > 0) {
+              html += `<div style="font-weight:800; font-size:14px; margin: 18px 0 8px 4px;">年度表现对比</div>`;
+              html += `<div class="card" style="padding:0; overflow:hidden;"><table style="width:100%; text-align:center; border-collapse: collapse; font-size:13px;">
+              <tr style="background:#f8fafc; color:var(--text-sub); border-bottom:1px solid #e2e8f0; height:36px;">
+                <th>年份</th><th>本基金</th><th>同类平均</th><th>沪深300</th>
+              </tr>`;
+              yData.Datas.slice(0, 5).forEach(item => {
+                  let fVal = parseFloat(item.syl) || 0;
+                  let hsVal = parseFloat(item.hs300) || 0;
+                  let avgVal = parseFloat(item.avg) || 0;
+                  
+                  let fCol = fVal >= 0 ? 'red' : 'green';
+                  let hCol = hsVal >= 0 ? 'red' : 'green';
+                  let aCol = avgVal >= 0 ? 'red' : 'green';
+                  
+                  html += `<tr style="border-bottom:1px solid #f1f5f9; height:44px;">
+                    <td style="color:var(--text-sub); font-weight:bold;">${item.title}</td>
+                    <td class="${fCol}" style="font-weight:bold;">${fVal>0?'+':''}${fVal.toFixed(2)}%</td>
+                    <td class="${aCol}">${avgVal>0?'+':''}${avgVal.toFixed(2)}%</td>
+                    <td class="${hCol}">${hsVal>0?'+':''}${hsVal.toFixed(2)}%</td>
+                  </tr>`;
+              });
+              html += `</table></div>`;
+          }
+          
+          document.getElementById('det-perf-area').innerHTML = html;
+      } else {
+          document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无业绩数据</div>';
+      }
+    } catch(e) {
+      document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:var(--red);">获取业绩数据失败，请检查网络</div>';
     }
   },
 

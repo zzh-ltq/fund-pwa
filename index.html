@@ -1038,11 +1038,18 @@ rtManualRefreshMarket() {
           let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
           if (nw.length > 260) nw = nw.slice(-260); 
           
-          // 获取基金最新规模
+          // 1. 尝试从图表数据获取规模 (过滤掉数组中可能存在的 null 导致报错)
           let scaleStr = '--';
           if (window.Data_fluctuateScale && window.Data_fluctuateScale.series && window.Data_fluctuateScale.series.length > 0) {
               const sData = window.Data_fluctuateScale.series[0].data;
-              if (sData && sData.length > 0) scaleStr = sData[sData.length - 1] + '亿';
+              if (sData) {
+                  for (let i = sData.length - 1; i >= 0; i--) {
+                      if (sData[i] !== null && sData[i] !== undefined) {
+                          scaleStr = sData[i] + '亿';
+                          break;
+                      }
+                  }
+              }
           }
 
           const oldCache = this.data.fundsCache[code] || {}; 
@@ -1050,6 +1057,23 @@ rtManualRefreshMarket() {
             code, name: window.fS_name || code, netWorth: nw, scale: scaleStr, sectors: oldCache.sectors || [], isStarred: oldCache.isStarred || false 
           }; 
           this.data.fundsCache[code] = fund; 
+
+          // 2. 核心修复：如果图表里死活找不到规模，启动静默后台兜底请求！
+          if (scaleStr === '--') {
+              fetch(`https://fundmobapi.eastmoney.com/FundMNewApi/FundMNBaseInfo?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`)
+              .then(r => r.json())
+              .then(d => {
+                  if (d && d.Datas && d.Datas.FUND_SCALE) {
+                      let realScale = d.Datas.FUND_SCALE;
+                      if (!realScale.includes('亿')) realScale += '亿';
+                      this.data.fundsCache[code].scale = realScale;
+                      this.saveData(); // 静默保存
+                      // 如果在首页，触发局部渲染更新 UI
+                      if (!isBatch && document.getElementById('view-home').classList.contains('active')) this.renderHome();
+                  }
+              }).catch(()=>{});
+          }
+
           if (!isBatch) this.saveData(); 
           window.Data_netWorthTrend = null; 
           window.fS_name = null; 
@@ -3399,9 +3423,11 @@ drawIntradayFlowCanvas(data) {
   async loadPerformance(code) {
     document.getElementById('det-perf-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">拉取业绩数据中...</div>';
     try {
-      // 获取阶段收益 (近1月, 3月, 等)
+      // 核心修复：改用标准 fetch 请求 (该 API 支持 CORS，不可用 JSONP 包装)
       const pUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNPeriodIncrease?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
-      const pData = await fetchJSONP(pUrl, 'callback');
+      const pRes = await fetch(pUrl);
+      const pData = await pRes.json();
+      
       if(pData && pData.Datas) {
           let html = `<div style="font-weight:800; font-size:14px; margin: 0 0 8px 4px;">阶段表现对比</div>`;
           html += `<div class="card" style="padding:0; overflow:hidden;"><table style="width:100%; text-align:center; border-collapse: collapse; font-size:13px;">
@@ -3429,9 +3455,11 @@ drawIntradayFlowCanvas(data) {
           });
           html += `</table></div>`;
           
-          // 获取年度收益
+          // 获取年度收益 (同样改用标准 fetch)
           const yUrl = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNYearCompare?FCODE=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
-          const yData = await fetchJSONP(yUrl, 'callback');
+          const yRes = await fetch(yUrl);
+          const yData = await yRes.json();
+          
           if (yData && yData.Datas && yData.Datas.length > 0) {
               html += `<div style="font-weight:800; font-size:14px; margin: 18px 0 8px 4px;">年度表现对比</div>`;
               html += `<div class="card" style="padding:0; overflow:hidden;"><table style="width:100%; text-align:center; border-collapse: collapse; font-size:13px;">

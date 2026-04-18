@@ -80,15 +80,7 @@
     .nav-btn { font-size: 13px; color: var(--blue); font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background: #fff; padding: 6px 12px; border-radius: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); transition: all 0.3s;}
     .nav-btn.left { justify-content: flex-start; background:transparent; box-shadow: none; color: var(--blue);}
 
-    .scroll-area { 
-  flex: 1; 
-  overflow-y: auto; 
-  -webkit-overflow-scrolling: touch; 
-  padding: 12px; 
-  /* 新增：开启 GPU 加速，提升复杂列表滑动流畅度 */
-  transform: translateZ(0); 
-  will-change: transform, scroll-position;
-}
+    .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px; }
 
     /* ========== 底部/侧边 TabBar ========== */
     .tab-bar {
@@ -137,19 +129,7 @@
 
     /* ========== 卡片与列表双视图 ========== */
     .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; } 
-    .card { 
-  background: var(--surface-color); 
-  border-radius: var(--radius-lg); 
-  padding: 14px; 
-  box-shadow: var(--shadow-sm); 
-  border: 1px solid rgba(255,255,255,0.8); 
-  position: relative; 
-  cursor: pointer; 
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
-  backdrop-filter: blur(10px);
-  /* 新增：强制子元素独立渲染层，防止重绘 */
-  transform: translateZ(0);
-}
+    .card { background: var(--surface-color); border-radius: var(--radius-lg); padding: 14px; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8); position: relative; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); backdrop-filter: blur(10px);}
     .card.risk-highlight { border: 2px solid rgba(244, 63, 94, 0.4); box-shadow: 0 8px 20px rgba(244, 63, 94, 0.1); }
     
     .c-del-btn { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #94a3b8; font-size: 14px; border-radius: 50%; background: #f8fafc; z-index: 10; transition: all 0.3s;}
@@ -515,31 +495,30 @@
 // ==========================================
 // 1. 基础网络请求工具与常量
 // ==========================================
-// 升级版：智能请求拦截器，兼容旧版调用格式，自动转化为原生 Fetch 以提速并降低 DOM 负担
-async function fetchJSONP(url, callbackName = 'callback') {
-  return new Promise(async (resolve, reject) => {
-    try {
-      // 生成随机回调名，防缓存
-      const cb = 'jsonp_cb_' + Math.floor(Math.random() * 1000000);
-      const sep = url.includes('?') ? '&' : '?';
-      const fetchUrl = `${url}${sep}${callbackName}=${cb}`;
-
-      const res = await fetch(fetchUrl, { mode: 'cors', credentials: 'omit' });
-      const text = await res.text();
-      
-      // 解析包裹的 jsonp_cb_xxx({"data":...}) 字符串
-      const startIndex = text.indexOf('(') + 1;
-      const endIndex = text.lastIndexOf(')');
-      if (startIndex > 0 && endIndex > startIndex) {
-        const jsonStr = text.substring(startIndex, endIndex);
-        resolve(JSON.parse(jsonStr));
-      } else {
+function fetchJSONP(url, callbackName = 'callback') {
+  return new Promise((resolve, reject) => {
+    const cb = 'jsonp_cb_' + Math.floor(Math.random() * 1000000) + '_' + Date.now();
+    const script = document.createElement('script');
+    const sep = url.includes('?') ? '&' : '?';
+    script.src = `${url}${sep}${callbackName}=${cb}`;
+    window[cb] = (data) => {
+      resolve(data);
+      delete window[cb];
+      script.remove();
+    };
+    script.onerror = () => {
+      reject('JSONP Network Error');
+      delete window[cb];
+      script.remove();
+    };
+    document.head.appendChild(script);
+    setTimeout(() => {
+      if (window[cb]) {
         resolve(null);
+        delete window[cb];
+        script.remove();
       }
-    } catch (e) {
-      console.warn('Fetch failed, falling back to network state:', e);
-      resolve(null);
-    }
+    }, 8000);
   });
 }
 
@@ -783,67 +762,50 @@ const app = {
     return null;
   },
   
-  // 优化：双引擎实时估值获取，加入强力防缓存机制，确保周末/盘后准确显示 15:00 数据
   rtFetchSingle(code) {
-    return new Promise(async (resolve) => {
-      // 引擎 1：天天基金经典接口 (周末会自动校准到 15:00)
-      try {
-        const url1 = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}&_=${Math.random()}`;
-        const res1 = await fetch(url1, { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
-        const text1 = await res1.text();
-        const match1 = text1.match(/jsonpgz\((.*)\);?/);
-        if (match1 && match1[1]) {
-          const data = JSON.parse(match1[1]);
-          if (data.gsz) {
-            resolve({ 
-              code: data.fundcode, name: data.name, 
-              gsz: parseFloat(data.gsz), gszzl: parseFloat(data.gszzl), 
-              dwjz: data.dwjz, gztime: data.gztime 
-            });
-            return; // 成功则直接返回
-          }
-        }
-      } catch (e) { /* 忽略错误，交给引擎 2 */ }
-
-      // 引擎 2：天天基金移动端接口 (兜底使用，防止新发基金在经典接口中查不到)
-      try {
-        const url2 = `https://fundmobapi.eastmoney.com/FundMktInfo/getFundNetEst.ashx?FCODE=${code}&deviceid=WAP&plat=Wap&product=EFund&version=2.0.0&_=${Date.now()}`;
-        const res2 = await fetch(url2, { headers: { 'Cache-Control': 'no-cache' } });
-        const json2 = await res2.json();
-        if (json2 && json2.ErrCode === 0 && json2.Datas && json2.Datas.length > 0) {
-          const parts = json2.Datas[0].split(',');
-          resolve({
-            code: parts[0], name: parts[1], 
-            dwjz: parseFloat(parts[3]), gsz: parseFloat(parts[4]), 
-            gszzl: parseFloat(parts[5]), gztime: parts[6]
+    return new Promise((resolve) => {
+      let timeoutId = setTimeout(() => { 
+        if (window.jsonpgz === tempCallback) window.jsonpgz = null; 
+        resolve(null); 
+      }, 3000);
+      
+      const tempCallback = (data) => {
+        clearTimeout(timeoutId);
+        if (window.jsonpgz === tempCallback) window.jsonpgz = null;
+        if (data && data.gsz) {
+          resolve({ 
+            code: data.fundcode, 
+            name: data.name, 
+            gsz: parseFloat(data.gsz), 
+            gszzl: parseFloat(data.gszzl), 
+            dwjz: data.dwjz, 
+            gztime: data.gztime 
           });
-          return;
+        } else {
+          resolve(null);
         }
-      } catch (e) { /* 忽略错误 */ }
-
-      // 如果全失败，返回 null
-      resolve(null);
+      };
+      
+      window.jsonpgz = tempCallback;
+      const script = document.createElement('script');
+      script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
+      script.onerror = () => { clearTimeout(timeoutId); resolve(null); };
+      document.head.appendChild(script);
+      setTimeout(() => { if(script.parentNode) script.remove(); }, 3500);
     });
   },
   
-   // 优化点：引入分块并发请求，更新速度提升 10 倍以上
   async rtFetchAll() {
     const codes = this.getRtFundCodes();
     if (!codes || codes.length === 0 || this.rtIsFetching) return;
     
     this.rtIsFetching = true;
-    if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '⚡ 极速并发拉取中...';
-    if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '⚡ 极速并发拉取中...';
+    if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 逐个拉取中...';
+    if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 逐个拉取中...';
     
-    // 采用每批 10 个的并发请求，防止阻塞
-    const batchSize = 10;
-    for (let i = 0; i < codes.length; i += batchSize) {
-      const chunk = codes.slice(i, i + batchSize);
-      const promises = chunk.map(code => this.rtFetchSingle(code));
-      const results = await Promise.all(promises);
-      results.forEach(res => {
-        if (res) this.rtData[res.code] = res;
-      });
+    for (let code of codes) { 
+      const res = await this.rtFetchSingle(code); 
+      if (res) this.rtData[code] = res; 
     }
     
     this.rtIsFetching = false;
@@ -2690,6 +2652,7 @@ drawIntradayFlowCanvas(data) {
     const pad = { l: 50, r: 50 }; 
     const dw = rect.width - pad.l - pad.r; 
     
+    // 核心修复：根据是否完全画满来限制交互的触控区域
     const maxPoints = (data.type === 'trend' && data.totalPoints) ? Math.max(data.totalPoints, data.prices.length) : data.prices.length;
     const maxX = pad.l + ((data.prices.length - 1) / Math.max(maxPoints - 1, 1)) * dw;
 
@@ -2700,21 +2663,12 @@ drawIntradayFlowCanvas(data) {
       return Math.round((x - pad.l) / dw * Math.max(maxPoints - 1, 1)); 
     }; 
     
-    // 优化：引入 rAF 进行渲染节流
-    let isDrawing = false;
-    const handleMove = (clientX) => {
-      if (isDrawing) return;
-      isDrawing = true;
-      requestAnimationFrame(() => {
-        const idx = getIdx(clientX); 
-        this.crosshair.active = true; 
-        this.crosshair.index = idx; 
-        this.drawMarketChartWithCrosshair(true, idx); 
-        isDrawing = false;
-      });
-    };
-
-    canvas.onmousemove = (e) => handleMove(e.clientX); 
+    canvas.onmousemove = (e) => { 
+      const idx = getIdx(e.clientX); 
+      this.crosshair.active = true; 
+      this.crosshair.index = idx; 
+      this.drawMarketChartWithCrosshair(true, idx); 
+    }; 
     
     canvas.onmouseleave = () => { 
       this.crosshair.active = false; 
@@ -2723,7 +2677,11 @@ drawIntradayFlowCanvas(data) {
     
     canvas.ontouchmove = (e) => { 
       e.preventDefault(); 
-      handleMove(e.touches[0].clientX); 
+      const touch = e.touches[0]; 
+      const idx = getIdx(touch.clientX); 
+      this.crosshair.active = true; 
+      this.crosshair.index = idx; 
+      this.drawMarketChartWithCrosshair(true, idx); 
     }; 
     
     canvas.ontouchend = () => { 
@@ -3542,76 +3500,41 @@ drawIntradayFlowCanvas(data) {
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
   
-  // 优化：彻底重构持仓获取逻辑，优先使用天天官方接口，大幅提升成功率
   async loadHoldings(code) { 
-    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">持仓数据极速抓取中...</div>'; 
+    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>'; 
     try { 
-      let holdings = [];
-
-      // 尝试 1：优先使用天天基金官方移动端持仓接口（数据最全，且与基金代码完美契合）
-      try {
-        const emUrl = `https://fundmobapi.eastmoney.com/FundMktInfo/getFundInverstPosition.ashx?FCODE=${code}&deviceid=WAP&plat=Wap&product=EFund&version=2.0.0&_=${Date.now()}`;
-        const emRes = await fetch(emUrl);
-        const emJson = await emRes.json();
-        if (emJson && emJson.ErrCode === 0 && emJson.Datas && emJson.Datas.fundStocks) {
-           holdings = emJson.Datas.fundStocks.map(h => ({
-              name: h.GPJC,
-              code: h.GPDM,
-              ratio: parseFloat(h.JZBL)
-           }));
-        }
-      } catch (e) { console.warn('官方接口读取失败，启动备用接口...'); }
-
-      // 尝试 2：若官方接口被拦截，使用百度备用接口兜底
-      if (holdings.length === 0) {
-         const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb');
-         const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || [];
-         const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || [];
-         holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) }));
-      }
-
-      if (holdings.length === 0) throw new Error('Data Empty');
-
-      // 获取个股实时行情/最后收盘行情，加入 f170 备用字段应对周末休市
-      let qtMap = {}; 
-      try {
-        const secids = holdings.map(h => {
-            if (h.code.startsWith('6') || h.code.startsWith('9')) return '1.' + h.code;
-            if (h.code.startsWith('0') || h.code.startsWith('3')) return '0.' + h.code;
-            return '116.' + h.code; // 港股兜底
-        }).join(','); 
-
-        const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f60,f170&_=${Date.now()}`, 'cb'); 
-        
-        (qtData?.data?.diff || []).forEach(item => { 
-          let chg = 0; 
-          if (item.f3 !== undefined && item.f3 !== '-' && !isNaN(parseFloat(item.f3))) { 
-            chg = parseFloat(item.f3); 
-          } else if (item.f170 !== undefined && item.f170 !== '-' && !isNaN(parseFloat(item.f170))) {
-            chg = parseFloat(item.f170); // 周末备用涨跌幅字段
-          } else if (item.f2 !== undefined && item.f2 !== '-' && item.f60 !== undefined && item.f60 !== '-') { 
-            let f2 = parseFloat(item.f2); 
-            let f60 = parseFloat(item.f60); 
-            if (f60 > 0 && !isNaN(f2) && !isNaN(f60)) chg = ((f2 - f60) / f60) * 100; 
-          } 
-          qtMap[item.f12] = Number(chg.toFixed(2)); 
-        }); 
-      } catch (quoteError) {
-          console.warn('行情拉取失败，将仅展示静态持仓占比');
-      }
+      const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
+      const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
+      const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || []; 
+      const holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
+      if(holdings.length === 0) throw new Error(); 
       
-      // 渲染列表与加权估算
+      const secids = holdings.map(h => ((h.code.startsWith('6')||h.code.startsWith('9'))?'1.':'0.')+h.code).join(','); 
+      const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f60&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb'); 
+      let qtMap = {}; 
+      (qtData?.data?.diff || []).forEach(item => { 
+        let chg = 0; 
+        if (item.f3 !== '-' && !isNaN(parseFloat(item.f3))) { 
+          chg = parseFloat(item.f3); 
+        } else if (item.f2 !== '-' && item.f60 !== '-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))) { 
+          let f2 = parseFloat(item.f2); 
+          let f60 = parseFloat(item.f60); 
+          if (f60 > 0) chg = ((f2 - f60) / f60) * 100; 
+        } 
+        qtMap[item.f12] = Number(chg.toFixed(2)); 
+      }); 
+      
       let sumR = 0, est = 0; 
       let hHtml = holdings.map(h => { 
         let chg = qtMap[h.code] || 0; 
         sumR += h.ratio; 
         est += (h.ratio/100)*chg; 
-        return `<div class="list-item"><span style="flex:2; font-weight:800; font-size:13px;">${h.name} <span class="c-code">${h.code}</span></span><span style="flex:1;text-align:center; color:var(--text-sub); font-size:12px;">${h.ratio.toFixed(2)}%</span><span style="flex:1;text-align:right; font-weight:800; font-size:13px;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg.toFixed(2)}%</span></div>`; 
+        return `<div class="list-item"><span style="flex:2; font-weight:800; font-size:13px;">${h.name} <span class="c-code">${h.code}</span></span><span style="flex:1;text-align:center; color:var(--text-sub); font-size:12px;">${h.ratio}%</span><span style="flex:1;text-align:right; font-weight:800; font-size:13px;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg}%</span></div>`; 
       }).join(''); 
       
-      document.getElementById('det-hold-area').innerHTML = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px;"><span>前十总占比</span><span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px;"><span>加权估算涨跌</span><span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>${hHtml}`; 
+      document.getElementById('det-hold-area').innerHTML = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px;"><span>前十总占比</span><span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px;"><span>加权估算涨幅</span><span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>${hHtml}`; 
     } catch(e) { 
-      document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:40px 20px; color:#94a3b8;"><div style="font-size:36px; margin-bottom:12px;">📭</div><div style="font-weight:bold; font-size:14px;">暂无股票持仓数据</div><div style="font-size:12px; margin-top:6px; font-weight:normal;">可能是新发基金或财报暂未披露</div></div>'; 
+      document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">暂无股票持仓数据</div>'; 
     } 
   },
   

@@ -783,31 +783,46 @@ const app = {
     return null;
   },
   
-  // 优化点：使用天天基金移动端稳定接口，支持跨域原生 fetch，周末稳定返回最后一天数据
+  // 优化：双引擎实时估值获取，加入强力防缓存机制，确保周末/盘后准确显示 15:00 数据
   rtFetchSingle(code) {
     return new Promise(async (resolve) => {
+      // 引擎 1：天天基金经典接口 (周末会自动校准到 15:00)
       try {
-        const url = `https://fundmobapi.eastmoney.com/FundMktInfo/getFundNetEst.ashx?FCODE=${code}&deviceid=WAP&plat=Wap&product=EFund&version=2.0.0`;
-        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-        const json = await res.json();
-        
-        // 接口返回格式解析
-        if (json && json.ErrCode === 0 && json.Datas && json.Datas.length > 0) {
-          const parts = json.Datas[0].split(',');
-          resolve({
-            code: parts[0],
-            name: parts[1],
-            dwjz: parseFloat(parts[3]),
-            gsz: parseFloat(parts[4]),
-            gszzl: parseFloat(parts[5]),
-            gztime: parts[6] // 包含最后一次更新的时间
-          });
-        } else {
-          resolve(null);
+        const url1 = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}&_=${Math.random()}`;
+        const res1 = await fetch(url1, { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
+        const text1 = await res1.text();
+        const match1 = text1.match(/jsonpgz\((.*)\);?/);
+        if (match1 && match1[1]) {
+          const data = JSON.parse(match1[1]);
+          if (data.gsz) {
+            resolve({ 
+              code: data.fundcode, name: data.name, 
+              gsz: parseFloat(data.gsz), gszzl: parseFloat(data.gszzl), 
+              dwjz: data.dwjz, gztime: data.gztime 
+            });
+            return; // 成功则直接返回
+          }
         }
-      } catch (e) {
-        resolve(null);
-      }
+      } catch (e) { /* 忽略错误，交给引擎 2 */ }
+
+      // 引擎 2：天天基金移动端接口 (兜底使用，防止新发基金在经典接口中查不到)
+      try {
+        const url2 = `https://fundmobapi.eastmoney.com/FundMktInfo/getFundNetEst.ashx?FCODE=${code}&deviceid=WAP&plat=Wap&product=EFund&version=2.0.0&_=${Date.now()}`;
+        const res2 = await fetch(url2, { headers: { 'Cache-Control': 'no-cache' } });
+        const json2 = await res2.json();
+        if (json2 && json2.ErrCode === 0 && json2.Datas && json2.Datas.length > 0) {
+          const parts = json2.Datas[0].split(',');
+          resolve({
+            code: parts[0], name: parts[1], 
+            dwjz: parseFloat(parts[3]), gsz: parseFloat(parts[4]), 
+            gszzl: parseFloat(parts[5]), gztime: parts[6]
+          });
+          return;
+        }
+      } catch (e) { /* 忽略错误 */ }
+
+      // 如果全失败，返回 null
+      resolve(null);
     });
   },
   
@@ -3527,42 +3542,54 @@ drawIntradayFlowCanvas(data) {
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
   
+  // 优化：彻底重构持仓获取逻辑，优先使用天天官方接口，大幅提升成功率
   async loadHoldings(code) { 
-    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">持仓数据抓取中...</div>'; 
+    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">持仓数据极速抓取中...</div>'; 
     try { 
-      // 1. 获取持仓列表 (这里使用百度接口获取基金季报持仓，很稳定)
-      const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
-      const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
-      const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || []; 
-      const holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
-      
-      if(holdings.length === 0) throw new Error('EmptyHoldings'); 
-      
-      // 2. 尝试获取最新/最后收盘行情 (分离 try-catch，避免行情失败导致持仓列表不显示)
+      let holdings = [];
+
+      // 尝试 1：优先使用天天基金官方移动端持仓接口（数据最全，且与基金代码完美契合）
+      try {
+        const emUrl = `https://fundmobapi.eastmoney.com/FundMktInfo/getFundInverstPosition.ashx?FCODE=${code}&deviceid=WAP&plat=Wap&product=EFund&version=2.0.0&_=${Date.now()}`;
+        const emRes = await fetch(emUrl);
+        const emJson = await emRes.json();
+        if (emJson && emJson.ErrCode === 0 && emJson.Datas && emJson.Datas.fundStocks) {
+           holdings = emJson.Datas.fundStocks.map(h => ({
+              name: h.GPJC,
+              code: h.GPDM,
+              ratio: parseFloat(h.JZBL)
+           }));
+        }
+      } catch (e) { console.warn('官方接口读取失败，启动备用接口...'); }
+
+      // 尝试 2：若官方接口被拦截，使用百度备用接口兜底
+      if (holdings.length === 0) {
+         const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb');
+         const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || [];
+         const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || [];
+         holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) }));
+      }
+
+      if (holdings.length === 0) throw new Error('Data Empty');
+
+      // 获取个股实时行情/最后收盘行情，加入 f170 备用字段应对周末休市
       let qtMap = {}; 
       try {
-        // 增加对港股等前缀的兼容处理
         const secids = holdings.map(h => {
             if (h.code.startsWith('6') || h.code.startsWith('9')) return '1.' + h.code;
             if (h.code.startsWith('0') || h.code.startsWith('3')) return '0.' + h.code;
-            return '116.' + h.code; // 默认港股/其他兜底
+            return '116.' + h.code; // 港股兜底
         }).join(','); 
-        
-        // 增加请求 f170 字段作为备用涨跌幅
-        const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f60,f170&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb'); 
+
+        const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f60,f170&_=${Date.now()}`, 'cb'); 
         
         (qtData?.data?.diff || []).forEach(item => { 
           let chg = 0; 
-          // 容错逻辑 1：优先取标准涨跌幅 f3
           if (item.f3 !== undefined && item.f3 !== '-' && !isNaN(parseFloat(item.f3))) { 
             chg = parseFloat(item.f3); 
-          } 
-          // 容错逻辑 2：非交易日可能 f3 为横杠，尝试取备用字段 f170
-          else if (item.f170 !== undefined && item.f170 !== '-' && !isNaN(parseFloat(item.f170))) {
-            chg = parseFloat(item.f170);
-          }
-          // 容错逻辑 3：终极兜底，用最新价(f2)和昨收价(f60)手动计算
-          else if (item.f2 !== undefined && item.f2 !== '-' && item.f60 !== undefined && item.f60 !== '-') { 
+          } else if (item.f170 !== undefined && item.f170 !== '-' && !isNaN(parseFloat(item.f170))) {
+            chg = parseFloat(item.f170); // 周末备用涨跌幅字段
+          } else if (item.f2 !== undefined && item.f2 !== '-' && item.f60 !== undefined && item.f60 !== '-') { 
             let f2 = parseFloat(item.f2); 
             let f60 = parseFloat(item.f60); 
             if (f60 > 0 && !isNaN(f2) && !isNaN(f60)) chg = ((f2 - f60) / f60) * 100; 
@@ -3570,21 +3597,20 @@ drawIntradayFlowCanvas(data) {
           qtMap[item.f12] = Number(chg.toFixed(2)); 
         }); 
       } catch (quoteError) {
-          console.warn('行情拉取失败，将仅展示静态持仓占比', quoteError);
+          console.warn('行情拉取失败，将仅展示静态持仓占比');
       }
       
-      // 3. 渲染页面
+      // 渲染列表与加权估算
       let sumR = 0, est = 0; 
       let hHtml = holdings.map(h => { 
-        let chg = qtMap[h.code] || 0; // 行情拉取失败则涨幅默认为 0
+        let chg = qtMap[h.code] || 0; 
         sumR += h.ratio; 
         est += (h.ratio/100)*chg; 
-        return `<div class="list-item"><span style="flex:2; font-weight:800; font-size:13px;">${h.name} <span class="c-code">${h.code}</span></span><span style="flex:1;text-align:center; color:var(--text-sub); font-size:12px;">${h.ratio}%</span><span style="flex:1;text-align:right; font-weight:800; font-size:13px;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg.toFixed(2)}%</span></div>`; 
+        return `<div class="list-item"><span style="flex:2; font-weight:800; font-size:13px;">${h.name} <span class="c-code">${h.code}</span></span><span style="flex:1;text-align:center; color:var(--text-sub); font-size:12px;">${h.ratio.toFixed(2)}%</span><span style="flex:1;text-align:right; font-weight:800; font-size:13px;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg.toFixed(2)}%</span></div>`; 
       }).join(''); 
       
       document.getElementById('det-hold-area').innerHTML = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px;"><span>前十总占比</span><span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px;"><span>加权估算涨跌</span><span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>${hHtml}`; 
     } catch(e) { 
-      // 只有在真的连基础持仓表都获取不到的情况下（比如新发基金），才显示无数据
       document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:40px 20px; color:#94a3b8;"><div style="font-size:36px; margin-bottom:12px;">📭</div><div style="font-weight:bold; font-size:14px;">暂无股票持仓数据</div><div style="font-size:12px; margin-top:6px; font-weight:normal;">可能是新发基金或财报暂未披露</div></div>'; 
     } 
   },

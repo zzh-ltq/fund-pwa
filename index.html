@@ -80,7 +80,15 @@
     .nav-btn { font-size: 13px; color: var(--blue); font-weight: bold; cursor: pointer; display:flex; align-items:center; justify-content:center; background: #fff; padding: 6px 12px; border-radius: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); transition: all 0.3s;}
     .nav-btn.left { justify-content: flex-start; background:transparent; box-shadow: none; color: var(--blue);}
 
-    .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px; }
+    .scroll-area { 
+  flex: 1; 
+  overflow-y: auto; 
+  -webkit-overflow-scrolling: touch; 
+  padding: 12px; 
+  /* 新增：开启 GPU 加速，提升复杂列表滑动流畅度 */
+  transform: translateZ(0); 
+  will-change: transform, scroll-position;
+}
 
     /* ========== 底部/侧边 TabBar ========== */
     .tab-bar {
@@ -129,7 +137,19 @@
 
     /* ========== 卡片与列表双视图 ========== */
     .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; } 
-    .card { background: var(--surface-color); border-radius: var(--radius-lg); padding: 14px; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8); position: relative; cursor: pointer; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); backdrop-filter: blur(10px);}
+    .card { 
+  background: var(--surface-color); 
+  border-radius: var(--radius-lg); 
+  padding: 14px; 
+  box-shadow: var(--shadow-sm); 
+  border: 1px solid rgba(255,255,255,0.8); 
+  position: relative; 
+  cursor: pointer; 
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+  backdrop-filter: blur(10px);
+  /* 新增：强制子元素独立渲染层，防止重绘 */
+  transform: translateZ(0);
+}
     .card.risk-highlight { border: 2px solid rgba(244, 63, 94, 0.4); box-shadow: 0 8px 20px rgba(244, 63, 94, 0.1); }
     
     .c-del-btn { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; display: flex; justify-content: center; align-items: center; color: #94a3b8; font-size: 14px; border-radius: 50%; background: #f8fafc; z-index: 10; transition: all 0.3s;}
@@ -495,30 +515,31 @@
 // ==========================================
 // 1. 基础网络请求工具与常量
 // ==========================================
-function fetchJSONP(url, callbackName = 'callback') {
-  return new Promise((resolve, reject) => {
-    const cb = 'jsonp_cb_' + Math.floor(Math.random() * 1000000) + '_' + Date.now();
-    const script = document.createElement('script');
-    const sep = url.includes('?') ? '&' : '?';
-    script.src = `${url}${sep}${callbackName}=${cb}`;
-    window[cb] = (data) => {
-      resolve(data);
-      delete window[cb];
-      script.remove();
-    };
-    script.onerror = () => {
-      reject('JSONP Network Error');
-      delete window[cb];
-      script.remove();
-    };
-    document.head.appendChild(script);
-    setTimeout(() => {
-      if (window[cb]) {
+// 升级版：智能请求拦截器，兼容旧版调用格式，自动转化为原生 Fetch 以提速并降低 DOM 负担
+async function fetchJSONP(url, callbackName = 'callback') {
+  return new Promise(async (resolve, reject) => {
+    try {
+      // 生成随机回调名，防缓存
+      const cb = 'jsonp_cb_' + Math.floor(Math.random() * 1000000);
+      const sep = url.includes('?') ? '&' : '?';
+      const fetchUrl = `${url}${sep}${callbackName}=${cb}`;
+
+      const res = await fetch(fetchUrl, { mode: 'cors', credentials: 'omit' });
+      const text = await res.text();
+      
+      // 解析包裹的 jsonp_cb_xxx({"data":...}) 字符串
+      const startIndex = text.indexOf('(') + 1;
+      const endIndex = text.lastIndexOf(')');
+      if (startIndex > 0 && endIndex > startIndex) {
+        const jsonStr = text.substring(startIndex, endIndex);
+        resolve(JSON.parse(jsonStr));
+      } else {
         resolve(null);
-        delete window[cb];
-        script.remove();
       }
-    }, 8000);
+    } catch (e) {
+      console.warn('Fetch failed, falling back to network state:', e);
+      resolve(null);
+    }
   });
 }
 
@@ -763,16 +784,16 @@ const app = {
   },
   
   rtFetchSingle(code) {
-    return new Promise((resolve) => {
-      let timeoutId = setTimeout(() => { 
-        if (window.jsonpgz === tempCallback) window.jsonpgz = null; 
-        resolve(null); 
-      }, 3000);
-      
-      const tempCallback = (data) => {
-        clearTimeout(timeoutId);
-        if (window.jsonpgz === tempCallback) window.jsonpgz = null;
-        if (data && data.gsz) {
+    return new Promise(async (resolve) => {
+      try {
+        // 使用 fetch 替代 script 注入，消除 DOM 开销与全局变量竞态
+        const url = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        const text = await res.text();
+        // 匹配 jsonpgz({...}) 内部的 JSON 字符串
+        const match = text.match(/jsonpgz\((.*)\);?/);
+        if (match && match[1]) {
+          const data = JSON.parse(match[1]);
           resolve({ 
             code: data.fundcode, 
             name: data.name, 
@@ -784,14 +805,9 @@ const app = {
         } else {
           resolve(null);
         }
-      };
-      
-      window.jsonpgz = tempCallback;
-      const script = document.createElement('script');
-      script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
-      script.onerror = () => { clearTimeout(timeoutId); resolve(null); };
-      document.head.appendChild(script);
-      setTimeout(() => { if(script.parentNode) script.remove(); }, 3500);
+      } catch (e) {
+        resolve(null);
+      }
     });
   },
   
@@ -800,12 +816,18 @@ const app = {
     if (!codes || codes.length === 0 || this.rtIsFetching) return;
     
     this.rtIsFetching = true;
-    if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 逐个拉取中...';
-    if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 逐个拉取中...';
+    if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '⚡ 极速并发拉取中...';
+    if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '⚡ 极速并发拉取中...';
     
-    for (let code of codes) { 
-      const res = await this.rtFetchSingle(code); 
-      if (res) this.rtData[code] = res; 
+    // 采用分块并发拉取（Batch 并发），大幅缩短更新总时间
+    const batchSize = 10; 
+    for (let i = 0; i < codes.length; i += batchSize) {
+      const chunk = codes.slice(i, i + batchSize);
+      const promises = chunk.map(code => this.rtFetchSingle(code));
+      const results = await Promise.all(promises);
+      results.forEach(res => {
+        if (res) this.rtData[res.code] = res;
+      });
     }
     
     this.rtIsFetching = false;
@@ -2652,7 +2674,6 @@ drawIntradayFlowCanvas(data) {
     const pad = { l: 50, r: 50 }; 
     const dw = rect.width - pad.l - pad.r; 
     
-    // 核心修复：根据是否完全画满来限制交互的触控区域
     const maxPoints = (data.type === 'trend' && data.totalPoints) ? Math.max(data.totalPoints, data.prices.length) : data.prices.length;
     const maxX = pad.l + ((data.prices.length - 1) / Math.max(maxPoints - 1, 1)) * dw;
 
@@ -2663,12 +2684,21 @@ drawIntradayFlowCanvas(data) {
       return Math.round((x - pad.l) / dw * Math.max(maxPoints - 1, 1)); 
     }; 
     
-    canvas.onmousemove = (e) => { 
-      const idx = getIdx(e.clientX); 
-      this.crosshair.active = true; 
-      this.crosshair.index = idx; 
-      this.drawMarketChartWithCrosshair(true, idx); 
-    }; 
+    // 优化：引入 rAF 进行渲染节流
+    let isDrawing = false;
+    const handleMove = (clientX) => {
+      if (isDrawing) return;
+      isDrawing = true;
+      requestAnimationFrame(() => {
+        const idx = getIdx(clientX); 
+        this.crosshair.active = true; 
+        this.crosshair.index = idx; 
+        this.drawMarketChartWithCrosshair(true, idx); 
+        isDrawing = false;
+      });
+    };
+
+    canvas.onmousemove = (e) => handleMove(e.clientX); 
     
     canvas.onmouseleave = () => { 
       this.crosshair.active = false; 
@@ -2677,11 +2707,7 @@ drawIntradayFlowCanvas(data) {
     
     canvas.ontouchmove = (e) => { 
       e.preventDefault(); 
-      const touch = e.touches[0]; 
-      const idx = getIdx(touch.clientX); 
-      this.crosshair.active = true; 
-      this.crosshair.index = idx; 
-      this.drawMarketChartWithCrosshair(true, idx); 
+      handleMove(e.touches[0].clientX); 
     }; 
     
     canvas.ontouchend = () => { 

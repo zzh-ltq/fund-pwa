@@ -83,12 +83,30 @@
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px; }
 
     //* 业绩表格样式 */
-    .data-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: center; white-space: nowrap; margin-bottom: 15px; overflow-x: auto; display: block; }
-    .data-table th { background-color: #f8f9fa; color: #555; padding: 10px 8px; border-bottom: 1px solid #e8e8e8; font-weight: bold; }
-    .data-table td { padding: 10px 8px; border-bottom: 1px solid #f0f0f0; color: #333; }
-    .data-table tr:hover td { background-color: #f5faff; }
-    .red { color: #f5222d !important; font-weight: bold; }
-    .green { color: #52c41a !important; font-weight: bold; }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+  margin-bottom: 15px;
+  display: table;
+}
+.data-table th {
+  background-color: #f8f9fa;
+  color: #555;
+  padding: 10px 8px;
+  border-bottom: 1px solid #e8e8e8;
+  font-weight: bold;
+}
+.data-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #f0f0f0;
+  color: #333;
+}
+.data-table tr:hover td {
+  background-color: #f5faff;
+}
     
     /* ========== 底部/侧边 TabBar ========== */
     .tab-bar {
@@ -458,21 +476,17 @@
     <div id="det-hold-area" style="display:none;"></div>
     <div id="det-analysis-area" style="display:none; padding-bottom: 20px;"></div>
     
-    <!-- 新增业绩区域 -->
-    <div id="det-performance-area" style="display:none; padding-bottom: 20px;">
-      <div style="margin-bottom: 20px;">
-        <h4 style="margin:0 0 8px 0; font-size:14px; font-weight:800;">阶段涨幅</h4>
-        <div id="perf-stage"></div>
-      </div>
-      <div style="margin-bottom: 20px;">
-        <h4 style="margin:0 0 8px 0; font-size:14px; font-weight:800;">季度涨幅</h4>
-        <div id="perf-quarter"></div>
-      </div>
-      <div style="margin-bottom: 20px;">
-        <h4 style="margin:0 0 8px 0; font-size:14px; font-weight:800;">年度涨幅</h4>
-        <div id="perf-year"></div>
-      </div>
-    </div>
+    <!-- 新增业绩区域（带子选项卡） -->
+<div id="det-performance-area" style="display:none; padding-bottom: 20px;">
+  <div class="detail-tabs" style="margin-bottom: 12px; gap: 8px;">
+    <div class="action-pill active" data-perf-tab="stage" onclick="app.switchPerfTab('stage')">阶段涨幅</div>
+    <div class="action-pill" data-perf-tab="quarter" onclick="app.switchPerfTab('quarter')">季度涨幅</div>
+    <div class="action-pill" data-perf-tab="year" onclick="app.switchPerfTab('year')">年度涨幅</div>
+  </div>
+  <div id="perf-stage-container" style="overflow-x: auto;"></div>
+  <div id="perf-quarter-container" style="overflow-x: auto; display: none;"></div>
+  <div id="perf-year-container" style="overflow-x: auto; display: none;"></div>
+</div>
 
     <!-- 新增基本信息区域 -->
     <div id="det-basicinfo-area" style="display:none; padding-bottom: 20px;">
@@ -4096,12 +4110,20 @@ fetchArchiveTable(apiType, varName, code) {
           let table = nativeTables[0];
           table.querySelectorAll('.infoTips, table').forEach(el => el.remove());
           table.className = 'data-table';
+          // 处理所有单元格的颜色
           table.querySelectorAll('th, td').forEach(cell => {
             let rawText = cell.textContent.trim();
             let num = parseFloat(rawText);
             if (rawText.includes('%') && !isNaN(num)) {
               if (num > 0) cell.innerHTML = `<span class="red">${rawText}</span>`;
               else if (num < 0) cell.innerHTML = `<span class="green">${rawText}</span>`;
+            } else if (rawText.includes('优秀')) {
+              cell.innerHTML = `<span style="color:#f5222d; font-weight:bold;">${rawText}</span>`;
+            } else if (rawText.includes('不佳') || rawText.includes('一般')) {
+              cell.innerHTML = `<span style="color:#52c41a; font-weight:bold;">${rawText}</span>`;
+            } else if (rawText.includes('|')) {
+              let parts = rawText.split('|');
+              cell.innerHTML = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
             } else {
               cell.innerHTML = rawText;
             }
@@ -4121,7 +4143,14 @@ fetchArchiveTable(apiType, varName, code) {
                 ul.querySelectorAll('li').forEach(li => {
                   let rawText = li.textContent.trim();
                   let num = parseFloat(rawText);
-                  let cellClass = (rawText.includes('%') && num > 0) ? 'red' : ((rawText.includes('%') && num < 0) ? 'green' : '');
+                  let cellClass = '';
+                  if (rawText.includes('%') && !isNaN(num)) {
+                    cellClass = num > 0 ? 'red' : (num < 0 ? 'green' : '');
+                  } else if (rawText.includes('优秀')) {
+                    cellClass = 'red';
+                  } else if (rawText.includes('不佳') || rawText.includes('一般')) {
+                    cellClass = 'green';
+                  }
                   html += `<td class="${cellClass}">${rawText}</td>`;
                 });
                 html += '</tr>';
@@ -4181,6 +4210,65 @@ fetchManagerAndEval(code) {
   stageDiv.innerHTML = stageHtml;
   quarterDiv.innerHTML = quarterHtml;
   yearDiv.innerHTML = yearHtml;
+},
+
+  // 切换业绩子选项卡
+switchPerfTab(tab) {
+  // 更新按钮高亮
+  document.querySelectorAll('[data-perf-tab]').forEach(btn => btn.classList.remove('active'));
+  document.querySelector(`[data-perf-tab="${tab}"]`).classList.add('active');
+  
+  // 显示对应的容器
+  document.getElementById('perf-stage-container').style.display = 'none';
+  document.getElementById('perf-quarter-container').style.display = 'none';
+  document.getElementById('perf-year-container').style.display = 'none';
+  if (tab === 'stage') document.getElementById('perf-stage-container').style.display = 'block';
+  else if (tab === 'quarter') document.getElementById('perf-quarter-container').style.display = 'block';
+  else if (tab === 'year') document.getElementById('perf-year-container').style.display = 'block';
+  
+  // 如果当前容器为空且有缓存数据，则重新渲染（避免重复请求）
+  const activeContainer = document.getElementById(`perf-${tab}-container`);
+  if (activeContainer && activeContainer.innerHTML.trim() === '' && this._perfData && this._perfData[tab]) {
+    activeContainer.innerHTML = this._perfData[tab];
+  }
+},
+
+// 渲染业绩主入口（请求三个表格数据并缓存，默认显示阶段涨幅）
+async renderPerformanceTab(code) {
+  const stageDiv = document.getElementById('perf-stage-container');
+  const quarterDiv = document.getElementById('perf-quarter-container');
+  const yearDiv = document.getElementById('perf-year-container');
+  if (!stageDiv) return;
+  
+  // 显示加载中
+  stageDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载阶段涨幅...</div>';
+  quarterDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载季度涨幅...</div>';
+  yearDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载年度涨幅...</div>';
+  
+  // 并行请求三个表格数据
+  const [stageHtml, quarterHtml, yearHtml] = await Promise.all([
+    this.fetchArchiveTable('jdzf', 'apidata', code),
+    this.fetchArchiveTable('quarterzf', 'qapidata', code),
+    this.fetchArchiveTable('yearzf', 'yapidata', code)
+  ]);
+  
+  // 缓存数据
+  this._perfData = { stage: stageHtml, quarter: quarterHtml, year: yearHtml };
+  
+  // 填充三个容器
+  stageDiv.innerHTML = stageHtml;
+  quarterDiv.innerHTML = quarterHtml;
+  yearDiv.innerHTML = yearHtml;
+  
+  // 默认显示阶段涨幅，其他隐藏
+  stageDiv.style.display = 'block';
+  quarterDiv.style.display = 'none';
+  yearDiv.style.display = 'none';
+  
+  // 确保子选项卡高亮正确
+  document.querySelectorAll('[data-perf-tab]').forEach(btn => btn.classList.remove('active'));
+  const activeBtn = document.querySelector('[data-perf-tab="stage"]');
+  if (activeBtn) activeBtn.classList.add('active');
 },
 
   async renderBasicInfoTab(code) {

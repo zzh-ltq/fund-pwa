@@ -107,6 +107,7 @@
   font-size: 12px;
   letter-spacing: 0.3px;
   border-bottom: 2px solid #e2e8f0;
+  white-space: nowrap;
 }
 
 .data-table.perf-table td.period-cell {
@@ -114,6 +115,11 @@
   color: #0f172a;
   background-color: #fefce8;
   border-right: 1px solid #fef08a;
+  white-space: nowrap;
+}
+
+    .data-table.perf-table td {
+  white-space: nowrap;
 }
 
 .data-table.perf-table tr:hover td {
@@ -4139,7 +4145,6 @@ ds(e, i) {
           let table = nativeTables[0];
           table.querySelectorAll('.infoTips, table').forEach(el => el.remove());
           table.className = 'data-table perf-table';
-          // 处理颜色
           table.querySelectorAll('th, td').forEach(cell => {
             let rawText = cell.textContent.trim();
             let num = parseFloat(rawText);
@@ -4163,42 +4168,59 @@ ds(e, i) {
         else {
           const uls = doc.querySelectorAll('ul');
           if (uls.length >= 2) {
-            // 第一组 UL：表头（周期）
+            // 第一组 UL：表头（周期）—— 增强提取，过滤空值
             const headerItems = uls[0].querySelectorAll('li');
-            const periods = Array.from(headerItems).map(li => li.textContent.trim());
+            let periods = [];
+            headerItems.forEach(li => {
+              let txt = li.innerText.trim();
+              if (txt !== '') periods.push(txt);
+            });
+            // 如果 periods 仍为空，尝试使用 textContent 并过滤不可见字符
+            if (periods.length === 0) {
+              headerItems.forEach(li => {
+                let txt = li.textContent.replace(/\s+/g, ' ').trim();
+                if (txt !== '') periods.push(txt);
+              });
+            }
+            console.log('[阶段涨幅] 周期列表:', periods); // 调试输出
             
             // 后续 UL：每一行数据（涨幅、同类平均、沪深300、同类排名、四分位排名）
             const dataRows = [];
             for (let i = 1; i < uls.length; i++) {
               const items = uls[i].querySelectorAll('li');
-              const rowData = Array.from(items).map(li => li.textContent.trim());
+              const rowData = [];
+              items.forEach(li => {
+                let txt = li.innerText.trim();
+                if (txt === '') txt = li.textContent.trim();
+                rowData.push(txt);
+              });
               dataRows.push(rowData);
             }
             
             // 定义行标签（第一列）
             const rowLabels = ['阶段涨幅', '同类平均', '沪深300', '同类排名', '四分位排名'];
-            // 注意：实际返回的数据行顺序可能为 [涨幅, 同类平均, 沪深300, 排名, 四分位] 或类似，需按需匹配
-            // 为保险，使用索引对应：通常顺序为 0涨幅 1同类平均 2沪深300 3排名 4四分位
-            // 如果数据行数不足，则动态匹配
+            // 实际数据行可能少于5行，取较小值
+            const maxRows = Math.min(dataRows.length, rowLabels.length);
             
             // 构建转置表格：行 = 周期，列 = 指标
-            // 最终表格结构：
-            // | 周期 | 涨幅 | 同类平均 | 沪深300 | 同类排名 | 四分位排名 |
             let html = '<table class="data-table perf-table">';
-            html += '<thead><tr><th>周期</th><th>涨幅</th><th>同类平均</th><th>沪深300</th><th>同类排名</th><th>四分位排名</th></tr></thead><tbody>';
+            html += '<thead><tr><th>周期</th>';
+            for (let i = 0; i < maxRows; i++) {
+              html += `<th>${rowLabels[i]}</th>`;
+            }
+            html += '</tr></thead><tbody>';
             
             for (let col = 0; col < periods.length; col++) {
               html += '<tr>';
-              html += `<td class="period-cell">${periods[col]}</td>`;
-              for (let row = 0; row < dataRows.length; row++) {
-                let rawText = dataRows[row][col] || '--';
+              html += `<td class="period-cell"><strong>${periods[col]}</strong></td>`;
+              for (let row = 0; row < maxRows; row++) {
+                let rawText = (dataRows[row] && dataRows[row][col]) ? dataRows[row][col] : '--';
                 let num = parseFloat(rawText);
                 let cellClass = '';
                 let innerHtml = rawText;
                 
                 if (rawText.includes('%') && !isNaN(num)) {
                   cellClass = num > 0 ? 'red' : (num < 0 ? 'green' : '');
-                  innerHtml = rawText;
                 } else if (rawText.includes('优秀')) {
                   cellClass = 'red';
                 } else if (rawText.includes('不佳') || rawText.includes('一般')) {

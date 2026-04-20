@@ -82,30 +82,58 @@
 
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px; }
 
-    //* 业绩表格样式 */
-.data-table {
+  /* 业绩表格通用样式 */
+.data-table.perf-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.data-table.perf-table th,
+.data-table.perf-table td {
+  padding: 12px 10px;
   text-align: center;
-  white-space: nowrap;
-  margin-bottom: 15px;
-  display: table;
+  border-bottom: 1px solid #f1f5f9;
+  background-color: #fff;
 }
-.data-table th {
-  background-color: #f8f9fa;
-  color: #555;
-  padding: 10px 8px;
-  border-bottom: 1px solid #e8e8e8;
-  font-weight: bold;
+
+.data-table.perf-table th {
+  background-color: #f8fafc;
+  color: #1e293b;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  border-bottom: 2px solid #e2e8f0;
 }
-.data-table td {
-  padding: 10px 8px;
-  border-bottom: 1px solid #f0f0f0;
-  color: #333;
+
+.data-table.perf-table td.period-cell {
+  font-weight: 700;
+  color: #0f172a;
+  background-color: #fefce8;
+  border-right: 1px solid #fef08a;
 }
-.data-table tr:hover td {
+
+.data-table.perf-table tr:hover td {
   background-color: #f5faff;
+  transition: background 0.2s;
+}
+
+.data-table.perf-table .red {
+  color: #f43f5e !important;
+  font-weight: 700;
+}
+
+.data-table.perf-table .green {
+  color: #10b981 !important;
+  font-weight: 700;
+}
+
+/* 排名和四分位的特殊样式 */
+.data-table.perf-table td:has(span[style*="#1677ff"]) {
+  font-family: monospace;
 }
     
     /* ========== 底部/侧边 TabBar ========== */
@@ -4095,8 +4123,7 @@ ds(e, i) {
     }, 200);
     },
 
-  // 获取基金阶段/季度/年度涨幅表格
-fetchArchiveTable(apiType, varName, code) {
+ fetchArchiveTable(apiType, varName, code) {
   return new Promise((resolve) => {
     const script = document.createElement('script');
     script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${apiType}&code=${code}&rt=${Date.now()}`;
@@ -4106,11 +4133,13 @@ fetchArchiveTable(apiType, varName, code) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(window[varName].content, 'text/html');
         const nativeTables = doc.querySelectorAll('table.w782');
+        
+        // 处理原生表格（季度、年度涨幅）
         if (nativeTables.length > 0) {
           let table = nativeTables[0];
           table.querySelectorAll('.infoTips, table').forEach(el => el.remove());
-          table.className = 'data-table';
-          // 处理所有单元格的颜色
+          table.className = 'data-table perf-table';
+          // 处理颜色
           table.querySelectorAll('th, td').forEach(cell => {
             let rawText = cell.textContent.trim();
             let num = parseFloat(rawText);
@@ -4129,33 +4158,60 @@ fetchArchiveTable(apiType, varName, code) {
             }
           });
           generatedHtml = table.outerHTML;
-        } else {
+        } 
+        // 处理 UL 列表（阶段涨幅）并进行转置
+        else {
           const uls = doc.querySelectorAll('ul');
-          if (uls.length > 0) {
-            let html = '<table class="data-table">';
-            uls.forEach((ul, idx) => {
-              if (idx === 0) {
-                html += '<thead><tr>';
-                ul.querySelectorAll('li').forEach(li => html += `<th>${li.innerHTML}</th>`);
-                html += '</tr></thead><tbody>';
-              } else {
-                html += '<tr>';
-                ul.querySelectorAll('li').forEach(li => {
-                  let rawText = li.textContent.trim();
-                  let num = parseFloat(rawText);
-                  let cellClass = '';
-                  if (rawText.includes('%') && !isNaN(num)) {
-                    cellClass = num > 0 ? 'red' : (num < 0 ? 'green' : '');
-                  } else if (rawText.includes('优秀')) {
-                    cellClass = 'red';
-                  } else if (rawText.includes('不佳') || rawText.includes('一般')) {
-                    cellClass = 'green';
-                  }
-                  html += `<td class="${cellClass}">${rawText}</td>`;
-                });
-                html += '</tr>';
+          if (uls.length >= 2) {
+            // 第一组 UL：表头（周期）
+            const headerItems = uls[0].querySelectorAll('li');
+            const periods = Array.from(headerItems).map(li => li.textContent.trim());
+            
+            // 后续 UL：每一行数据（涨幅、同类平均、沪深300、同类排名、四分位排名）
+            const dataRows = [];
+            for (let i = 1; i < uls.length; i++) {
+              const items = uls[i].querySelectorAll('li');
+              const rowData = Array.from(items).map(li => li.textContent.trim());
+              dataRows.push(rowData);
+            }
+            
+            // 定义行标签（第一列）
+            const rowLabels = ['阶段涨幅', '同类平均', '沪深300', '同类排名', '四分位排名'];
+            // 注意：实际返回的数据行顺序可能为 [涨幅, 同类平均, 沪深300, 排名, 四分位] 或类似，需按需匹配
+            // 为保险，使用索引对应：通常顺序为 0涨幅 1同类平均 2沪深300 3排名 4四分位
+            // 如果数据行数不足，则动态匹配
+            
+            // 构建转置表格：行 = 周期，列 = 指标
+            // 最终表格结构：
+            // | 周期 | 涨幅 | 同类平均 | 沪深300 | 同类排名 | 四分位排名 |
+            let html = '<table class="data-table perf-table">';
+            html += '<thead><tr><th>周期</th><th>涨幅</th><th>同类平均</th><th>沪深300</th><th>同类排名</th><th>四分位排名</th></tr></thead><tbody>';
+            
+            for (let col = 0; col < periods.length; col++) {
+              html += '<tr>';
+              html += `<td class="period-cell">${periods[col]}</td>`;
+              for (let row = 0; row < dataRows.length; row++) {
+                let rawText = dataRows[row][col] || '--';
+                let num = parseFloat(rawText);
+                let cellClass = '';
+                let innerHtml = rawText;
+                
+                if (rawText.includes('%') && !isNaN(num)) {
+                  cellClass = num > 0 ? 'red' : (num < 0 ? 'green' : '');
+                  innerHtml = rawText;
+                } else if (rawText.includes('优秀')) {
+                  cellClass = 'red';
+                } else if (rawText.includes('不佳') || rawText.includes('一般')) {
+                  cellClass = 'green';
+                } else if (rawText.includes('|')) {
+                  let parts = rawText.split('|');
+                  innerHtml = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
+                }
+                
+                html += `<td class="${cellClass}">${innerHtml}</td>`;
               }
-            });
+              html += '</tr>';
+            }
             html += '</tbody></table>';
             generatedHtml = html;
           }
@@ -4231,6 +4287,13 @@ switchPerfTab(tab) {
   if (activeContainer && activeContainer.innerHTML.trim() === '' && this._perfData && this._perfData[tab]) {
     activeContainer.innerHTML = this._perfData[tab];
   }
+  // 强制重新计算表格布局（解决偶尔的宽度异常）
+  setTimeout(() => {
+    const container = document.getElementById(`perf-${tab}-container`);
+    if (container && container.scrollWidth > container.clientWidth) {
+      container.style.overflowX = 'auto';
+    }
+  }, 10);
 },
 
 // 渲染业绩主入口（请求三个表格数据并缓存，默认显示阶段涨幅）

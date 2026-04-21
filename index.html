@@ -4168,108 +4168,110 @@ ds(e, i) {
         else {
           const uls = doc.querySelectorAll('ul');
           if (uls.length >= 2) {
-            // 1. 提取表头（周期），过滤掉无关文本
+            // ---------- 1. 提取周期（表头） ----------
             const headerLis = uls[0].querySelectorAll('li');
             let periods = [];
             for (let li of headerLis) {
-              let txt = li.innerText.trim();
-              // 周期通常为：今年来、近1周、近1月、近3月、近6月、近1年、近2年、近3年、近5年、成立来
-              if (txt && txt.length <= 8 && !txt.includes('、') && !txt.includes('类') && !txt.includes('分') && !txt.includes('基金') && !txt.includes('平台')) {
+              let txt = li.innerText.trim().replace(/\s+/g, ' ');
+              // 周期关键词匹配
+              if (/^(今年来|近\d+[周月年]|成立来|近半年|近两年|近三年|近五年|近一年|近两年|近三年)$/.test(txt)) {
+                periods.push(txt);
+              } else if (txt.length <= 6 && !txt.includes('、') && !txt.includes('类') && !txt.includes('分')) {
                 periods.push(txt);
               }
             }
-            // 如果过滤后周期数量太少，兜底：取所有非空且长度小于10的
-            if (periods.length < 4 && headerLis.length > 0) {
+            // 兜底：如果还是没提取到，取前几个非空长度≤8的
+            if (periods.length < 3) {
               periods = [];
               for (let li of headerLis) {
                 let txt = li.innerText.trim();
-                if (txt && txt.length <= 10 && !txt.includes(' ')) periods.push(txt);
-                if (periods.length >= 12) break;
+                if (txt && txt.length <= 8) periods.push(txt);
+                if (periods.length >= 10) break;
               }
             }
+            console.log('[阶段涨幅] 周期列表:', periods);
             
-            // 2. 收集有效数据行（跳过说明文字）
-            let rawDataRows = [];
+            // ---------- 2. 提取数据行（涨幅、同类平均、沪深300、同类排名、四分位排名） ----------
+            let rawRows = [];
             for (let i = 1; i < uls.length; i++) {
-              const lis = uls[i].querySelectorAll('li');
-              if (lis.length === 0) continue;
-              let rowData = Array.from(lis).map(li => li.innerText.trim());
-              // 判断是否为有效数据行：至少有一个单元格包含 % 或 | 或 四分位词
-              const isValid = rowData.some(cell => /%|\||优秀|良好|不佳|一般/.test(cell));
-              if (isValid && rowData.length === periods.length) {
-                rawDataRows.push(rowData);
-              } else if (isValid && rowData.length !== periods.length) {
-                // 长度不匹配时补齐或截断
-                if (rowData.length > periods.length) rowData = rowData.slice(0, periods.length);
-                else if (rowData.length < periods.length) rowData.push(...Array(periods.length - rowData.length).fill('--'));
-                rawDataRows.push(rowData);
+              const items = uls[i].querySelectorAll('li');
+              const rowData = Array.from(items).map(li => li.innerText.trim());
+              // 过滤空行和纯说明行
+              if (rowData.length === 0) continue;
+              const hasData = rowData.some(cell => /%|\||优秀|良好|不佳|一般/.test(cell));
+              if (hasData) rawRows.push(rowData);
+            }
+            console.log('[阶段涨幅] 原始数据行数:', rawRows.length, rawRows.map(r => r.length));
+            
+            // ---------- 3. 按特征匹配指标行 ----------
+            let matched = {
+              gain: null,      // 涨幅
+              avg: null,       // 同类平均
+              hs300: null,     // 沪深300
+              rank: null,      // 同类排名
+              quartile: null   // 四分位排名
+            };
+            
+            for (let row of rawRows) {
+              const rowStr = row.join(' ');
+              if (!matched.gain && /%/.test(rowStr) && !/平均|300/.test(rowStr)) {
+                matched.gain = row;
+              } else if (!matched.avg && /同类平均|平均/.test(rowStr)) {
+                matched.avg = row;
+              } else if (!matched.hs300 && /沪深300|300/.test(rowStr)) {
+                matched.hs300 = row;
+              } else if (!matched.rank && /\|/.test(rowStr)) {
+                matched.rank = row;
+              } else if (!matched.quartile && /优秀|良好|不佳|一般/.test(rowStr)) {
+                matched.quartile = row;
               }
             }
             
-            // 3. 定义标准指标及其匹配特征
-            const indicators = [
-              { name: '涨幅', keywords: ['%'], exclude: ['平均', '300'] },
-              { name: '同类平均', keywords: ['同类平均', '平均'] },
-              { name: '沪深300', keywords: ['沪深300', '300'] },
-              { name: '同类排名', keywords: ['|'] },
-              { name: '四分位排名', keywords: ['优秀', '良好', '不佳', '一般'] }
-            ];
+            // 补齐缺失的行（填充'--'）
+            const fillRow = (row, len) => row ? (row.length >= len ? row.slice(0,len) : [...row, ...Array(len-row.length).fill('--')]) : Array(len).fill('--');
+            const periodLen = periods.length;
+            const gainRow = fillRow(matched.gain, periodLen);
+            const avgRow = fillRow(matched.avg, periodLen);
+            const hs300Row = fillRow(matched.hs300, periodLen);
+            const rankRow = fillRow(matched.rank, periodLen);
+            const quartileRow = fillRow(matched.quartile, periodLen);
             
-            let matchedRows = [];
-            for (let ind of indicators) {
-              let foundRow = null;
-              for (let row of rawDataRows) {
-                let matched = row.some(cell => {
-                  let ok = ind.keywords.some(kw => cell.includes(kw));
-                  if (ind.exclude) ok = ok && !ind.exclude.some(ex => cell.includes(ex));
-                  return ok;
-                });
-                if (matched) {
-                  foundRow = row;
-                  break;
-                }
-              }
-              if (foundRow) matchedRows.push(foundRow);
-              else matchedRows.push(Array(periods.length).fill('--'));
-            }
-            
-            // 4. 构建表格，增加“排名变动”列
-            let html = '<table class="data-table perf-table">';
+            // ---------- 4. 构建表格（周期 | 涨幅 | 同类平均 | 沪深300 | 同类排名 | 排名变动） ----------
+            let html = '<table class="data-table perf-table" style="min-width:600px;">';
             html += '<thead><tr><th>周期</th><th>涨幅</th><th>同类平均</th><th>沪深300</th><th>同类排名</th><th>排名变动</th></tr></thead><tbody>';
             
-            for (let col = 0; col < periods.length; col++) {
-              html += '<tr>';
-              html += `<td class="period-cell"><strong>${periods[col]}</strong></td>`;
+            for (let i = 0; i < periodLen; i++) {
+              const period = periods[i];
+              const gain = gainRow[i];
+              const avg = avgRow[i];
+              const hs = hs300Row[i];
+              const rankRaw = rankRow[i];
+              const quartile = quartileRow[i];
               
-              // 涨幅
-              let gainRaw = (matchedRows[0] && matchedRows[0][col]) || '--';
-              let gainNum = parseFloat(gainRaw);
-              let gainClass = (gainRaw.includes('%') && !isNaN(gainNum)) ? (gainNum > 0 ? 'red' : (gainNum < 0 ? 'green' : '')) : '';
-              html += `<td class="${gainClass}">${gainRaw}</td>`;
+              // 涨幅样式
+              let gainNum = parseFloat(gain);
+              let gainClass = (gain.includes('%') && !isNaN(gainNum)) ? (gainNum > 0 ? 'red' : (gainNum < 0 ? 'green' : '')) : '';
+              let gainHtml = gain;
               
-              // 同类平均
-              let avgRaw = (matchedRows[1] && matchedRows[1][col]) || '--';
-              let avgNum = parseFloat(avgRaw);
-              let avgClass = (avgRaw.includes('%') && !isNaN(avgNum)) ? (avgNum > 0 ? 'red' : (avgNum < 0 ? 'green' : '')) : '';
-              html += `<td class="${avgClass}">${avgRaw}</td>`;
+              // 同类平均样式
+              let avgNum = parseFloat(avg);
+              let avgClass = (avg.includes('%') && !isNaN(avgNum)) ? (avgNum > 0 ? 'red' : (avgNum < 0 ? 'green' : '')) : '';
+              let avgHtml = avg;
               
-              // 沪深300
-              let hsRaw = (matchedRows[2] && matchedRows[2][col]) || '--';
-              let hsNum = parseFloat(hsRaw);
-              let hsClass = (hsRaw.includes('%') && !isNaN(hsNum)) ? (hsNum > 0 ? 'red' : (hsNum < 0 ? 'green' : '')) : '';
-              html += `<td class="${hsClass}">${hsRaw}</td>`;
+              // 沪深300样式
+              let hsNum = parseFloat(hs);
+              let hsClass = (hs.includes('%') && !isNaN(hsNum)) ? (hsNum > 0 ? 'red' : (hsNum < 0 ? 'green' : '')) : '';
+              let hsHtml = hs;
               
-              // 同类排名
-              let rankRaw = (matchedRows[3] && matchedRows[3][col]) || '--';
+              // 同类排名（格式化 排名|总数）
               let rankHtml = rankRaw;
               if (rankRaw.includes('|')) {
-                let parts = rankRaw.split('|')[0].split('↑')[0].split('↓')[0]; // 去掉箭头部分
+                let parts = rankRaw.split('|')[0];
                 let total = rankRaw.split('|')[1] ? rankRaw.split('|')[1].split('↑')[0].split('↓')[0] : '';
                 rankHtml = `<span style="color:#1677ff;font-weight:bold;">${parts}</span><span style="color:#999;font-size:12px;"> / ${total}</span>`;
               }
-              html += `<td>${rankHtml}</td>`;
               
-              // 排名变动：从同类排名中提取 ↑/↓ 数字
+              // 排名变动（从同类排名中提取 ↑/↓ 数字）
               let changeHtml = '--';
               let matchArrow = rankRaw.match(/([↑↓])(\d+)/);
               if (matchArrow) {
@@ -4278,16 +4280,23 @@ ds(e, i) {
                 if (arrow === '↑') changeHtml = `<span class="red">↑${num}</span>`;
                 else if (arrow === '↓') changeHtml = `<span class="green">↓${num}</span>`;
               } else {
+                // 兼容 + 和 - 格式
                 let matchPlus = rankRaw.match(/\+(\d+)/);
                 if (matchPlus) changeHtml = `<span class="red">↑${matchPlus[1]}</span>`;
                 let matchMinus = rankRaw.match(/-(\d+)/);
                 if (matchMinus) changeHtml = `<span class="green">↓${matchMinus[1]}</span>`;
               }
-              html += `<td>${changeHtml}</td>`;
               
-              html += '</tr>';
+              html += `<tr>
+                <td class="period-cell"><strong>${period}</strong></td>
+                <td class="${gainClass}">${gainHtml}</td>
+                <td class="${avgClass}">${avgHtml}</td>
+                <td class="${hsClass}">${hsHtml}</td>
+                <td>${rankHtml}</td>
+                <td>${changeHtml}</td>
+              </tr>`;
             }
-            html += '</tbody>赶able>';
+            html += '</tbody></table>';
             generatedHtml = html;
           }
         }

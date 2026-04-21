@@ -4164,7 +4164,7 @@ ds(e, i) {
           });
           generatedHtml = table.outerHTML;
         } 
-        // 处理阶段涨幅（UL 列表）
+        // 处理阶段涨幅（UL 列表）并转置
         else {
           const allUls = doc.querySelectorAll('ul');
           if (allUls.length === 0) {
@@ -4175,7 +4175,8 @@ ds(e, i) {
           // 跳过表头 ul（class="fcol"）
           const dataUls = Array.from(allUls).filter(ul => !ul.className.includes('fcol'));
           
-          const rows = [];
+          // 存储每个周期的数据
+          const rows = []; // 每个元素: { period, gain, avg, hs300, rank, change, quartile }
           for (let ul of dataUls) {
             const lis = ul.querySelectorAll('li');
             if (lis.length === 0) continue;
@@ -4196,7 +4197,7 @@ ds(e, i) {
               } else if (cls.includes('tlpm')) {
                 rank = text;
               } else if (cls.includes('pmbd')) {
-                // 排名变动：提取数字和箭头，例如 "782↑" 或 "42↓"
+                // 排名变动：例如 "782↑" 或 "42↓"
                 let match = text.match(/(\d+)([↑↓])/);
                 if (match) {
                   change = match[2] + match[1];
@@ -4217,58 +4218,71 @@ ds(e, i) {
           if (rows.length === 0) {
             generatedHtml = '<div style="padding:20px; text-align:center; color:#999;">无阶段涨幅数据</div>';
           } else {
-            let html = '<table class="data-table perf-table" style="min-width:600px;">';
-            html += '<thead><tr><th>周期</th><th>涨幅</th><th>同类平均</th><th>沪深300</th><th>同类排名</th><th>排名变动</th><th>四分位排名</th></tr></thead><tbody>';
+            // 转置表格：指标作为行，周期作为列
+            const periods = rows.map(r => r.period);
+            const indicators = [
+              { key: 'gain', label: '涨幅', isPercent: true },
+              { key: 'avg', label: '同类平均', isPercent: true },
+              { key: 'hs300', label: '沪深300', isPercent: true },
+              { key: 'rank', label: '同类排名', isPercent: false },
+              { key: 'change', label: '排名变动', isPercent: false },
+              { key: 'quartile', label: '四分位排名', isPercent: false }
+            ];
             
-            for (let row of rows) {
-              // 涨幅样式
-              let gainNum = parseFloat(row.gain);
-              let gainClass = (row.gain.includes('%') && !isNaN(gainNum)) ? (gainNum > 0 ? 'red' : (gainNum < 0 ? 'green' : '')) : '';
-              // 同类平均样式
-              let avgNum = parseFloat(row.avg);
-              let avgClass = (row.avg.includes('%') && !isNaN(avgNum)) ? (avgNum > 0 ? 'red' : (avgNum < 0 ? 'green' : '')) : '';
-              // 沪深300样式
-              let hsNum = parseFloat(row.hs300);
-              let hsClass = (row.hs300.includes('%') && !isNaN(hsNum)) ? (hsNum > 0 ? 'red' : (hsNum < 0 ? 'green' : '')) : '';
-              
-              // 排名格式化
-              let rankHtml = row.rank;
-              if (row.rank.includes('|')) {
-                let parts = row.rank.split('|');
-                rankHtml = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
-              }
-              
-              // 排名变动样式
-              let changeHtml = '--';
-              if (row.change) {
-                let match = row.change.match(/([↑↓])(\d+)/);
-                if (match) {
-                  let arrow = match[1];
-                  let num = match[2];
-                  changeHtml = arrow === '↑' ? `<span class="red">↑${num}</span>` : `<span class="green">↓${num}</span>`;
-                } else {
-                  changeHtml = row.change;
+            let html = '<table class="data-table perf-table" style="min-width:600px;">';
+            // 表头：第一列留空，后续每列是一个周期
+            html += '<thead><tr><th>指标</th>';
+            for (let p of periods) {
+              html += `<th>${p}</th>`;
+            }
+            html += '</tr></thead><tbody>';
+            
+            // 逐指标输出行
+            for (let ind of indicators) {
+              html += '<tr>';
+              html += `<td class="indicator-cell"><strong>${ind.label}</strong></td>`;
+              for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                let val = row[ind.key] || '--';
+                let cellClass = '';
+                
+                if (ind.isPercent && val !== '--') {
+                  let num = parseFloat(val);
+                  if (!isNaN(num)) {
+                    if (num > 0) cellClass = 'red';
+                    else if (num < 0) cellClass = 'green';
+                  }
                 }
+                
+                // 特殊处理同类排名：格式化 排名|总数
+                if (ind.key === 'rank' && val.includes('|')) {
+                  let parts = val.split('|');
+                  val = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
+                }
+                // 特殊处理排名变动：提取箭头和数字，上色
+                else if (ind.key === 'change' && val !== '--') {
+                  let match = val.match(/([↑↓])(\d+)/);
+                  if (match) {
+                    let arrow = match[1];
+                    let num = match[2];
+                    val = arrow === '↑' ? `<span class="red">↑${num}</span>` : `<span class="green">↓${num}</span>`;
+                    cellClass = '';
+                  }
+                }
+                // 特殊处理四分位排名：上色
+                else if (ind.key === 'quartile' && val !== '--') {
+                  if (val.includes('优秀')) cellClass = 'red';
+                  else if (val.includes('良好')) cellClass = '#f59e0b';
+                  else if (val.includes('一般') || val.includes('不佳')) cellClass = 'green';
+                }
+                
+                html += `<td class="${cellClass}">${val}</td>`;
               }
-              
-              // 四分位排名样式
-              let quartileClass = '';
-              if (row.quartile.includes('优秀')) quartileClass = 'red';
-              else if (row.quartile.includes('良好')) quartileClass = '#f59e0b';
-              else if (row.quartile.includes('一般') || row.quartile.includes('不佳')) quartileClass = 'green';
-              let quartileHtml = row.quartile ? `<span style="color:${quartileClass}; font-weight:bold;">${row.quartile}</span>` : '--';
-              
-              html += `<tr>
-                <td class="period-cell"><strong>${row.period}</strong></td>
-                <td class="${gainClass}">${row.gain}</td>
-                <td class="${avgClass}">${row.avg}</td>
-                <td class="${hsClass}">${row.hs300}</td>
-                <td>${rankHtml}</td>
-                <td>${changeHtml}</td>
-                <td>${quartileHtml}</td>
-              </tr>`;
+              html += '</tr>';
             }
             html += '</tbody>赶able>';
+            // 修复多余的 "赶able>"：上面一行应该是 `</table>`，这里替换掉
+            html = html.replace(/赶able>/g, '</table>');
             generatedHtml = html;
           }
         }

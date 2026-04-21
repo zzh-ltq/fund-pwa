@@ -82,14 +82,16 @@
 
     .scroll-area { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px; }
 
-  /* 业绩表格通用样式 */
+    /* ========== 业绩表格通用样式优化 ========== */
 .data-table.perf-table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  border-collapse: separate; /* 必须用 separate 才能支持圆角和粘性表头 */
+  border-spacing: 0;
+  font-size: 13px;
+  border-radius: 8px;
+  overflow: hidden; /* 配合圆角 */
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  margin-bottom: 15px;
 }
 
 .data-table.perf-table th,
@@ -97,47 +99,59 @@
   padding: 12px 10px;
   text-align: center;
   border-bottom: 1px solid #f1f5f9;
+  border-right: 1px solid #f1f5f9;
   background-color: #fff;
+  white-space: nowrap;
 }
 
 .data-table.perf-table th {
   background-color: #f8fafc;
-  color: #1e293b;
+  color: #475569;
   font-weight: 800;
-  font-size: 12px;
-  letter-spacing: 0.3px;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
   border-bottom: 2px solid #e2e8f0;
-  white-space: nowrap;
+}
+
+/* 冻结第一列（指标列）使其在横向滑动时固定 */
+.data-table.perf-table td.indicator-cell,
+.data-table.perf-table th:first-child {
+  position: sticky;
+  left: 0;
+  background-color: #f8fafc;
+  z-index: 11;
+  font-weight: 800;
+  color: #1e293b;
+  box-shadow: inset -2px 0 4px -2px rgba(0,0,0,0.1); /* 右侧增加阴影分割 */
+}
+
+.data-table.perf-table th:first-child {
+  z-index: 12; /* 表头的左上角需要最高层级 */
 }
 
 .data-table.perf-table td.period-cell {
-  font-weight: 700;
-  color: #0f172a;
   background-color: #fefce8;
-  border-right: 1px solid #fef08a;
-  white-space: nowrap;
-}
-
-    .data-table.perf-table td {
-  white-space: nowrap;
 }
 
 .data-table.perf-table tr:hover td {
-  background-color: #f5faff;
+  background-color: #f0fdf4 !important; /* 悬停整行浅绿高亮 */
   transition: background 0.2s;
 }
 
+/* 红绿数字加粗加强显示 */
 .data-table.perf-table .red {
   color: #f43f5e !important;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .data-table.perf-table .green {
   color: #10b981 !important;
-  font-weight: 700;
+  font-weight: 800;
 }
 
-/* 排名和四分位的特殊样式 */
 .data-table.perf-table td:has(span[style*="#1677ff"]) {
   font-family: monospace;
 }
@@ -214,6 +228,9 @@
     .r-lbl { font-size: 10px; color: var(--text-sub); display: block; margin-bottom: 2px; font-weight: 600;}
     .r-val { font-size: 12px; font-weight: 800;}
     .maxdrop-tag { font-size: 12px; background: linear-gradient(135deg, #64748b 0%, #1e293b 100%); color: white; padding: 4px 10px; border-radius: 12px; display: inline-block; font-weight: 900; letter-spacing: 0.5px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);}
+
+    .fav-group-select { padding: 4px 6px; border-radius: 8px; border: 1px dashed #0066ff; background: #e6f0ff; color: #0066ff; font-size: 11px; font-weight: bold; outline: none; cursor: pointer; height: 23px; }
+    .fav-group-select option { color: #1e293b; background: #fff; }
     
     .list-table-container { width: 100%; overflow-x: auto; background: var(--surface-color); border-radius: var(--radius-lg); white-space: nowrap; padding-bottom: 8px; box-shadow: var(--shadow-sm); border: 1px solid rgba(255,255,255,0.8); -webkit-overflow-scrolling: touch;}
     .l-header { display: flex; padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; border-radius: var(--radius-lg) var(--radius-lg) 0 0;}
@@ -1222,52 +1239,84 @@ rtManualRefreshMarket() {
   },
   
   buildCardHtml(f, isHomeGroup = false) { 
-  if(!f.isLoad) {
-    return `<div class="card"><div class="c-title">${f.name || f.code}</div><div style="color:#94a3b8;font-size:12px;margin-top:10px;">需点击右上角刷新获取数据...</div></div>`; 
-  }
-  
-  const col = f.change >= 0 ? 'red' : 'green'; 
-  let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join(''); 
-  let showDel = isHomeGroup && this.currentGroupId !== 'default'; 
-  let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join(''); 
-  
-  let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : ''; 
-  let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(this, '${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`; 
-  let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`; 
-  let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`; 
-  
-  const rt = this.rtData[f.code]; 
-  let rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 盘中估算</div><div style="font-size:11px; color:#cbd5e1;">待更新...</div></div>`; 
-  if (rt) { 
-    const rtCol = rt.gszzl >= 0 ? 'red' : 'green'; 
-    rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 估算 ${rt.gztime.slice(11)}</div><div style="display:flex; gap:8px; align-items:baseline;"><span class="${rtCol}" style="font-size:15px; font-weight:900;">${rt.gsz.toFixed(4)}</span><span class="${rtCol}" style="font-size:13px; font-weight:bold; background:rgba(0,0,0,0.03); padding:0 4px; border-radius:4px;">${rt.gszzl > 0 ? '+' : ''}${rt.gszzl.toFixed(2)}%</span></div></div>`; 
-  } 
-  
-  // 规模显示行
-  let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; margin-top:4px; padding-top:4px; border-top:1px solid #f0f0f0;"><span style="font-size:10px; color:#94a3b8;">📊 最新规模</span><span style="font-size:13px; font-weight:bold; color:#1e293b;">${f.size || '--'}</span></div>`;
-  
-  return `<div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">
-    ${delBtn} ${starBtn}
-    <div class="card-head" style="padding-right: ${showDel ? '55px' : '25px'};">
-      <div class="c-title-area">
-        <span class="c-title">${titleHtml}</span>
-        <span class="c-code">${f.code}</span>
-        ${tagsHtml}${sectorBtn}
+    if(!f.isLoad) {
+      return `<div class="card"><div class="c-title">${f.name || f.code}</div><div style="color:#94a3b8;font-size:12px;margin-top:10px;">需点击右上角刷新获取数据...</div></div>`; 
+    }
+    
+    const col = f.change >= 0 ? 'red' : 'green'; 
+    let ratesHtml = f.rates.map(r => `<div class="r-item"><span class="r-lbl">${r.label}</span><span class="r-val ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</span></div>`).join(''); 
+    let showDel = isHomeGroup && this.currentGroupId !== 'default'; 
+    let tagsHtml = (f.sectors||[]).map(s => `<span class="c-tag" onclick="app.removeSectorFromFund(event, '${f.code}','${s}')">${s}</span>`).join(''); 
+    
+    let delBtn = showDel ? `<div class="c-del-btn" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : ''; 
+    let starBtn = `<div class="c-star-btn ${f.isStarred ? 'starred' : ''}" style="right: ${showDel ? '38px' : '8px'};" onclick="app.toggleStar(this, '${f.code}', event)">${f.isStarred ? '★' : '☆'}</div>`; 
+    let sectorBtn = `<span class="c-tag c-add-tag" onclick="app.openSectorSelect(event, '${f.code}')">+ 板块</span>`; 
+    let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`; 
+    
+    const rt = this.rtData[f.code]; 
+    let rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 盘中估算</div><div style="font-size:11px; color:#cbd5e1;">待更新...</div></div>`; 
+    if (rt) { 
+      const rtCol = rt.gszzl >= 0 ? 'red' : 'green'; 
+      rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 估算 ${rt.gztime.slice(11)}</div><div style="display:flex; gap:8px; align-items:baseline;"><span class="${rtCol}" style="font-size:15px; font-weight:900;">${rt.gsz.toFixed(4)}</span><span class="${rtCol}" style="font-size:13px; font-weight:bold; background:rgba(0,0,0,0.03); padding:0 4px; border-radius:4px;">${rt.gszzl > 0 ? '+' : ''}${rt.gszzl.toFixed(2)}%</span></div></div>`; 
+    } 
+    
+    let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; margin-top:4px; padding-top:4px; border-top:1px solid #f0f0f0;"><span style="font-size:10px; color:#94a3b8;">📊 最新规模</span><span style="font-size:13px; font-weight:bold; color:#1e293b;">${f.size || '--'}</span></div>`;
+
+    /* =========== 核心修改区域：组装跌幅标签和下拉框 =========== */
+    let favGroups = this.data.groups.filter(g => g.isFavorite);
+    let selectOptsHtml = favGroups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+    let favSelectHtml = favGroups.length > 0 ? 
+      `<select class="fav-group-select" onclick="app.stopProp(event)" onchange="app.addFundToFavGroup(event, '${f.code}', this)">
+         <option value="" disabled selected hidden>+ 添加到</option>
+         ${selectOptsHtml}
+       </select>` : '';
+
+    let maxDropHtml = f.maxDropIn20 !== null ? `<div class="maxdrop-tag">20日跌幅 ${f.maxDropIn20}%</div>` : '';
+    // 并排包裹跌幅和下拉框
+    let toolBarHtml = `<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">${maxDropHtml}${favSelectHtml}</div>`;
+    /* ========================================================= */
+
+    return `<div class="card ${f.isRisk?'risk-highlight':''}" onclick="app.openDetail('${f.code}')">
+      ${delBtn} ${starBtn}
+      <div class="card-head" style="padding-right: ${showDel ? '55px' : '25px'};">
+        <div class="c-title-area">
+          <span class="c-title">${titleHtml}</span>
+          <span class="c-code">${f.code}</span>
+          ${tagsHtml}${sectorBtn}
+        </div>
       </div>
-    </div>
-    <div class="c-main">
-      <span style="font-size:12px; font-weight:700; color:#94a3b8;">${f.latestDate}</span>
-      <div style="display:flex; gap:10px; align-items:center;">
-        <div class="c-val">${f.latest}</div>
-        <div class="c-chg ${col}">${f.change > 0 ? '+' : ''}${f.change}%</div>
+      <div class="c-main">
+        <span style="font-size:12px; font-weight:700; color:#94a3b8;">${f.latestDate}</span>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <div class="c-val">${f.latest}</div>
+          <div class="c-chg ${col}">${f.change > 0 ? '+' : ''}${f.change}%</div>
+        </div>
       </div>
-    </div>
-    <div class="rates-row">${ratesHtml}</div>
-    ${f.maxDropIn20 !== null ? `<div class="maxdrop-tag" style="margin-bottom:6px;">20日跌幅 ${f.maxDropIn20}%</div>` : ''}
-    ${sizeHtml}
-    ${rtHtml}
-  </div>`; 
-},
+      <div class="rates-row">${ratesHtml}</div>
+      ${toolBarHtml}
+      ${sizeHtml}
+      ${rtHtml}
+    </div>`; 
+  },
+
+  addFundToFavGroup(e, code, selectEl) {
+    this.stopProp(e);
+    let groupId = selectEl.value;
+    if(!groupId) return;
+
+    let group = this.data.groups.find(g => g.id === groupId);
+    if(group) {
+      if(group.fundCodes.includes(code)) {
+        this.showToast(`该基金已存在于 [${group.name}]`, 'error');
+      } else {
+        group.fundCodes.push(code);
+        this.saveData();
+        this.showToast(`✅ 已成功添加到 [${group.name}]`);
+      }
+    }
+    // 添加后重置下拉框显示为占位符
+    selectEl.value = ""; 
+  },
   
   buildListHtml(funds, showDel = false, isSector = false) { 
     if(funds.length === 0) return ''; 
@@ -2853,7 +2902,8 @@ drawIntradayFlowCanvas(data) {
         alert('分组名称已存在'); 
         return; 
       } 
-      this.data.groups.push({id:'g_'+Date.now(), name, fundCodes:[]}); 
+      // 新增 isFavorite 属性，默认 false
+      this.data.groups.push({id:'g_'+Date.now(), name, fundCodes:[], isFavorite: false}); 
       this.saveData(); 
       this.renderGroupMgrList(); 
       this.renderHomeGroups(); 
@@ -2867,8 +2917,18 @@ drawIntradayFlowCanvas(data) {
     let html = this.data.groups.map((g, i) => { 
       let top = i * h; 
       let left = g.id==='default' ? `<div class="m-del disabled"></div><b>${g.name}</b>` : `<div class="m-del" onclick="app.delGroup('${g.id}')"></div><b>${g.name}</b>`; 
-      let right = g.id === 'default' ? `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f1f5f9;" onclick="app.clearGroup('${g.id}')">▤</div><div style="width:30px;"></div>` : `<div class="m-btn" style="background:var(--blue-light); color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f1f5f9; color:var(--text-sub);" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`; 
-      return `<div id="mgr-item-${i}" class="mgr-item" style="top:${top}px;"><div class="m-left">${left}</div><div class="m-actions">${right}</div></div>`; 
+      
+      // 新增收藏状态判断
+      let favIcon = g.isFavorite ? '★' : '☆';
+      let favColor = g.isFavorite ? '#f59e0b' : '#cbd5e1';
+      
+      // 增加收藏按钮（第一个），并为 "默认" 分组预留空位对齐
+      let right = g.id === 'default' ? 
+        `<div class="m-btn disabled"></div><div class="m-btn disabled"></div><div class="m-btn" style="background:#f1f5f9;" onclick="app.clearGroup('${g.id}')">▤</div><div style="width:30px;"></div>` : 
+        `<div class="m-btn" style="color:${favColor}; font-size:18px;" onclick="app.toggleGroupFavorite('${g.id}')">${favIcon}</div><div class="m-btn" style="background:var(--blue-light); color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f1f5f9; color:var(--text-sub);" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`; 
+      
+      // 注意将 m-actions 的宽度加大到 130px 容纳新增的按钮
+      return `<div id="mgr-item-${i}" class="mgr-item" style="top:${top}px;"><div class="m-left">${left}</div><div class="m-actions" style="width:130px; justify-content:space-between;">${right}</div></div>`; 
     }).join(''); 
     box.innerHTML = html; 
     setTimeout(() => { 
@@ -2916,6 +2976,18 @@ drawIntradayFlowCanvas(data) {
         this.renderHome(); 
       } 
     } 
+  },
+
+  toggleGroupFavorite(id) {
+    let g = this.data.groups.find(g => g.id === id);
+    if(g) {
+      g.isFavorite = !g.isFavorite;
+      this.saveData();
+      this.renderGroupMgrList();
+      // 刷新首页，因为下拉框的数据需要实时更新
+      if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
+      if(document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+    }
   },
   
   cleanOrphanFunds() { 

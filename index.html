@@ -4164,28 +4164,31 @@ ds(e, i) {
           });
           generatedHtml = table.outerHTML;
         } 
-        // 处理 UL 列表（阶段涨幅）并进行转置
+        // 处理 UL 列表（阶段涨幅）并进行智能转置
         else {
           const uls = doc.querySelectorAll('ul');
           if (uls.length >= 2) {
-            // 第一组 UL：表头（周期）—— 增强提取，过滤空值
+            // 1. 智能提取周期（过滤掉非周期的说明文本）
             const headerItems = uls[0].querySelectorAll('li');
             let periods = [];
             headerItems.forEach(li => {
               let txt = li.innerText.trim();
-              if (txt !== '') periods.push(txt);
+              // 周期通常为：今年来、近1周、近1月、近3月、近6月、近1年、近2年、近3年、近5年、成立来
+              const isPeriod = /^(今年来|近\d+[周月年]|成立来|近[一二三四五六七八九十]+年|近半年|近两年|近三年)$/.test(txt);
+              if (isPeriod || (txt.length <= 6 && !txt.includes('类') && !txt.includes('分') && !txt.includes('基金'))) {
+                if (txt !== '') periods.push(txt);
+              }
             });
-            // 如果 periods 仍为空，尝试使用 textContent 并过滤不可见字符
+            // 如果正则匹配失败，兜底：取前几个长度小于6的非空文本
             if (periods.length === 0) {
               headerItems.forEach(li => {
-                let txt = li.textContent.replace(/\s+/g, ' ').trim();
-                if (txt !== '') periods.push(txt);
+                let txt = li.innerText.trim();
+                if (txt.length > 0 && txt.length <= 8 && !txt.includes(' ')) periods.push(txt);
               });
             }
-            console.log('[阶段涨幅] 周期列表:', periods); // 调试输出
             
-            // 后续 UL：每一行数据（涨幅、同类平均、沪深300、同类排名、四分位排名）
-            const dataRows = [];
+            // 2. 提取数据行，跳过说明文字（只保留有效指标行）
+            const rawRows = [];
             for (let i = 1; i < uls.length; i++) {
               const items = uls[i].querySelectorAll('li');
               const rowData = [];
@@ -4194,44 +4197,92 @@ ds(e, i) {
                 if (txt === '') txt = li.textContent.trim();
                 rowData.push(txt);
               });
-              dataRows.push(rowData);
+              // 判断是否为有效指标行：至少有一个单元格包含 % 或 排名符号 或 四分位评价
+              const isValid = rowData.some(cell => 
+                cell.includes('%') || cell.includes('|') || /优秀|良好|不佳|一般/.test(cell)
+              );
+              if (isValid && rowData.length > 0) {
+                rawRows.push(rowData);
+              }
             }
             
-            // 定义行标签（第一列）
-            const rowLabels = ['阶段涨幅', '同类平均', '沪深300', '同类排名', '四分位排名'];
-            // 实际数据行可能少于5行，取较小值
-            const maxRows = Math.min(dataRows.length, rowLabels.length);
+            // 定义标准指标顺序
+            const expectedLabels = ['涨幅', '同类平均', '沪深300', '同类排名', '四分位排名'];
+            // 尝试将 rawRows 匹配到标准指标（通过内容特征）
+            let matchedRows = [];
+            for (let i = 0; i < expectedLabels.length; i++) {
+              const label = expectedLabels[i];
+              let found = null;
+              if (label === '涨幅') {
+                found = rawRows.find(row => row.some(cell => cell.includes('%') && !cell.includes('平均') && !cell.includes('300')));
+              } else if (label === '同类平均') {
+                found = rawRows.find(row => row.some(cell => cell.includes('同类平均') || (cell.includes('%') && cell.includes('平均'))));
+              } else if (label === '沪深300') {
+                found = rawRows.find(row => row.some(cell => cell.includes('沪深300') || cell.includes('300')));
+              } else if (label === '同类排名') {
+                found = rawRows.find(row => row.some(cell => cell.includes('|')));
+              } else if (label === '四分位排名') {
+                found = rawRows.find(row => row.some(cell => /优秀|良好|不佳|一般/.test(cell)));
+              }
+              if (found) matchedRows.push(found);
+              else matchedRows.push([]);
+            }
             
-            // 构建转置表格：行 = 周期，列 = 指标
+            // 3. 构建转置表格，增加“排名变动”列（从同类排名中提取箭头）
             let html = '<table class="data-table perf-table">';
-            html += '<thead><tr><th>周期</th>';
-            for (let i = 0; i < maxRows; i++) {
-              html += `<th>${rowLabels[i]}</th>`;
-            }
-            html += '</tr></thead><tbody>';
+            html += '<thead><tr><th>周期</th><th>涨幅</th><th>同类平均</th><th>沪深300</th><th>同类排名</th><th>排名变动</th></tr></thead><tbody>';
             
             for (let col = 0; col < periods.length; col++) {
               html += '<tr>';
               html += `<td class="period-cell"><strong>${periods[col]}</strong></td>`;
-              for (let row = 0; row < maxRows; row++) {
-                let rawText = (dataRows[row] && dataRows[row][col]) ? dataRows[row][col] : '--';
-                let num = parseFloat(rawText);
-                let cellClass = '';
-                let innerHtml = rawText;
-                
-                if (rawText.includes('%') && !isNaN(num)) {
-                  cellClass = num > 0 ? 'red' : (num < 0 ? 'green' : '');
-                } else if (rawText.includes('优秀')) {
-                  cellClass = 'red';
-                } else if (rawText.includes('不佳') || rawText.includes('一般')) {
-                  cellClass = 'green';
-                } else if (rawText.includes('|')) {
-                  let parts = rawText.split('|');
-                  innerHtml = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
-                }
-                
-                html += `<td class="${cellClass}">${innerHtml}</td>`;
+              
+              // 涨幅
+              let gainCell = (matchedRows[0] && matchedRows[0][col]) || '--';
+              let gainNum = parseFloat(gainCell);
+              let gainClass = (gainCell.includes('%') && !isNaN(gainNum)) ? (gainNum > 0 ? 'red' : (gainNum < 0 ? 'green' : '')) : '';
+              html += `<td class="${gainClass}">${gainCell}</td>`;
+              
+              // 同类平均
+              let avgCell = (matchedRows[1] && matchedRows[1][col]) || '--';
+              let avgNum = parseFloat(avgCell);
+              let avgClass = (avgCell.includes('%') && !isNaN(avgNum)) ? (avgNum > 0 ? 'red' : (avgNum < 0 ? 'green' : '')) : '';
+              html += `<td class="${avgClass}">${avgCell}</td>`;
+              
+              // 沪深300
+              let hs300Cell = (matchedRows[2] && matchedRows[2][col]) || '--';
+              let hs300Num = parseFloat(hs300Cell);
+              let hs300Class = (hs300Cell.includes('%') && !isNaN(hs300Num)) ? (hs300Num > 0 ? 'red' : (hs300Num < 0 ? 'green' : '')) : '';
+              html += `<td class="${hs300Class}">${hs300Cell}</td>`;
+              
+              // 同类排名
+              let rankCell = (matchedRows[3] && matchedRows[3][col]) || '--';
+              let rankHtml = rankCell;
+              if (rankCell.includes('|')) {
+                let parts = rankCell.split('|');
+                rankHtml = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
               }
+              html += `<td>${rankHtml}</td>`;
+              
+              // 排名变动（从同类排名中提取 ↑ ↓，如果没有则显示 --）
+              let changeHtml = '--';
+              if (rankCell.includes('↑')) {
+                let match = rankCell.match(/↑(\d+)/);
+                let num = match ? match[1] : '';
+                changeHtml = `<span class="red">↑${num}</span>`;
+              } else if (rankCell.includes('↓')) {
+                let match = rankCell.match(/↓(\d+)/);
+                let num = match ? match[1] : '';
+                changeHtml = `<span class="green">↓${num}</span>`;
+              } else if (rankCell.includes('+')) {
+                // 有些数据用 + 表示上升
+                let match = rankCell.match(/\+(\d+)/);
+                if (match) changeHtml = `<span class="red">↑${match[1]}</span>`;
+              } else if (rankCell.includes('-')) {
+                let match = rankCell.match(/-(\d+)/);
+                if (match) changeHtml = `<span class="green">↓${match[1]}</span>`;
+              }
+              html += `<td>${changeHtml}</td>`;
+              
               html += '</tr>';
             }
             html += '</tbody></table>';

@@ -413,8 +413,10 @@
       <div class="m-tab" onclick="app.switchMarketTab('HK', event)">港股</div>
       <div class="m-tab" onclick="app.switchMarketTab('US', event)">美股</div>
       <div class="m-tab" onclick="app.switchMarketTab('ASIA', event)">亚太</div>
+      <div class="m-tab" onclick="app.switchMarketTab('EurAfr', event)">欧非中东</div>
+      <div class="m-tab" onclick="app.switchMarketTab('America', event)">美洲</div>
       <!-- 新增的外期菜单 -->
-      <div class="m-tab" onclick="app.switchMarketTab('FUTURES', event)">外期</div>
+      <div class="m-tab" onclick="app.switchMarketTab('FUTURES', event)">期货</div>
       <div class="m-tab" onclick="app.switchMarketTab('Gold', event)">黄金</div>
       <div class="m-tab" onclick="app.switchMarketTab('Silver', event)">白银</div>
     </div>
@@ -722,12 +724,34 @@ const app = {
     'ASIA': [
       {name: '日经225', secid: '100.N225'},
       {name: '韩国KOSPI', secid: '100.KS11'},
-      {name: '孟买SENSEX', secid: '100.SENSEX'}
+      {name: '越南胡志明', secid: '100.VNINDEX'},
+      {name: '富时马来西亚', secid: '100.KLSE'},
+      {name: '菲律宾马尼拉', secid: '100.PSI'},
+      {name: '印度孟买SENSEX', secid: '100.SENSEX'},
+      {name: '印尼雅加达综合', secid: '100.JKSE'},
+      {name: '澳大利亚普股指数', secid: '100.AORD'},
+      {name: '新西兰NZ50', secid: '100.NZ50'}
+    ],
+   'EurAfr': [
+      {name: '英国富时100', secid: '100.FTSE'},
+      {name: '德国DAX30', secid: '100.GDAXI'},
+      {name: '法国CAC40', secid: '100.FCHI'},
+      {name: '富时意大利MIB', secid: '100.MIB'},
+      {name: '西班牙IBEX35', secid: '100.IBEX'},
+      {name: '俄罗斯RTS', secid: '100.RTS'},
+      {name: '瑞士SMI', secid: '100.SSMI'},
+      {name: '富时沙特阿拉伯', secid: '100.FISAULMU'}
+    ],
+   'America': [
+      {name: '巴西BOVESPA', secid: '100.BVSP'},
+      {name: '墨西哥BOLSA', secid: '100.MXX'},
+      {name: '加拿大S&P/TSX', secid: '100.TSX'}
     ],
     'FUTURES': [
       {name: '纽约金主连', secid: '113.GC00Y'},
       {name: '布油主连', secid: '114.B00Y'},
       {name: '富时A50主连', secid: '104.CN00Y'},
+      {name: '恒生期货', secid: '124.HSFI'},
       {name: '迷你道指', secid: '113.YM00Y'}
     ],
    'Gold': [

@@ -1623,28 +1623,32 @@ rtManualRefreshMarket() {
             const parts = item.secid.split('.');
             const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
             
+            // 动态获取小数精度：接口f1代表精度，没有则默认2。对离岸人民币强制保底4位
+            let dec = (quote.f1 !== undefined && !isNaN(quote.f1)) ? parseInt(quote.f1) : 2;
+            if (item.secid.includes('USDCNH') || item.name.includes('人民币')) dec = 4;
+
             let price = '--';
             // 严谨的价格读取顺序：最新价(f2) -> 备用最新价(f43) -> 昨收价(f60，用于周末停盘显示)
             if (quote.f2 !== undefined && quote.f2 !== '-' && !isNaN(quote.f2)) {
-                price = parseFloat(quote.f2).toFixed(2);
+                price = parseFloat(quote.f2).toFixed(dec);
             } else if (quote.f43 !== undefined && quote.f43 !== '-' && !isNaN(quote.f43)) {
-                price = parseFloat(quote.f43).toFixed(2);
+                price = parseFloat(quote.f43).toFixed(dec);
             } else if (quote.f60 !== undefined && quote.f60 !== '-' && !isNaN(quote.f60)) {
-                price = parseFloat(quote.f60).toFixed(2); 
+                price = parseFloat(quote.f60).toFixed(dec); 
             }
             
             let chgRate = '--';
             if (quote.f3 !== undefined && quote.f3 !== '-' && !isNaN(quote.f3)) {
-                chgRate = parseFloat(quote.f3).toFixed(2);
+                chgRate = parseFloat(quote.f3).toFixed(2); // 涨跌幅百分比一般固定2位
             } else if (price !== '--') {
-                chgRate = '0.00'; // 停盘时如果有昨收价，涨跌幅默认为0.00
+                chgRate = '0.00'; 
             }
             
             let chgVal = '--';
             if (quote.f4 !== undefined && quote.f4 !== '-' && !isNaN(quote.f4)) {
-                chgVal = parseFloat(quote.f4).toFixed(2);
+                chgVal = parseFloat(quote.f4).toFixed(dec); // 涨跌额跟随价格精度
             } else if (price !== '--') {
-                chgVal = '0.00'; 
+                chgVal = (0).toFixed(dec); 
             }
             
             const col = (chgRate !== '--' && parseFloat(chgRate) > 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
@@ -1656,7 +1660,7 @@ rtManualRefreshMarket() {
                       <div class="idx-val ${col}">${price}</div>
                       <div class="idx-chg ${col}"><span>${rateSign}${chgRate}%</span><span>${valSign}${chgVal}</span></div>
                     </div>`; 
-        }).join(''); 
+        }).join('');
         document.getElementById('market-idx-container').innerHTML = html; 
     } catch(e) { 
         document.getElementById('market-idx-container').innerHTML = '<div style="padding:20px; color:#94a3b8;">获取数据失败</div>'; 
@@ -1772,7 +1776,11 @@ rtManualRefreshMarket() {
             const parts = item.querySecid.split('.');
             const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
             
-            let price = quote.f2 !== undefined && quote.f2 !== '-' ? quote.f2.toFixed(2) : '--'; 
+            // 动态获取列表精度
+            let dec = (quote.f1 !== undefined && !isNaN(quote.f1)) ? parseInt(quote.f1) : 2;
+            if (item.querySecid.includes('USDCNH') || item.name.includes('人民币')) dec = 4;
+
+            let price = quote.f2 !== undefined && quote.f2 !== '-' ? quote.f2.toFixed(dec) : '--'; 
             let chgRate = '--', chgVal = '--'; 
             let rawChgRate = -999999;
             if (quote.f3 !== undefined && quote.f3 !== '-') {
@@ -1780,7 +1788,7 @@ rtManualRefreshMarket() {
                 rawChgRate = parseFloat(quote.f3);
             }
             if (quote.f4 !== undefined && quote.f4 !== '-') {
-                chgVal = parseFloat(quote.f4).toFixed(2);
+                chgVal = parseFloat(quote.f4).toFixed(dec); // 涨跌额跟随精度
             }
 
             let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
@@ -1974,6 +1982,9 @@ rtManualRefreshMarket() {
   this.marketState.chartType = 'trend'; 
   this.crosshair = { active: false, x: 0, y: 0, index: -1 }; 
 
+    // 新增：初始化默认精度，防止接口没加载完时显示错乱
+    this.marketState.currentDecimals = (secid.includes('USDCNH') || name.includes('人民币')) ? 4 : 2;
+
   // ✅ 关键修复1：先清空旧数据（防止残留）
   document.getElementById('md-price').innerText = '--';
   document.getElementById('md-chg-val').innerText = '--';
@@ -2005,16 +2016,22 @@ rtManualRefreshMarket() {
     const flowArea = document.getElementById('md-fund-flow-area');
     if (flowArea) flowArea.style.display = 'none'; 
     
-    // --- 1. 抓取基本行情 ---
-    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f60,f104,f105,f169,f170&_=${Date.now()}`; 
+   // 注意 url 的 fields 中增加了 f59 字段（东方财富详情接口的精度字段）
+    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170&_=${Date.now()}`; 
     try { 
       const res = await fetchJSONP(pkUrl, 'cb'); 
       const d = res?.data; 
       if (d) { 
+        // 动态设置当前全局精度
+        if (d.f59 !== undefined && !isNaN(d.f59)) {
+            this.marketState.currentDecimals = parseInt(d.f59);
+        }
+        let dec = this.marketState.currentDecimals;
+
         const curPrice = parseFloat(d.f43); 
-        const price = !isNaN(curPrice) ? curPrice.toFixed(2) : '--'; 
+        const price = !isNaN(curPrice) ? curPrice.toFixed(dec) : '--'; 
         let chgVal = '--', chgRate = '--'; 
-        if (d.f169 !== undefined && d.f169 !== '-' && !isNaN(d.f169)) chgVal = parseFloat(d.f169).toFixed(2); 
+        if (d.f169 !== undefined && d.f169 !== '-' && !isNaN(d.f169)) chgVal = parseFloat(d.f169).toFixed(dec); 
         if (d.f170 !== undefined && d.f170 !== '-' && !isNaN(d.f170)) chgRate = parseFloat(d.f170).toFixed(2); 
         const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green'; 
         
@@ -2029,7 +2046,7 @@ rtManualRefreshMarket() {
         document.getElementById('md-chg-rate').innerText = (chgRate !== '--' && parseFloat(chgRate) > 0 ? '+' : '') + chgRate + '%'; 
         document.getElementById('md-chg-rate').className = col; 
         
-        const fmt = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v).toFixed(2) : '--'; 
+        const fmt = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v).toFixed(dec) : '--'; 
         const fmtVol = (v) => { 
           if (v === undefined || v === '-' || isNaN(v)) return '--'; 
           const n = parseFloat(v); 
@@ -2040,7 +2057,7 @@ rtManualRefreshMarket() {
         document.getElementById('md-high').innerText = fmt(d.f44); 
         document.getElementById('md-open').innerText = fmt(d.f46); 
         document.getElementById('md-low').innerText = fmt(d.f45); 
-        document.getElementById('md-prev').innerText = this.marketState.currentPrevClose > 0 ? this.marketState.currentPrevClose.toFixed(2) : '--'; 
+        document.getElementById('md-prev').innerText = this.marketState.currentPrevClose > 0 ? this.marketState.currentPrevClose.toFixed(dec) : '--'; 
         document.getElementById('md-vol').innerText = fmtVol(d.f47); 
         document.getElementById('md-amt').innerText = fmtVol(d.f48); 
         
@@ -2256,17 +2273,18 @@ rtManualRefreshMarket() {
                    let chgRate = (chgVal / finalPrevClose) * 100;
                    let col = chgRate >= 0 ? 'red' : 'green';
 
-                   document.getElementById('md-price').innerText = latest.toFixed(2);
+                   let dec = this.marketState.currentDecimals || 2;
+                   document.getElementById('md-price').innerText = latest.toFixed(dec);
                    document.getElementById('md-price').className = col;
-                   document.getElementById('md-chg-val').innerText = (chgVal > 0 ? '+' : '') + chgVal.toFixed(2);
+                   document.getElementById('md-chg-val').innerText = (chgVal > 0 ? '+' : '') + chgVal.toFixed(dec);
                    document.getElementById('md-chg-val').className = col;
                    document.getElementById('md-chg-rate').innerText = (chgRate > 0 ? '+' : '') + chgRate.toFixed(2) + '%';
                    document.getElementById('md-chg-rate').className = col;
 
-                   document.getElementById('md-high').innerText = high.toFixed(2);
-                   document.getElementById('md-low').innerText = low.toFixed(2);
-                   document.getElementById('md-open').innerText = open.toFixed(2);
-                   document.getElementById('md-prev').innerText = finalPrevClose.toFixed(2);
+                   document.getElementById('md-high').innerText = high.toFixed(dec);
+                   document.getElementById('md-low').innerText = low.toFixed(dec);
+                   document.getElementById('md-open').innerText = open.toFixed(dec);
+                   document.getElementById('md-prev').innerText = finalPrevClose.toFixed(dec);
                    const dTime = new Date(); 
                    document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`;
                }
@@ -2613,6 +2631,9 @@ drawIntradayFlowCanvas(data) {
         ctx.stroke();
     }
     
+    // 提取当前精度
+    let dec = this.marketState.currentDecimals || 2;
+
     // 画 Y 轴文字
     ctx.font = '10px sans-serif'; 
     ctx.fillStyle = '#64748b'; 
@@ -2621,7 +2642,8 @@ drawIntradayFlowCanvas(data) {
       let y = pad.t + (i/4)*dh; 
       let rate = ((price - data.prevClose) / data.prevClose * 100); 
       ctx.textAlign = 'right'; 
-      ctx.fillText(price.toFixed(2), pad.l-5, y+3); 
+      ctx.fillText(price.toFixed(dec), pad.l-5, y+3); 
+      // ... 后面不动
       ctx.textAlign = 'left'; 
       ctx.fillStyle = rate >= 0 ? '#f43f5e' : '#10b981'; 
       ctx.fillText((rate >= 0 ? '+' : '') + rate.toFixed(2) + '%', w-pad.r+5, y+3); 
@@ -2745,10 +2767,10 @@ drawIntradayFlowCanvas(data) {
       
       if (infoDiv) { 
         if (data.type === 'kline') { 
-          let m5 = data.ma5 && data.ma5[displayIdx] ? data.ma5[displayIdx].toFixed(2) : '--'; 
-          let m10 = data.ma10 && data.ma10[displayIdx] ? data.ma10[displayIdx].toFixed(2) : '--'; 
-          let m20 = data.ma20 && data.ma20[displayIdx] ? data.ma20[displayIdx].toFixed(2) : '--'; 
-          let m60 = data.ma60 && data.ma60[displayIdx] ? data.ma60[displayIdx].toFixed(2) : '--'; 
+          let m5 = data.ma5 && data.ma5[displayIdx] ? data.ma5[displayIdx].toFixed(dec) : '--'; 
+          let m10 = data.ma10 && data.ma10[displayIdx] ? data.ma10[displayIdx].toFixed(dec) : '--'; 
+          let m20 = data.ma20 && data.ma20[displayIdx] ? data.ma20[displayIdx].toFixed(dec) : '--'; 
+          let m60 = data.ma60 && data.ma60[displayIdx] ? data.ma60[displayIdx].toFixed(dec) : '--'; 
           infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main); margin-right:8px;">${titleName}</span> <span style="color:#3b82f6; margin-right:6px;">MA5: ${m5}</span> <span style="color:#f59e0b; margin-right:6px;">MA10: ${m10}</span> <span style="color:#ec4899; margin-right:6px;">MA20: ${m20}</span> <span style="color:#10b981; margin-right:6px;">MA60: ${m60}</span>`; 
         } else { 
           const change = priceVal - data.prevClose; 
@@ -2756,9 +2778,9 @@ drawIntradayFlowCanvas(data) {
           const vol = data.volumes[displayIdx] || 0; 
           const volStr = vol >= 10000 ? (vol / 10000).toFixed(2) + '万' : vol.toString(); 
           const chgColor = change >= 0 ? 'var(--red)' : 'var(--green)'; 
-          infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main);">${titleName}</span> ${displayTime} 价格:<b>${priceVal.toFixed(2)}</b> 涨幅:<b style="color:${chgColor};">${change>=0?'+':''}${changeRate}%</b> 成交量:<b>${volStr}</b>`; 
+          infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main);">${titleName}</span> ${displayTime} 价格:<b>${priceVal.toFixed(dec)}</b> 涨幅:<b style="color:${chgColor};">${change>=0?'+':''}${changeRate}%</b> 成交量:<b>${volStr}</b>`; 
         } 
-      } 
+      }
     } else if (timeDisplayEl) { 
       timeDisplayEl.style.display = 'none'; 
     } 
@@ -2785,11 +2807,12 @@ drawIntradayFlowCanvas(data) {
       ctx.lineWidth=1.5; 
       ctx.stroke(); 
       
+      // 往下几行，十字准星黑框跟随的数据
       const priceVal = data.prices[crosshairIdx]; 
       const change = priceVal - data.prevClose; 
       const changeRate = data.prevClose !== 0 ? (change / data.prevClose * 100).toFixed(2) : '0.00'; 
-      const infoText = `${priceVal.toFixed(2)}  ${change>=0?'+':''}${change.toFixed(2)}  ${changeRate}%`; 
-      ctx.font = '11px sans-serif'; 
+      const infoText = `${priceVal.toFixed(dec)}  ${change>=0?'+':''}${change.toFixed(dec)}  ${changeRate}%`; 
+      ctx.font = '11px sans-serif';
       let boxW = ctx.measureText(infoText).width + 20; 
       let boxX = cx - boxW/2; 
       if (boxX < pad.l) boxX = pad.l; 

@@ -2008,8 +2008,8 @@ rtManualRefreshMarket() {
   this.marketState.chartType = 'trend'; 
   this.crosshair = { active: false, x: 0, y: 0, index: -1 }; 
 
-    // 【新增这行】重置缩放比例
-    this.marketState.klineZoom = 1; 
+   // 【新增】只在刚打开时允许自动滚动到最右边
+    this.marketState.needScrollToRight = true; 
 
     // 新增：初始化默认精度，防止接口没加载完时显示错乱
     this.marketState.currentDecimals = (secid.includes('USDCNH') || name.includes('人民币')) ? 4 : 2;
@@ -2630,12 +2630,20 @@ drawIntradayFlowCanvas(data) {
       if (minWidth > clientW) visualWidth = minWidth;
     }
     
-    // 如果宽度发生变化（通常是首次加载），重新设置画布像素并自动滚动到最右边
+    // 仅仅负责拉伸画布尺寸，不负责滚动条跳跃
     if (canvas.style.width !== visualWidth + 'px') {
         canvas.style.width = visualWidth + 'px';
         canvas.width = visualWidth * dpr; 
         canvas.height = clientH * dpr; 
-        setTimeout(() => { wrap.scrollLeft = visualWidth - clientW; }, 0);
+    }
+
+    // 【核心修复】：单独判断是否需要将滚动条强制拉到最新日期
+    if (this.marketState.needScrollToRight) {
+        setTimeout(() => { 
+            wrap.scrollLeft = visualWidth - clientW; 
+            // 滚动完立刻关闭标志，后续滑动或后台定时刷新数据都不会再弹回！
+            this.marketState.needScrollToRight = false; 
+        }, 0);
     }
 
     const ctx = canvas.getContext('2d'); 
@@ -2920,15 +2928,22 @@ drawIntradayFlowCanvas(data) {
     const wrap = document.getElementById('md-canvas-wrap');
     if (!canvas || !wrap) return; 
     
-    // 清除旧的事件监听
+    canvas.onmousedown = null;
     canvas.onmousemove = null;
+    canvas.onmouseup = null;
     canvas.onmouseleave = null;
     canvas.ontouchstart = null;
     canvas.ontouchmove = null;
     canvas.ontouchend = null;
+    canvas.ontouchcancel = null;
     
     let touchTimer = null;
     let isCrosshairMode = false;
+
+    // PC 拖拽参数
+    let isMouseDown = false;
+    let startX = 0;
+    let startScrollLeft = 0;
 
     const getIdx = (clientX) => { 
       const data = this.marketChartData; 
@@ -2940,30 +2955,54 @@ drawIntradayFlowCanvas(data) {
       const maxPoints = (data.type === 'trend' && data.totalPoints) ? Math.max(data.totalPoints, data.prices.length) : data.prices.length;
       const maxX = pad.l + ((data.prices.length - 1) / Math.max(maxPoints - 1, 1)) * dw;
 
-      // rect.left 是相对视口的动态值，天然支持已滚动的偏移量
       const x = clientX - rect.left; 
       if (x < pad.l) return 0; 
       if (x > maxX) return data.prices.length - 1; 
       return Math.round((x - pad.l) / dw * Math.max(maxPoints - 1, 1)); 
     }; 
     
-    // PC 端依然用鼠标悬浮触发十字星
+    // --- PC 鼠标操作逻辑 ---
+    canvas.onmousedown = (e) => {
+      isMouseDown = true;
+      startX = e.clientX;
+      startScrollLeft = wrap.scrollLeft;
+      canvas.style.cursor = 'grabbing';
+      this.crosshair.active = false; 
+      this.drawMarketChartWithCrosshair(false, null);
+    };
+
     canvas.onmousemove = (e) => { 
-      const idx = getIdx(e.clientX); 
-      this.crosshair.active = true; 
-      this.crosshair.index = idx; 
-      this.drawMarketChartWithCrosshair(true, idx); 
+      if (isMouseDown) {
+        // 拖拽模式，直接平滑移动滚动条
+        const dx = e.clientX - startX;
+        wrap.scrollLeft = startScrollLeft - dx;
+      } else {
+        // 普通悬浮模式，显示十字星
+        canvas.style.cursor = 'crosshair';
+        const idx = getIdx(e.clientX); 
+        this.crosshair.active = true; 
+        this.crosshair.index = idx; 
+        this.drawMarketChartWithCrosshair(true, idx); 
+      }
     }; 
     
+    canvas.onmouseup = () => {
+      isMouseDown = false;
+      canvas.style.cursor = 'crosshair';
+    };
+
     canvas.onmouseleave = () => { 
+      isMouseDown = false;
       this.crosshair.active = false; 
       this.drawMarketChartWithCrosshair(false, null); 
     }; 
     
-    // 移动端：长按 300 毫秒才触发十字星，否则让给原生左右滑动
+    // --- 移动端手指操作逻辑 ---
     canvas.ontouchstart = (e) => {
         if (e.touches.length > 1) return; 
         const touch = e.touches[0];
+        
+        // 长按 300 毫秒才召唤出十字星
         touchTimer = setTimeout(() => {
             isCrosshairMode = true;
             this.crosshair.active = true;
@@ -2974,14 +3013,15 @@ drawIntradayFlowCanvas(data) {
 
     canvas.ontouchmove = (e) => { 
         if (isCrosshairMode) {
-            e.preventDefault(); // 一旦进入十字星模式，拦截页面滚动
+            e.preventDefault(); // 一旦进入十字星模式，禁止浏览器原生滑动
             const touch = e.touches[0]; 
             const idx = getIdx(touch.clientX); 
             this.crosshair.active = true; 
             this.crosshair.index = idx; 
             this.drawMarketChartWithCrosshair(true, idx); 
         } else {
-            clearTimeout(touchTimer); // 手指提前滑动了，取消长按判定，允许拖动画布
+            // 如果手指快速移动了，取消长按倒计时，让浏览器原生流畅接管滚动条滑动！
+            clearTimeout(touchTimer); 
         }
     }; 
     
@@ -2996,6 +3036,10 @@ drawIntradayFlowCanvas(data) {
   
   switchMarketChart(type, ev) { 
     this.marketState.chartType = type; 
+    
+    // 【新增】切换周期时允许滚动到最右边
+    this.marketState.needScrollToRight = true; 
+
     document.querySelectorAll('#md-chart-tabs .action-pill').forEach(el => el.classList.remove('active')); 
     if (ev && ev.currentTarget) {
         ev.currentTarget.classList.add('active'); 

@@ -587,9 +587,18 @@
           </div>
           <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
           <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
-          <div id="md-canvas-wrap" style="position:relative; width:100%; height:220px; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;" onscroll="app.onCanvasScroll()">
-  <canvas id="md-canvas" style="height:100%;"></canvas>
-</div>
+          <!-- 增加一个相对定位包裹层 -->
+          <div style="position:relative;">
+            <div id="md-canvas-wrap" style="position:relative; width:100%; height:220px; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;" onscroll="app.onCanvasScroll()">
+              <canvas id="md-canvas" style="height:100%;"></canvas>
+            </div>
+            
+            <!-- 放大缩小悬浮控制按钮 (仅K线显示) -->
+            <div id="md-zoom-controls" style="position:absolute; right:15px; bottom: 40px; z-index:20; display:none; flex-direction:column; gap:10px;">
+                <div onclick="app.zoomMarketChart(1)" style="width:32px; height:32px; background:rgba(255,255,255,0.95); border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15); display:flex; justify-content:center; align-items:center; font-size:22px; font-weight:bold; color:var(--blue); cursor:pointer; user-select:none; border:1px solid rgba(0,102,255,0.1);">+</div>
+                <div onclick="app.zoomMarketChart(-1)" style="width:32px; height:32px; background:rgba(255,255,255,0.95); border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15); display:flex; justify-content:center; align-items:center; font-size:26px; font-weight:bold; color:var(--blue); cursor:pointer; user-select:none; border:1px solid rgba(0,102,255,0.1);">-</div>
+            </div>
+          </div>
         </div>
         <!-- 优化项：新版资金流向模块 -->
         <div class="flow-bar-wrap" id="md-fund-flow-area" style="display:none;">
@@ -2008,6 +2017,9 @@ rtManualRefreshMarket() {
   this.marketState.chartType = 'trend'; 
   this.crosshair = { active: false, x: 0, y: 0, index: -1 }; 
 
+    // 【新增这行】重置缩放比例
+    this.marketState.klineZoom = 1; 
+
     // 新增：初始化默认精度，防止接口没加载完时显示错乱
     this.marketState.currentDecimals = (secid.includes('USDCNH') || name.includes('人民币')) ? 4 : 2;
 
@@ -2614,18 +2626,37 @@ drawIntradayFlowCanvas(data) {
     const clientH = wrap.clientHeight;
     let visualWidth = clientW;
     
-    // 如果是 K线图，按数据量动态撑开 Canvas 宽度（每根K线分配约7像素宽度）
+    // 【新增】控制缩放按钮的显示/隐藏（分时图不需要缩放）
+    const zoomBtn = document.getElementById('md-zoom-controls');
+    if (zoomBtn) zoomBtn.style.display = data.type === 'kline' ? 'flex' : 'none';
+
+    // 提取当前缩放比例
+    if (this.marketState.klineZoom === undefined) this.marketState.klineZoom = 1;
+    const zoom = this.marketState.klineZoom;
+
+    // 如果是 K线图，结合缩放比例动态撑开 Canvas 宽度（基准间隔为 7 像素）
     if (data.type === 'kline') {
-      const minWidth = data.prices.length * 7 + 100; // 100是左右内边距
+      const minWidth = data.prices.length * (7 * zoom) + 100; // 100是左右内边距预留
       if (minWidth > clientW) visualWidth = minWidth;
     }
     
-    // 如果宽度改变了，重新设置画布真实像素并让滚动条自动定位到最右侧(最新日期)
+    // 如果宽度发生变化（切换数据或用户点击了缩放），重新设置画布像素
     if (canvas.style.width !== visualWidth + 'px') {
         canvas.style.width = visualWidth + 'px';
         canvas.width = visualWidth * dpr; 
         canvas.height = clientH * dpr; 
-        setTimeout(() => { wrap.scrollLeft = visualWidth - clientW; }, 0);
+        
+        // 恢复滚动条位置逻辑
+        setTimeout(() => { 
+            if (this.marketState.scrollRatioToRestore !== undefined) {
+                // 如果是用户点击了缩放，恢复到刚才看着的比例位置
+                wrap.scrollLeft = (wrap.scrollWidth - wrap.clientWidth) * this.marketState.scrollRatioToRestore;
+                this.marketState.scrollRatioToRestore = undefined;
+            } else {
+                // 默认打开或刷新，直接滚到最右边（查看最新日期的K线）
+                wrap.scrollLeft = visualWidth - clientW; 
+            }
+        }, 0);
     }
 
     const ctx = canvas.getContext('2d'); 
@@ -2938,6 +2969,28 @@ drawIntradayFlowCanvas(data) {
     }
     this.crosshair = { active: false, x: 0, y: 0, index: -1 }; 
     this.refreshMarketDetail(); 
+  },
+
+  zoomMarketChart(dir) {
+    if (!this.marketState.klineZoom) this.marketState.klineZoom = 1;
+    let oldZoom = this.marketState.klineZoom;
+    
+    if (dir > 0) {
+      this.marketState.klineZoom = Math.min(this.marketState.klineZoom + 0.5, 4);  // 最大允许放大4倍
+    } else {
+      this.marketState.klineZoom = Math.max(this.marketState.klineZoom - 0.5, 0.5); // 最小允许缩小到0.5倍
+    }
+    
+    if (oldZoom !== this.marketState.klineZoom) {
+      const wrap = document.getElementById('md-canvas-wrap');
+      if (wrap) {
+        // 核心体验：记录当前滚动条所处的比例，使缩放后仍然定位在你刚才看的那段K线区域
+        const scrollRatio = wrap.scrollWidth > wrap.clientWidth ? (wrap.scrollLeft / (wrap.scrollWidth - wrap.clientWidth)) : 1;
+        this.marketState.scrollRatioToRestore = scrollRatio; 
+      }
+      // 触发重绘
+      this.drawMarketChartWithCrosshair(false, null);
+    }
   },
   
   startIntradayTimer() { 

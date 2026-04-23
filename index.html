@@ -587,17 +587,8 @@
           </div>
           <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
           <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
-          <!-- 增加一个相对定位包裹层 -->
-          <div style="position:relative;">
-            <div id="md-canvas-wrap" style="position:relative; width:100%; height:220px; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;" onscroll="app.onCanvasScroll()">
-              <canvas id="md-canvas" style="height:100%;"></canvas>
-            </div>
-            
-            <!-- 放大缩小悬浮控制按钮 (仅K线显示) -->
-            <div id="md-zoom-controls" style="position:absolute; right:15px; bottom: 40px; z-index:20; display:none; flex-direction:column; gap:10px;">
-                <div onclick="app.zoomMarketChart(1)" style="width:32px; height:32px; background:rgba(255,255,255,0.95); border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15); display:flex; justify-content:center; align-items:center; font-size:22px; font-weight:bold; color:var(--blue); cursor:pointer; user-select:none; border:1px solid rgba(0,102,255,0.1);">+</div>
-                <div onclick="app.zoomMarketChart(-1)" style="width:32px; height:32px; background:rgba(255,255,255,0.95); border-radius:8px; box-shadow:0 4px 10px rgba(0,0,0,0.15); display:flex; justify-content:center; align-items:center; font-size:26px; font-weight:bold; color:var(--blue); cursor:pointer; user-select:none; border:1px solid rgba(0,102,255,0.1);">-</div>
-            </div>
+          <div id="md-canvas-wrap" style="position:relative; width:100%; height:220px; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;" onscroll="app.onCanvasScroll()">
+            <canvas id="md-canvas" style="height:100%;"></canvas>
           </div>
         </div>
         <!-- 优化项：新版资金流向模块 -->
@@ -2361,7 +2352,8 @@ rtManualRefreshMarket() {
       } catch(e) {} 
     } else { 
       const klt = parseInt(this.marketState.chartType) || 101; 
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=250&_=${Date.now()}`; 
+      // lmt 改为 380，提取一年半的数据
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&_=${Date.now()}`; 
       try { 
         const res = await fetchJSONP(kUrl, 'cb'); 
         const klines = res?.data?.klines || []; 
@@ -2385,7 +2377,10 @@ rtManualRefreshMarket() {
           this.marketChartData = { 
             type: 'kline', 
             xLabels: parsed.map(p => p.date), 
-            prices: parsed.map(p => p.close), 
+            prices: parsed.map(p => p.close),
+            opens: parsed.map(p => p.open),   // 新增：开盘价
+            highs: parsed.map(p => p.high),   // 新增：最高价
+            lows: parsed.map(p => p.low),     // 新增：最低价
             ma5: calcMA(parsed.map(p => p.close),5), 
             ma10: calcMA(parsed.map(p => p.close),10), 
             ma20: calcMA(parsed.map(p => p.close),20), 
@@ -2626,37 +2621,21 @@ drawIntradayFlowCanvas(data) {
     const clientH = wrap.clientHeight;
     let visualWidth = clientW;
     
-    // 【新增】控制缩放按钮的显示/隐藏（分时图不需要缩放）
-    const zoomBtn = document.getElementById('md-zoom-controls');
-    if (zoomBtn) zoomBtn.style.display = data.type === 'kline' ? 'flex' : 'none';
-
-    // 提取当前缩放比例
-    if (this.marketState.klineZoom === undefined) this.marketState.klineZoom = 1;
-    const zoom = this.marketState.klineZoom;
-
-    // 如果是 K线图，结合缩放比例动态撑开 Canvas 宽度（基准间隔为 7 像素）
+    // 如果是 K线图，固定视口显示 60 根（约3个月），剩余的撑开滚动条
     if (data.type === 'kline') {
-      const minWidth = data.prices.length * (7 * zoom) + 100; // 100是左右内边距预留
+      const visibleCount = 60; 
+      const innerClientW = clientW - 100; // 减去左右内边距
+      const step = innerClientW / visibleCount;
+      const minWidth = data.prices.length * step + 100; 
       if (minWidth > clientW) visualWidth = minWidth;
     }
     
-    // 如果宽度发生变化（切换数据或用户点击了缩放），重新设置画布像素
+    // 如果宽度发生变化（通常是首次加载），重新设置画布像素并自动滚动到最右边
     if (canvas.style.width !== visualWidth + 'px') {
         canvas.style.width = visualWidth + 'px';
         canvas.width = visualWidth * dpr; 
         canvas.height = clientH * dpr; 
-        
-        // 恢复滚动条位置逻辑
-        setTimeout(() => { 
-            if (this.marketState.scrollRatioToRestore !== undefined) {
-                // 如果是用户点击了缩放，恢复到刚才看着的比例位置
-                wrap.scrollLeft = (wrap.scrollWidth - wrap.clientWidth) * this.marketState.scrollRatioToRestore;
-                this.marketState.scrollRatioToRestore = undefined;
-            } else {
-                // 默认打开或刷新，直接滚到最右边（查看最新日期的K线）
-                wrap.scrollLeft = visualWidth - clientW; 
-            }
-        }, 0);
+        setTimeout(() => { wrap.scrollLeft = visualWidth - clientW; }, 0);
     }
 
     const ctx = canvas.getContext('2d'); 
@@ -2667,11 +2646,15 @@ drawIntradayFlowCanvas(data) {
     const w = visualWidth, h = clientH; 
     const pad = { l: 50, r: 50, t: 20, b: 35 }; 
     const dw = w - pad.l - pad.r, dh = h - pad.t - pad.b; 
+    const scrollLeft = wrap.scrollLeft;
+    
+    const maxPoints = (data.type === 'trend' && data.totalPoints) ? Math.max(data.totalPoints, data.prices.length) : data.prices.length;
+    const stepX = dw / Math.max(maxPoints - 1, 1);
+    const getX = idx => pad.l + idx * stepX; 
+    
     let yMax, yMin; 
     
-    const validPrices = data.prices.filter(p => !isNaN(p) && p > 0); 
-    if (validPrices.length === 0) return; 
-    
+    // 【核心】动态极值计算
     if (data.type === 'trend') { 
       const allPrices = data.avgPrices ? [...data.prices, ...data.avgPrices] : data.prices; 
       const validAllPrices = allPrices.filter(p => !isNaN(p) && p > 0); 
@@ -2681,53 +2664,69 @@ drawIntradayFlowCanvas(data) {
       yMax = data.prevClose + diffMax; 
       yMin = data.prevClose - diffMax; 
     } else { 
-      const allVals = [...data.prices, ...(data.ma5||[]), ...(data.ma10||[]), ...(data.ma20||[]), ...(data.ma60||[])].filter(v => v !== null && !isNaN(v)); 
-      const maxP = Math.max(...allVals), minP = Math.min(...allVals); 
-      const margin = (maxP - minP) * 0.05 || maxP * 0.01 || 1; 
-      yMax = maxP + margin; 
-      yMin = minP - margin; 
+      // 根据当前滚动条位置，计算出当前可视区间的索引范围
+      let startIdx = Math.floor(scrollLeft / stepX) - 2;
+      let endIdx = Math.ceil((scrollLeft + clientW) / stepX) + 2;
+      startIdx = Math.max(0, startIdx);
+      endIdx = Math.min(data.prices.length - 1, endIdx);
+
+      // 只提取可视范围内的 K线和均线数据
+      const vPrices = data.prices.slice(startIdx, endIdx + 1);
+      const vHighs = (data.highs || []).slice(startIdx, endIdx + 1);
+      const vLows = (data.lows || []).slice(startIdx, endIdx + 1);
+      const vMA5 = (data.ma5 || []).slice(startIdx, endIdx + 1);
+      const vMA10 = (data.ma10 || []).slice(startIdx, endIdx + 1);
+      const vMA20 = (data.ma20 || []).slice(startIdx, endIdx + 1);
+      const vMA60 = (data.ma60 || []).slice(startIdx, endIdx + 1);
+
+      // 合并查找出当前屏幕看到的所有数据里的最高和最低值
+      const allVals = [...vPrices, ...vHighs, ...vLows, ...vMA5, ...vMA10, ...vMA20, ...vMA60].filter(v => v !== null && !isNaN(v));
+      if (allVals.length > 0) {
+          const maxP = Math.max(...allVals), minP = Math.min(...allVals); 
+          const margin = (maxP - minP) * 0.05 || maxP * 0.01 || 1; 
+          yMax = maxP + margin; 
+          yMin = minP - margin; 
+      } else {
+          yMax = data.prevClose * 1.05; yMin = data.prevClose * 0.95;
+      }
     } 
     
-    const maxPoints = (data.type === 'trend' && data.totalPoints) ? Math.max(data.totalPoints, data.prices.length) : data.prices.length;
-    const getX = idx => pad.l + (idx / Math.max(maxPoints - 1, 1)) * dw; 
     const getY = price => pad.t + dh - ((price - yMin) / (yMax - yMin)) * dh; 
-    const scrollLeft = wrap.scrollLeft;
 
+    // 画背景横纵虚线
     ctx.strokeStyle = '#e2e8f0'; 
     ctx.lineWidth = 0.5; 
     for (let i=0;i<=4;i++) { 
       let y = pad.t + (i/4)*dh; 
       ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w-pad.r, y); ctx.stroke(); 
     } 
-    
     const vLinesCount = data.type === 'trend' ? 3 : Math.floor(data.prices.length / 30);
     for (let i = 1; i <= vLinesCount; i++) {
         let x = pad.l + (i / (vLinesCount + 1)) * dw;
         ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, h - pad.b); ctx.stroke();
     }
     
+    // 画 Y 轴文字（粘性悬浮在屏幕两边）
     let dec = this.marketState.currentDecimals || 2;
     ctx.font = '10px sans-serif'; 
     for (let i=0;i<=4;i++) { 
       let price = yMin + ((4-i)/4)*(yMax-yMin); 
       let y = pad.t + (i/4)*dh; 
       let rate = ((price - data.prevClose) / data.prevClose * 100); 
-      
-      // 让 Y 轴文字紧贴滚动视口的边缘显示（粘性效果）
       ctx.textAlign = 'right'; 
       ctx.fillStyle = '#64748b'; 
       ctx.fillText(price.toFixed(dec), scrollLeft + pad.l - 5, y+3); 
-      
       ctx.textAlign = 'left'; 
       ctx.fillStyle = rate >= 0 ? '#f43f5e' : '#10b981'; 
       ctx.fillText((rate >= 0 ? '+' : '') + rate.toFixed(2) + '%', scrollLeft + clientW - pad.r + 5, y+3); 
     } 
     
+    // 画 X 轴时间标签
     ctx.textAlign = 'center';
     ctx.fillStyle = '#64748b';
     ctx.font = '10px sans-serif';
-    const xStep = data.type === 'trend' ? Math.ceil(data.xLabels.length / 6) : Math.max(Math.ceil(data.xLabels.length / (visualWidth / 80)), 1);
-    for (let i = 0; i < data.xLabels.length; i += xStep) {
+    const timeStep = data.type === 'trend' ? Math.ceil(data.xLabels.length / 6) : Math.max(Math.ceil(data.xLabels.length / (visualWidth / 80)), 1);
+    for (let i = 0; i < data.xLabels.length; i += timeStep) {
         let x = getX(i);
         let label = data.xLabels[i];
         if (data.type === 'trend') label = label.slice(11, 16); else label = label.slice(5, 10);
@@ -2740,11 +2739,12 @@ drawIntradayFlowCanvas(data) {
         ctx.fillText(lastLabel, getX(lastIdx), h - pad.b + 12);
     } 
     
+    // 绘制底部成交量柱子
     if (data.volumes && data.volumes.length > 0) { 
       const maxVol = Math.max(...data.volumes.filter(v=>!isNaN(v))) || 1; 
       const volHeight = h*0.15; 
       const volY = h-pad.b-volHeight; 
-      const barW = Math.max((dw / Math.max(maxPoints, 1)) * 0.6, 1); 
+      const barW = Math.max(stepX * 0.6, 1); 
       for (let i=0;i<data.volumes.length;i++) { 
         let x = getX(i)-barW/2; 
         let hBar = (data.volumes[i]/maxVol)*volHeight; 
@@ -2755,7 +2755,11 @@ drawIntradayFlowCanvas(data) {
       } 
     } 
     
+    // ==================================
+    // 核心绘制分支：趋势分时图 VS 蜡烛K线图
+    // ==================================
     if (data.type === 'kline') { 
+      // 1. 画 均线
       const drawMALine = (maData, color) => { 
         if(!maData) return; 
         ctx.beginPath(); 
@@ -2768,35 +2772,70 @@ drawIntradayFlowCanvas(data) {
         ctx.strokeStyle = color; ctx.lineWidth=1; ctx.stroke(); 
       }; 
       drawMALine(data.ma60, '#10b981'); drawMALine(data.ma20, '#ec4899'); drawMALine(data.ma10, '#f59e0b'); drawMALine(data.ma5, '#3b82f6'); 
-    } 
-    
-    if (data.type === 'trend' && data.avgPrices && data.avgPrices.length>0) { 
-      ctx.beginPath(); ctx.moveTo(getX(0), getY(data.avgPrices[0])); 
-      for(let i=1;i<data.avgPrices.length;i++) {
-          if (isNaN(data.avgPrices[i]) || data.avgPrices[i] === 0) continue;
-          ctx.lineTo(getX(i), getY(data.avgPrices[i])); 
+      
+      // 2. 画 真实的红绿蜡烛图
+      const candleW = Math.max(stepX * 0.6, 1);
+      for (let i = 0; i < data.prices.length; i++) { 
+          if (isNaN(data.prices[i]) || data.prices[i] === 0) continue; 
+          let x = getX(i);
+          let openY = getY(data.opens[i]);
+          let closeY = getY(data.prices[i]);
+          let highY = getY(data.highs[i]);
+          let lowY = getY(data.lows[i]);
+          
+          let isRed = data.prices[i] >= data.opens[i];
+          let color = isRed ? '#f43f5e' : '#10b981'; // 阳红阴绿
+          
+          ctx.strokeStyle = color;
+          ctx.fillStyle = color;
+          ctx.lineWidth = 1;
+          
+          // 画上下影线
+          ctx.beginPath();
+          ctx.moveTo(x, highY);
+          ctx.lineTo(x, lowY);
+          ctx.stroke();
+          
+          // 画实体柱
+          let bodyTop = Math.min(openY, closeY);
+          let bodyH = Math.max(Math.abs(openY - closeY), 1);
+          
+          if (isRed) {
+              ctx.clearRect(x - candleW/2, bodyTop, candleW, bodyH); // 挖空内部显示出线
+              ctx.strokeRect(x - candleW/2, bodyTop, candleW, bodyH); // 阳线空心框
+          } else {
+              ctx.fillRect(x - candleW/2, bodyTop, candleW, bodyH); // 阴线实心框
+          }
       }
-      ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1; ctx.stroke(); 
-    } 
-    
-    ctx.beginPath(); ctx.moveTo(getX(0), getY(data.prices[0])); 
-    for(let i=1;i<data.prices.length;i++) { 
-      const price = data.prices[i]; 
-      if (isNaN(price) || price===0) continue; 
-      ctx.lineTo(getX(i), getY(price)); 
-    } 
-    ctx.strokeStyle = data.type === 'trend' ? '#3b82f6' : '#1e293b'; 
-    ctx.lineWidth = 1.5; ctx.stroke(); 
-    
-    if (data.type === 'trend') { 
+    } else {
+      // 分时图绘制逻辑（黄线均价，蓝线走势及阴影）
+      if (data.avgPrices && data.avgPrices.length>0) { 
+        ctx.beginPath(); ctx.moveTo(getX(0), getY(data.avgPrices[0])); 
+        for(let i=1;i<data.avgPrices.length;i++) {
+            if (isNaN(data.avgPrices[i]) || data.avgPrices[i] === 0) continue;
+            ctx.lineTo(getX(i), getY(data.avgPrices[i])); 
+        }
+        ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1; ctx.stroke(); 
+      } 
+      
+      ctx.beginPath(); ctx.moveTo(getX(0), getY(data.prices[0])); 
+      for(let i=1;i<data.prices.length;i++) { 
+        const price = data.prices[i]; 
+        if (isNaN(price) || price===0) continue; 
+        ctx.lineTo(getX(i), getY(price)); 
+      } 
+      ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5; ctx.stroke(); 
+      
       ctx.beginPath(); ctx.moveTo(getX(0), getY(data.prices[0])); 
       for(let i=1;i<data.prices.length;i++) ctx.lineTo(getX(i), getY(data.prices[i])); 
       ctx.lineTo(getX(data.prices.length-1), h-pad.b); ctx.lineTo(getX(0), h-pad.b); ctx.closePath(); 
       const grd = ctx.createLinearGradient(0, pad.t, 0, h-pad.b); 
       grd.addColorStop(0, 'rgba(59,130,246,0.25)'); grd.addColorStop(1, 'rgba(59,130,246,0.01)'); 
       ctx.fillStyle = grd; ctx.fill(); 
-    } 
-    
+    }
+    // ==================================
+
+    // 绘制悬浮信息文本与十字准星
     const timeDisplayEl = document.getElementById('md-chart-time-display'); 
     const infoDiv = document.getElementById('md-chart-info'); 
     const titleName = document.getElementById('md-title')?.innerText || ''; 
@@ -2827,6 +2866,7 @@ drawIntradayFlowCanvas(data) {
       } 
     } else if (timeDisplayEl) { timeDisplayEl.style.display = 'none'; } 
     
+    // 画十字准星
     if (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) { 
       const cx = getX(crosshairIdx), cy = getY(data.prices[crosshairIdx]); 
       ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h-pad.b); ctx.moveTo(scrollLeft+pad.l, cy); ctx.lineTo(scrollLeft+clientW-pad.r, cy); 
@@ -2843,7 +2883,6 @@ drawIntradayFlowCanvas(data) {
       let boxW = ctx.measureText(infoText).width + 20; 
       let boxX = cx - boxW/2; 
       
-      // 限制弹出框始终在可视区域内
       if (boxX < scrollLeft + pad.l) boxX = scrollLeft + pad.l; 
       if (boxX+boxW > scrollLeft + clientW - pad.r) boxX = scrollLeft + clientW - pad.r - boxW; 
       

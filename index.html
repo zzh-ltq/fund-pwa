@@ -924,14 +924,29 @@ const app = {
   
   rtFetchSingle(code) {
     return new Promise((resolve) => {
+      // 【核心修复1】：初始化全局唯一的路由字典和分配器
+      if (!window.rtCallbacks) window.rtCallbacks = {};
+      if (window.jsonpgz !== window._rtRouter) {
+        window._rtRouter = (data) => {
+          // 收到数据后，根据返回的基金代码，找到对应的 Promise 解锁
+          if (data && data.fundcode && window.rtCallbacks[data.fundcode]) {
+            window.rtCallbacks[data.fundcode](data);
+            delete window.rtCallbacks[data.fundcode];
+          }
+        };
+        window.jsonpgz = window._rtRouter;
+      }
+
       let timeoutId = setTimeout(() => { 
-        if (window.jsonpgz === tempCallback) window.jsonpgz = null; 
-        resolve(null); 
+        if (window.rtCallbacks[code]) {
+            delete window.rtCallbacks[code];
+            resolve(null); 
+        }
       }, 3000);
       
-      const tempCallback = (data) => {
+      // 把当前基金的处理逻辑注册到字典中
+      window.rtCallbacks[code] = (data) => {
         clearTimeout(timeoutId);
-        if (window.jsonpgz === tempCallback) window.jsonpgz = null;
         if (data && data.gsz) {
           resolve({ 
             code: data.fundcode, 
@@ -946,10 +961,13 @@ const app = {
         }
       };
       
-      window.jsonpgz = tempCallback;
       const script = document.createElement('script');
       script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
-      script.onerror = () => { clearTimeout(timeoutId); resolve(null); };
+      script.onerror = () => { 
+          clearTimeout(timeoutId); 
+          delete window.rtCallbacks[code];
+          resolve(null); 
+      };
       document.head.appendChild(script);
       setTimeout(() => { if(script.parentNode) script.remove(); }, 3500);
     });
@@ -1014,7 +1032,12 @@ const app = {
     } 
   },
   
-  rtManualRefresh() { 
+ rtManualRefresh() { 
+    // 【核心修复】：防止重复猛击刷新按钮
+    if (this.rtIsFetching) {
+       this.showToast('正在更新中，请稍候...', 'warning');
+       return;
+    }
     this.rtCountdown = this.rtInterval; 
     this.rtFetchAll(); 
     this.showToast('正在拉取最新估算'); 
@@ -1154,60 +1177,82 @@ rtManualRefreshMarket() {
     }; 
   },
   
-  async loadFundData(code, isBatch = false) { 
-  return new Promise((resolve) => { 
-    const script = document.createElement('script'); 
-    let isDone = false; 
-    const finish = (result) => { 
-      if (isDone) return; 
-      isDone = true; 
-      script.remove(); 
-      resolve(result); 
-    }; 
-    const timeout = setTimeout(() => finish(null), 6000); 
-    
-    script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`; 
-    script.onload = () => { 
-      clearTimeout(timeout); 
-      if (window.Data_netWorthTrend) { 
-        let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
-        if (nw.length > 260) nw = nw.slice(-260); 
-        const oldCache = this.data.fundsCache[code] || {}; 
+  // 【新增】净值请求内部队列参数
+  _nwQueue: [],
+  _isNwFetching: false,
 
-        // 提取基金规模
-        let size = oldCache.size || '--';
-        if (window.Data_fluctuationScale && window.Data_fluctuationScale.series && window.Data_fluctuationScale.series.length) {
-          size = window.Data_fluctuationScale.series[window.Data_fluctuationScale.series.length - 1].y + ' 亿元';
-        } else if (window.Data_fundSharesSize && window.Data_fundSharesSize.length) {
-          size = window.Data_fundSharesSize[window.Data_fundSharesSize.length - 1][1] + ' 亿元';
-        }
+  // 1. 将请求推入队列
+  loadFundData(code, isBatch = false) { 
+    return new Promise((resolve) => { 
+      this._nwQueue.push({ code, isBatch, resolve });
+      this._processNwQueue();
+    }); 
+  },
+  
+  // 2. 队列处理中心：强制逐个串行执行，绝对防覆盖
+  async _processNwQueue() {
+    if (this._isNwFetching || this._nwQueue.length === 0) return;
+    this._isNwFetching = true;
+    const task = this._nwQueue.shift();
 
-        const fund = { 
-          code, 
-          name: window.fS_name || code, 
-          netWorth: nw, 
-          size: size,                     // 存储规模
-          sectors: oldCache.sectors || [], 
-          isStarred: oldCache.isStarred || false 
-        }; 
-        this.data.fundsCache[code] = fund; 
-        if (!isBatch) this.saveData(); 
-        window.Data_netWorthTrend = null; 
-        window.fS_name = null; 
-        window.Data_fluctuationScale = null;
-        window.Data_fundSharesSize = null;
-        finish(fund); 
-      } else { 
+    await new Promise((innerResolve) => {
+      const script = document.createElement('script'); 
+      let isDone = false; 
+      const finish = (result) => { 
+        if (isDone) return; 
+        isDone = true; 
+        script.remove(); 
+        task.resolve(result); 
+        innerResolve(); // 完成当前任务，解锁队列
+      }; 
+      const timeout = setTimeout(() => finish(null), 6000); 
+      
+      script.src = `https://fund.eastmoney.com/pingzhongdata/${task.code}.js?t=${Date.now()}`; 
+      script.onload = () => { 
+        clearTimeout(timeout); 
+        if (window.Data_netWorthTrend) { 
+          let nw = window.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
+          if (nw.length > 260) nw = nw.slice(-260); 
+          const oldCache = this.data.fundsCache[task.code] || {}; 
+
+          let size = oldCache.size || '--';
+          if (window.Data_fluctuationScale && window.Data_fluctuationScale.series && window.Data_fluctuationScale.series.length) {
+            size = window.Data_fluctuationScale.series[window.Data_fluctuationScale.series.length - 1].y + ' 亿元';
+          } else if (window.Data_fundSharesSize && window.Data_fundSharesSize.length) {
+            size = window.Data_fundSharesSize[window.Data_fundSharesSize.length - 1][1] + ' 亿元';
+          }
+
+          const fund = { 
+            code: task.code, 
+            name: window.fS_name || task.code, 
+            netWorth: nw, 
+            size: size,
+            sectors: oldCache.sectors || [], 
+            isStarred: oldCache.isStarred || false 
+          }; 
+          this.data.fundsCache[task.code] = fund; 
+          if (!task.isBatch) this.saveData(); 
+          
+          // 【核心修复】：取完数据必须立刻清空全局变量，防止残留污染下一个基金
+          window.Data_netWorthTrend = null; 
+          window.fS_name = null; 
+          window.Data_fluctuationScale = null;
+          window.Data_fundSharesSize = null;
+          finish(fund); 
+        } else { 
+          finish(null); 
+        } 
+      }; 
+      script.onerror = () => { 
+        clearTimeout(timeout); 
         finish(null); 
-      } 
-    }; 
-    script.onerror = () => { 
-      clearTimeout(timeout); 
-      finish(null); 
-    }; 
-    document.head.appendChild(script); 
-  }); 
-},
+      }; 
+      document.head.appendChild(script); 
+    });
+
+    this._isNwFetching = false;
+    this._processNwQueue(); // 递归处理下一个
+  },
   
   // ==========================================
   // 8. 基金 UI 渲染

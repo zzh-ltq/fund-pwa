@@ -892,9 +892,8 @@ const app = {
     this.renderHome();
     this.enablePCMouseScroll();
     
-    setTimeout(() => { 
-      if (this.data.groups[0]?.fundCodes.length > 0) this.refreshAll(true); 
-    }, 500);
+    // 【核心修复】：删除了原先的 setTimeout refreshAll(true)
+    // 杜绝每次打开网页就在后台偷偷狂刷几百条网络请求的行为，全面依赖本地 IndexedDB 缓存！
     
     document.addEventListener('visibilitychange', () => { 
       if (document.hidden) {
@@ -984,25 +983,24 @@ const app = {
     if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 极速拉取中...';
     
     const batchSize = 5;
-    let successCount = 0; // 新增：统计成功返回数据的基金数量
+    let successCount = 0; 
+    const self = this; // 【核心修复1】：死锁 app 对象的引用，绝对防止 this 丢失报错
 
     for (let i = 0; i < codes.length; i += batchSize) {
         const chunk = codes.slice(i, i + batchSize);
         await Promise.all(chunk.map(async (code) => {
-            // 尝试拉取第一遍
-            let res = await this.rtFetchSingle(code); 
-            // 【核心修复】：如果因为网络波动第一遍失败了，立刻无缝重试第二遍
-            if (!res) res = await this.rtFetchSingle(code);
+            // 【核心修复2】：使用 self 代替 this 强制调用
+            let res = await self.rtFetchSingle(code); 
+            if (!res) res = await self.rtFetchSingle(code);
 
             if (res) {
-                this.rtData[code] = res; 
+                self.rtData[code] = res; 
                 successCount++;
             }
         }));
         
-        // 渲染更新
-        if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
-        if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
+        if (document.getElementById('view-home').classList.contains('active')) self.renderHome();
+        if (document.getElementById('view-sector').classList.contains('active')) self.renderSector();
     }
     
     this.rtIsFetching = false;
@@ -1016,7 +1014,6 @@ const app = {
     }
     await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData });
 
-    // 返回拉取结果统计，交给刷新按钮用于弹窗
     return { total: codes.length, success: successCount }; 
   },
   

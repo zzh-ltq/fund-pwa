@@ -1750,7 +1750,7 @@ rtManualRefreshMarket() {
     const container = document.getElementById('market-watched-list'); 
     
     if (list.length === 0) { 
-        container.innerHTML = `<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选${groupKey === 'index' ? '指数' : '股票'}，请在上方搜索添加</div>`; 
+        container.innerHTML = `<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无自选${groupKey === 'index' ? '指数/板块' : '股票'}，请在上方搜索添加</div>`; 
         return; 
     } 
 
@@ -1759,29 +1759,63 @@ rtManualRefreshMarket() {
     });
 
     const secids = validList.map(item => item.querySecid).join(','); 
-    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f62,f82&secids=${secids}&_=${Date.now()}`;
+    // 【修改点1】补全 fields 字段，加入 f43(备用最新价) 和 f60(昨收价) 用作停盘兜底
+    const url = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f60,f62,f82&secids=${secids}&_=${Date.now()}`;
     container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">拉取数据中...</div>'; 
     
     try { 
         const res = await fetchJSONP(url, 'cb'); 
         let dataList = res?.data?.diff || []; 
 
+        // 【修改点2】更严谨的失效判定：只要 f2, f43, f60 任意一个有有效数值，就不判定为失效
         const missingItems = validList.filter(item => {
             const quote = dataList.find(d => `${d.f13}.${d.f12}` === item.querySecid);
-            return !quote || quote.f2 === '-' || quote.f2 === undefined;
+            if (!quote) return true;
+            const hasPrice = (quote.f2 !== '-' && quote.f2 !== undefined) || 
+                             (quote.f43 !== '-' && quote.f43 !== undefined) ||
+                             (quote.f60 !== '-' && quote.f60 !== undefined);
+            return !hasPrice;
         });
         
+        // 【修改点3】严格区分市场的穷举盲猜
         if (missingItems.length > 0) {
             await Promise.all(missingItems.map(async (item) => {
+                // 如果原本保存的 secid 就是包含小数点的确切值，且不是纯数字遗留数据，
+                // 则极其有可能是周末停机维护，直接跳过破坏性重写，保留原样。
+                if (String(item.secid).includes('.') && String(item.secid).split('.')[0] !== '0') {
+                    return; 
+                }
+
                 let rawCode = item.querySecid.includes('.') ? item.querySecid.split('.')[1] : item.querySecid;
-                let testSecids = `0.${rawCode},1.${rawCode},2.${rawCode},90.${rawCode}`;
-                let testUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f62,f82&secids=${testSecids}&_=${Date.now()}`;
+                
+                // 严格区分：指数/板块组绝对优先猜 90(板块)；股票组优先猜 0(深) 和 1(沪)
+                let testSecids = "";
+                if (groupKey === 'index') {
+                    testSecids = `90.${rawCode},0.${rawCode},1.${rawCode},2.${rawCode},100.${rawCode}`;
+                } else {
+                    testSecids = `0.${rawCode},1.${rawCode},2.${rawCode},90.${rawCode},100.${rawCode}`;
+                }
+
+                let testUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f1,f2,f3,f4,f12,f13,f14,f43,f60,f62,f82&secids=${testSecids}&_=${Date.now()}`;
                 
                 try {
                     let r2 = await fetchJSONP(testUrl, 'cb');
-                    let validQuote = (r2?.data?.diff || []).find(d => d.f2 !== '-' && d.f2 !== undefined);
+                    // 同样使用宽容的有效性判断寻找正确数据
+                    let validQuote = (r2?.data?.diff || []).find(d => 
+                        (d.f2 !== '-' && d.f2 !== undefined) || 
+                        (d.f43 !== '-' && d.f43 !== undefined) ||
+                        (d.f60 !== '-' && d.f60 !== undefined)
+                    );
                     
                     if (validQuote) {
+                        // 防止跨频道的严重误判串台（比如板块猜成了股票）
+                        if (groupKey === 'index' && String(validQuote.f13) !== '90') {
+                             // 如果是指数组，找回来的却不是 90 开头，且名字差异极大，则放弃篡改
+                             if (validQuote.f14 && item.name && !validQuote.f14.includes(item.name.substring(0, 2))) {
+                                 return;
+                             }
+                        }
+
                         let correctSecid = `${validQuote.f13}.${validQuote.f12}`;
                         item.querySecid = correctSecid; 
                         
@@ -1802,19 +1836,34 @@ rtManualRefreshMarket() {
             const parts = item.querySecid.split('.');
             const quote = dataList.find(d => String(d.f13) === parts[0] && String(d.f12) === parts[1]) || {}; 
             
-            // 动态获取列表精度
             let dec = (quote.f1 !== undefined && !isNaN(quote.f1)) ? parseInt(quote.f1) : 2;
             if (item.querySecid.includes('USDCNH') || item.name.includes('人民币')) dec = 4;
 
-            let price = quote.f2 !== undefined && quote.f2 !== '-' ? quote.f2.toFixed(dec) : '--'; 
+            // 【修改点4】严密的停盘价格读取顺序兜底显示，保证周末绝不显示 '--'
+            let price = '--';
+            if (quote.f2 !== undefined && quote.f2 !== '-' && !isNaN(quote.f2)) {
+                price = parseFloat(quote.f2).toFixed(dec);
+            } else if (quote.f43 !== undefined && quote.f43 !== '-' && !isNaN(quote.f43)) {
+                price = parseFloat(quote.f43).toFixed(dec);
+            } else if (quote.f60 !== undefined && quote.f60 !== '-' && !isNaN(quote.f60)) {
+                price = parseFloat(quote.f60).toFixed(dec); 
+            }
+
             let chgRate = '--', chgVal = '--'; 
             let rawChgRate = -999999;
+            
             if (quote.f3 !== undefined && quote.f3 !== '-') {
                 chgRate = parseFloat(quote.f3).toFixed(2);
                 rawChgRate = parseFloat(quote.f3);
+            } else if (price !== '--') {
+                chgRate = '0.00'; 
+                rawChgRate = 0;
             }
+
             if (quote.f4 !== undefined && quote.f4 !== '-') {
-                chgVal = parseFloat(quote.f4).toFixed(dec); // 涨跌额跟随精度
+                chgVal = parseFloat(quote.f4).toFixed(dec);
+            } else if (price !== '--') {
+                chgVal = (0).toFixed(dec);
             }
 
             let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
@@ -1831,17 +1880,14 @@ rtManualRefreshMarket() {
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
             const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
             
-            // --- 核心修改：生成分组绑定标签 UI ---
             let groupTagHtml = '';
             let boundGroup = item.bindGroup ? this.data.groups.find(g => g.id === item.bindGroup) : null;
             if (boundGroup) {
-                // 已绑定分组：显示蓝色标签（点击跳转），以及一个小的重选按钮
                 groupTagHtml = `
                     <span class="c-tag" style="background:var(--blue); color:#fff; cursor:pointer; box-shadow: 0 2px 6px rgba(0,102,255,0.2);" onclick="app.jumpToFundGroup(event, '${boundGroup.id}')">📂 ${boundGroup.name}</span>
                     <span class="c-tag" style="background:#f1f5f9; color:#94a3b8; cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}')">🔄</span>
                 `;
             } else {
-                // 未绑定分组：显示类似基金界面的 + 分组 虚线按钮
                 groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}')">+ 分组</span>`;
             }
 

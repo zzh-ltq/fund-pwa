@@ -922,27 +922,28 @@ const app = {
     return null;
   },
   
-  rtFetchSingle(code) {
+  rrtFetchSingle(code) {
     return new Promise((resolve) => {
-      // 初始化全局唯一的路由字典和分配器
+      // 1. 初始化全局字典，存放每个基金的 Promise 解锁钥匙
       if (!window.rtCallbacks) window.rtCallbacks = {};
-      if (window.jsonpgz !== window._rtRouter) {
-        window._rtRouter = (data) => {
-          if (data && data.fundcode && window.rtCallbacks[data.fundcode]) {
-            window.rtCallbacks[data.fundcode](data);
-            delete window.rtCallbacks[data.fundcode];
-          }
-        };
-        window.jsonpgz = window._rtRouter;
-      }
+      
+      // 2. 无条件强制定义全局接收函数！绝对防止 jsonpgz is not defined 报错
+      window.jsonpgz = function(data) {
+        if (data && data.fundcode && window.rtCallbacks[data.fundcode]) {
+          window.rtCallbacks[data.fundcode](data);
+          delete window.rtCallbacks[data.fundcode];
+        }
+      };
 
+      // 3. 设置超时保险（4秒），防止单个卡死导致整体队列停滞
       let timeoutId = setTimeout(() => { 
         if (window.rtCallbacks[code]) {
             delete window.rtCallbacks[code];
             resolve(null); 
         }
-      }, 4000); // 延长超时判定到4秒，增加容错率
+      }, 4000); 
       
+      // 4. 将当前基金的接收逻辑注册到字典中
       window.rtCallbacks[code] = (data) => {
         clearTimeout(timeoutId);
         if (data && data.gsz) {
@@ -959,8 +960,8 @@ const app = {
         }
       };
       
+      // 5. 插入脚本拉取数据
       const script = document.createElement('script');
-      // 【核心修复】：剥离花哨的随机数，仅使用官方规范的毫秒级时间戳 rt 参数，保证 CDN 绝对穿透
       script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${new Date().getTime()}`;
       script.onerror = () => { 
           clearTimeout(timeoutId); 
@@ -968,6 +969,8 @@ const app = {
           resolve(null); 
       };
       document.head.appendChild(script);
+      
+      // 6. 清理 DOM 节点，防止头部被脚本塞满
       setTimeout(() => { if(script.parentNode) script.remove(); }, 4500);
     });
   },

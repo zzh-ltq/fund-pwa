@@ -941,7 +941,7 @@ const app = {
             delete window.rtCallbacks[code];
             resolve(null); 
         }
-      }, 3000);
+      }, 4000); // 延长超时判定到4秒，增加容错率
       
       window.rtCallbacks[code] = (data) => {
         clearTimeout(timeoutId);
@@ -960,33 +960,41 @@ const app = {
       };
       
       const script = document.createElement('script');
-      // 【核心修复】：增加双重绝对防缓存因子(时间戳 + 7位随机数)，彻底击穿浏览器与CDN缓存
-      script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}&_=${Math.floor(Math.random() * 10000000)}`;
+      // 【核心修复】：剥离花哨的随机数，仅使用官方规范的毫秒级时间戳 rt 参数，保证 CDN 绝对穿透
+      script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${new Date().getTime()}`;
       script.onerror = () => { 
           clearTimeout(timeoutId); 
           delete window.rtCallbacks[code];
           resolve(null); 
       };
       document.head.appendChild(script);
-      setTimeout(() => { if(script.parentNode) script.remove(); }, 3500);
+      setTimeout(() => { if(script.parentNode) script.remove(); }, 4500);
     });
   },
   
   async rtFetchAll() {
     const codes = this.getRtFundCodes();
-    if (!codes || codes.length === 0 || this.rtIsFetching) return;
+    if (!codes || codes.length === 0 || this.rtIsFetching) return null;
     
     this.rtIsFetching = true;
     if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 极速拉取中...';
     if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 极速拉取中...';
     
-    // 【核心修复】：并发量从 10 降到 5，防止触发东财接口的反爬墙，保证次次返回新鲜数据
     const batchSize = 5;
+    let successCount = 0; // 新增：统计成功返回数据的基金数量
+
     for (let i = 0; i < codes.length; i += batchSize) {
         const chunk = codes.slice(i, i + batchSize);
         await Promise.all(chunk.map(async (code) => {
-            const res = await this.rtFetchSingle(code); 
-            if (res) this.rtData[code] = res; 
+            // 尝试拉取第一遍
+            let res = await this.rtFetchSingle(code); 
+            // 【核心修复】：如果因为网络波动第一遍失败了，立刻无缝重试第二遍
+            if (!res) res = await this.rtFetchSingle(code);
+
+            if (res) {
+                this.rtData[code] = res; 
+                successCount++;
+            }
         }));
         
         // 渲染更新
@@ -1004,6 +1012,9 @@ const app = {
       this.updateDetailRtInfo(this.currentDetailCode);
     }
     await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData });
+
+    // 返回拉取结果统计，交给刷新按钮用于弹窗
+    return { total: codes.length, success: successCount }; 
   },
   
   rtStartTimer() { 
@@ -1038,8 +1049,7 @@ const app = {
     } 
   },
   
- // 【核心修复】：加上 async，让按钮点击可以等待拉取过程结束
-  async rtManualRefresh() { 
+ async rtManualRefresh() { 
     if (this.rtIsFetching) {
        this.showToast('正在更新中，请稍候...', 'warning');
        return;
@@ -1048,11 +1058,17 @@ const app = {
     
     this.showToast('开始拉取最新盘中估算...'); 
     
-    // 加上 await 阻断等待，直到所有批次的估值全部拉取完毕
-    await this.rtFetchAll(); 
+    // 等待所有批次的基金请求完成，并接收统计结果
+    const result = await this.rtFetchAll(); 
     
-    // 给用户明确的“完成提示”
-    this.showToast('✅ 当前分组估值更新完成'); 
+    if (result) {
+        // 【核心修复】：精确告知用户到底拉成功了多少只基金
+        if (result.success === result.total) {
+            this.showToast(`✅ 估值更新完成 (共 ${result.total} 只)`); 
+        } else {
+            this.showToast(`⚠️ 更新完成，部分基金接口无响应 (${result.success}/${result.total})`, 'error'); 
+        }
+    }
   },
   
   rtUpdateStatusUI() { 

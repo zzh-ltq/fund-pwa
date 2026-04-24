@@ -924,11 +924,10 @@ const app = {
   
   rtFetchSingle(code) {
     return new Promise((resolve) => {
-      // 【核心修复1】：初始化全局唯一的路由字典和分配器
+      // 初始化全局唯一的路由字典和分配器
       if (!window.rtCallbacks) window.rtCallbacks = {};
       if (window.jsonpgz !== window._rtRouter) {
         window._rtRouter = (data) => {
-          // 收到数据后，根据返回的基金代码，找到对应的 Promise 解锁
           if (data && data.fundcode && window.rtCallbacks[data.fundcode]) {
             window.rtCallbacks[data.fundcode](data);
             delete window.rtCallbacks[data.fundcode];
@@ -944,7 +943,6 @@ const app = {
         }
       }, 3000);
       
-      // 把当前基金的处理逻辑注册到字典中
       window.rtCallbacks[code] = (data) => {
         clearTimeout(timeoutId);
         if (data && data.gsz) {
@@ -962,7 +960,8 @@ const app = {
       };
       
       const script = document.createElement('script');
-      script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`;
+      // 【核心修复】：增加双重绝对防缓存因子(时间戳 + 7位随机数)，彻底击穿浏览器与CDN缓存
+      script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}&_=${Math.floor(Math.random() * 10000000)}`;
       script.onerror = () => { 
           clearTimeout(timeoutId); 
           delete window.rtCallbacks[code];
@@ -981,17 +980,16 @@ const app = {
     if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 极速拉取中...';
     if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 极速拉取中...';
     
-    // 【核心提速】：每批并发请求 10 个，瞬间完成！
-    const batchSize = 10;
+    // 【核心修复】：并发量从 10 降到 5，防止触发东财接口的反爬墙，保证次次返回新鲜数据
+    const batchSize = 5;
     for (let i = 0; i < codes.length; i += batchSize) {
         const chunk = codes.slice(i, i + batchSize);
-        // 并行发起请求，等待这批同时回来
         await Promise.all(chunk.map(async (code) => {
             const res = await this.rtFetchSingle(code); 
             if (res) this.rtData[code] = res; 
         }));
         
-        // 【核心视觉优化】：每批回来后立刻刷新一次UI，数据像流水一样分批跳出来
+        // 渲染更新
         if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
         if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
     }
@@ -1040,15 +1038,21 @@ const app = {
     } 
   },
   
- rtManualRefresh() { 
-    // 【核心修复】：防止重复猛击刷新按钮
+ // 【核心修复】：加上 async，让按钮点击可以等待拉取过程结束
+  async rtManualRefresh() { 
     if (this.rtIsFetching) {
        this.showToast('正在更新中，请稍候...', 'warning');
        return;
     }
     this.rtCountdown = this.rtInterval; 
-    this.rtFetchAll(); 
-    this.showToast('正在拉取最新估算'); 
+    
+    this.showToast('开始拉取最新盘中估算...'); 
+    
+    // 加上 await 阻断等待，直到所有批次的估值全部拉取完毕
+    await this.rtFetchAll(); 
+    
+    // 给用户明确的“完成提示”
+    this.showToast('✅ 当前分组估值更新完成'); 
   },
   
   rtUpdateStatusUI() { 

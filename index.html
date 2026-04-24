@@ -921,101 +921,7 @@ const app = {
     return null;
   },
   
-  rrtFetchSingle(code) {
-    return new Promise((resolve) => {
-      // 1. 初始化全局字典，存放每个基金的 Promise 解锁钥匙
-      if (!window.rtCallbacks) window.rtCallbacks = {};
-      
-      // 2. 无条件强制定义全局接收函数！绝对防止 jsonpgz is not defined 报错
-      window.jsonpgz = function(data) {
-        if (data && data.fundcode && window.rtCallbacks[data.fundcode]) {
-          window.rtCallbacks[data.fundcode](data);
-          delete window.rtCallbacks[data.fundcode];
-        }
-      };
 
-      // 3. 设置超时保险（4秒），防止单个卡死导致整体队列停滞
-      let timeoutId = setTimeout(() => { 
-        if (window.rtCallbacks[code]) {
-            delete window.rtCallbacks[code];
-            resolve(null); 
-        }
-      }, 4000); 
-      
-      // 4. 将当前基金的接收逻辑注册到字典中
-      window.rtCallbacks[code] = (data) => {
-        clearTimeout(timeoutId);
-        if (data && data.gsz) {
-          resolve({ 
-            code: data.fundcode, 
-            name: data.name, 
-            gsz: parseFloat(data.gsz), 
-            gszzl: parseFloat(data.gszzl), 
-            dwjz: data.dwjz, 
-            gztime: data.gztime 
-          });
-        } else {
-          resolve(null);
-        }
-      };
-      
-      // 5. 插入脚本拉取数据
-      const script = document.createElement('script');
-      script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${new Date().getTime()}`;
-      script.onerror = () => { 
-          clearTimeout(timeoutId); 
-          delete window.rtCallbacks[code];
-          resolve(null); 
-      };
-      document.head.appendChild(script);
-      
-      // 6. 清理 DOM 节点，防止头部被脚本塞满
-      setTimeout(() => { if(script.parentNode) script.remove(); }, 4500);
-    });
-  },
-  
-  async rtFetchAll() {
-    const codes = this.getRtFundCodes();
-    if (!codes || codes.length === 0 || this.rtIsFetching) return null;
-    
-    this.rtIsFetching = true;
-    if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 极速拉取中...';
-    if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 极速拉取中...';
-    
-    const batchSize = 5;
-    let successCount = 0; 
-    const self = this; // 【核心修复1】：死锁 app 对象的引用，绝对防止 this 丢失报错
-
-    for (let i = 0; i < codes.length; i += batchSize) {
-        const chunk = codes.slice(i, i + batchSize);
-        await Promise.all(chunk.map(async (code) => {
-            // 【核心修复2】：使用 self 代替 this 强制调用
-            let res = await self.rtFetchSingle(code); 
-            if (!res) res = await self.rtFetchSingle(code);
-
-            if (res) {
-                self.rtData[code] = res; 
-                successCount++;
-            }
-        }));
-        
-        if (document.getElementById('view-home').classList.contains('active')) self.renderHome();
-        if (document.getElementById('view-sector').classList.contains('active')) self.renderSector();
-    }
-    
-    this.rtIsFetching = false;
-    this.rtCountdown = this.rtInterval;
-    this.rtUpdateStatusUI();
-    
-    if (this.rtEnabled && !this.rtTimer) this.rtStartTimer();
-    
-    if (this.currentDetailCode && document.getElementById('modal-detail').classList.contains('active')) {
-      this.updateDetailRtInfo(this.currentDetailCode);
-    }
-    await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData });
-
-    return { total: codes.length, success: successCount }; 
-  },
   
   rtStartTimer() { 
     this.rtPauseTimer(); 
@@ -1049,7 +955,102 @@ const app = {
     } 
   },
   
- async rtManualRefresh() { 
+
+  // ================= 估值拉取 3 个核心函数打包 =================
+
+  // 1. 获取单个基金实时估值
+  rtFetchSingle(code) {
+    return new Promise((resolve) => {
+      if (!window.rtCallbacks) window.rtCallbacks = {};
+      
+      window.jsonpgz = function(data) {
+        if (data && data.fundcode && window.rtCallbacks[data.fundcode]) {
+          window.rtCallbacks[data.fundcode](data);
+          delete window.rtCallbacks[data.fundcode];
+        }
+      };
+
+      let timeoutId = setTimeout(() => { 
+        if (window.rtCallbacks[code]) {
+            delete window.rtCallbacks[code];
+            resolve(null); 
+        }
+      }, 4000); 
+      
+      window.rtCallbacks[code] = (data) => {
+        clearTimeout(timeoutId);
+        if (data && data.gsz) {
+          resolve({ 
+            code: data.fundcode, 
+            name: data.name, 
+            gsz: parseFloat(data.gsz), 
+            gszzl: parseFloat(data.gszzl), 
+            dwjz: data.dwjz, 
+            gztime: data.gztime 
+          });
+        } else {
+          resolve(null);
+        }
+      };
+      
+      const script = document.createElement('script');
+      script.src = `https://fundgz.1234567.com.cn/js/${code}.js?rt=${new Date().getTime()}`;
+      script.onerror = () => { 
+          clearTimeout(timeoutId); 
+          delete window.rtCallbacks[code];
+          resolve(null); 
+      };
+      document.head.appendChild(script);
+      
+      setTimeout(() => { if(script.parentNode) script.remove(); }, 4500);
+    });
+  },
+
+  // 2. 批量并发获取当前页面所有基金估值
+  async rtFetchAll() {
+    const codes = this.getRtFundCodes();
+    if (!codes || codes.length === 0 || this.rtIsFetching) return null;
+    
+    this.rtIsFetching = true;
+    if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 极速拉取中...';
+    if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 极速拉取中...';
+    
+    const batchSize = 5;
+    let successCount = 0; 
+    const self = this; 
+
+    for (let i = 0; i < codes.length; i += batchSize) {
+        const chunk = codes.slice(i, i + batchSize);
+        await Promise.all(chunk.map(async (code) => {
+            let res = await self.rtFetchSingle(code); 
+            if (!res) res = await self.rtFetchSingle(code);
+
+            if (res) {
+                self.rtData[code] = res; 
+                successCount++;
+            }
+        }));
+        
+        if (document.getElementById('view-home').classList.contains('active')) self.renderHome();
+        if (document.getElementById('view-sector').classList.contains('active')) self.renderSector();
+    }
+    
+    this.rtIsFetching = false;
+    this.rtCountdown = this.rtInterval;
+    this.rtUpdateStatusUI();
+    
+    if (this.rtEnabled && !this.rtTimer) this.rtStartTimer();
+    
+    if (this.currentDetailCode && document.getElementById('modal-detail').classList.contains('active')) {
+      this.updateDetailRtInfo(this.currentDetailCode);
+    }
+    await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData });
+
+    return { total: codes.length, success: successCount }; 
+  },
+
+  // 3. 点击按钮手动刷新估值
+  async rtManualRefresh() { 
     if (this.rtIsFetching) {
        this.showToast('正在更新中，请稍候...', 'warning');
        return;
@@ -1058,11 +1059,9 @@ const app = {
     
     this.showToast('开始拉取最新盘中估算...'); 
     
-    // 等待所有批次的基金请求完成，并接收统计结果
     const result = await this.rtFetchAll(); 
     
     if (result) {
-        // 【核心修复】：精确告知用户到底拉成功了多少只基金
         if (result.success === result.total) {
             this.showToast(`✅ 估值更新完成 (共 ${result.total} 只)`); 
         } else {
@@ -1070,6 +1069,8 @@ const app = {
         }
     }
   },
+
+  // ================= 打包结束 =================
   
   rtUpdateStatusUI() { 
     if(this.rtEnabled && !this.rtIsFetching) { 

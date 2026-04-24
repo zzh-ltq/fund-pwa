@@ -978,12 +978,22 @@ const app = {
     if (!codes || codes.length === 0 || this.rtIsFetching) return;
     
     this.rtIsFetching = true;
-    if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 逐个拉取中...';
-    if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 逐个拉取中...';
+    if(document.getElementById('home-rt-status')) document.getElementById('home-rt-status').innerText = '🔄 极速拉取中...';
+    if(document.getElementById('sec-rt-status')) document.getElementById('sec-rt-status').innerText = '🔄 极速拉取中...';
     
-    for (let code of codes) { 
-      const res = await this.rtFetchSingle(code); 
-      if (res) this.rtData[code] = res; 
+    // 【核心提速】：每批并发请求 10 个，瞬间完成！
+    const batchSize = 10;
+    for (let i = 0; i < codes.length; i += batchSize) {
+        const chunk = codes.slice(i, i + batchSize);
+        // 并行发起请求，等待这批同时回来
+        await Promise.all(chunk.map(async (code) => {
+            const res = await this.rtFetchSingle(code); 
+            if (res) this.rtData[code] = res; 
+        }));
+        
+        // 【核心视觉优化】：每批回来后立刻刷新一次UI，数据像流水一样分批跳出来
+        if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+        if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
     }
     
     this.rtIsFetching = false;
@@ -992,8 +1002,6 @@ const app = {
     
     if (this.rtEnabled && !this.rtTimer) this.rtStartTimer();
     
-    if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
-    if (document.getElementById('view-sector').classList.contains('active')) this.renderSector();
     if (this.currentDetailCode && document.getElementById('modal-detail').classList.contains('active')) {
       this.updateDetailRtInfo(this.currentDetailCode);
     }
@@ -1181,11 +1189,58 @@ rtManualRefreshMarket() {
   _nwQueue: [],
   _isNwFetching: false,
 
-  // 1. 将请求推入队列
+  // 1. 利用隐藏 Iframe 创建独立沙盒，实现绝对安全的高并发请求
   loadFundData(code, isBatch = false) { 
     return new Promise((resolve) => { 
-      this._nwQueue.push({ code, isBatch, resolve });
-      this._processNwQueue();
+      // 创建隐藏的沙盒环境
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+
+      const finish = (result) => {
+          if (iframe.parentNode) iframe.remove(); // 阅后即焚，释放内存
+          resolve(result);
+      };
+
+      const timeout = setTimeout(() => finish(null), 5000); // 5秒超时
+      
+      const doc = iframe.contentWindow.document;
+      const script = doc.createElement('script'); 
+      script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?t=${Date.now()}`; 
+      
+      script.onload = () => { 
+        clearTimeout(timeout); 
+        const win = iframe.contentWindow; // 从沙盒的 window 中提取独立的数据
+        
+        if (win.Data_netWorthTrend) { 
+          let nw = win.Data_netWorthTrend.map(i => ({ x: i.x, y: i.y })); 
+          if (nw.length > 260) nw = nw.slice(-260); 
+          const oldCache = this.data.fundsCache[code] || {}; 
+
+          let size = oldCache.size || '--';
+          if (win.Data_fluctuationScale && win.Data_fluctuationScale.series && win.Data_fluctuationScale.series.length) {
+            size = win.Data_fluctuationScale.series[win.Data_fluctuationScale.series.length - 1].y + ' 亿元';
+          } else if (win.Data_fundSharesSize && win.Data_fundSharesSize.length) {
+            size = win.Data_fundSharesSize[win.Data_fundSharesSize.length - 1][1] + ' 亿元';
+          }
+
+          const fund = { 
+            code, 
+            name: win.fS_name || code, 
+            netWorth: nw, 
+            size: size,
+            sectors: oldCache.sectors || [], 
+            isStarred: oldCache.isStarred || false 
+          }; 
+          this.data.fundsCache[code] = fund; 
+          if (!isBatch) this.saveData(); 
+          finish(fund); 
+        } else { 
+          finish(null); 
+        } 
+      }; 
+      script.onerror = () => { clearTimeout(timeout); finish(null); }; 
+      doc.head.appendChild(script); 
     }); 
   },
   
@@ -4172,8 +4227,12 @@ drawIntradayFlowCanvas(data) {
   },
   
   async refreshAll(isSilent = false) { 
-    const codes = this.data.groups[0]?.fundCodes || []; 
+    // 获取所有需要刷新的基金去重集合
+    const allCodes = new Set();
+    this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
+    const codes = Array.from(allCodes);
     const total = codes.length; 
+    
     if(total === 0 && !isSilent) return this.showToast('没有需要更新的基金', 'error'); 
     
     const loadingModal = document.getElementById('modal-loading'); 
@@ -4181,33 +4240,37 @@ drawIntradayFlowCanvas(data) {
     const progressText = document.getElementById('loading-progress-text'); 
     
     if (!isSilent) { 
-      titleText.innerText = '数据极速更新中...'; 
+      titleText.innerText = '历史净值极速更新中...'; 
       loadingModal.style.display = 'flex'; 
       progressText.innerText = `0 / ${total}`; 
     } 
     
     let completed = 0; 
     try { 
-      const batchSize = 5; 
+      const batchSize = 6; // 并发阀门：每次同时发出6个请求，速度最优化且不卡顿
       for (let i = 0; i < total; i += batchSize) { 
         const chunk = codes.slice(i, i + batchSize); 
         const promises = chunk.map(code => this.loadFundData(code, true)); 
         await Promise.all(promises); 
         completed += chunk.length; 
-        if(!isSilent) progressText.innerText = `${Math.min(completed, total)} / ${total}`; 
+        
+        // 【核心视觉优化】：每拉完一批，立刻更新界面进度并局部渲染，告别干等！
+        if(!isSilent) {
+            progressText.innerText = `${Math.min(completed, total)} / ${total}`; 
+            this.renderHome(); 
+        }
       } 
       
       this.saveData(); 
+      this.processGroupRisks(); 
       
       if (!isSilent) { 
         loadingModal.style.display = 'none'; 
-        this.processGroupRisks(); 
         this.renderHome(); 
-        this.showToast('✅ 最新净值数据已更新'); 
-      } else { 
-        this.processGroupRisks(); 
-        if(document.getElementById('view-home').classList.contains('active')) this.renderHome(); 
-      } 
+        this.showToast('✅ 最新历史净值已全部更新'); 
+      } else if (document.getElementById('view-home').classList.contains('active')) {
+        this.renderHome(); 
+      }
     } catch(err) { 
       if(!isSilent) { 
         loadingModal.style.display = 'none'; 

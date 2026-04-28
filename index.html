@@ -4922,55 +4922,58 @@ ds(e, i) {
     document.head.appendChild(script);
   });
 },
-
-
-  async fetchTradeRules(code, retry = 2) {
-  for (let attempt = 0; attempt <= retry; attempt++) {
-    try {
-      const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNTradeRule?Fcode=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
-      const res = await fetchJSONP(url, 'callback');
-      
-      // 有效性检查
-      if (res && res.Success !== false) {
-        let datas = res.Datas;
-        if (datas) {
-          if (Array.isArray(datas) && datas.length > 0) return datas[0];
-          if (typeof datas === 'object') return datas;
-        }
-        // 备用结构：直接包含 BuyRule / SellRule
-        if (res.BuyRule || res.SellRule) return res;
-      }
-      if (attempt < retry) {
-        await new Promise(r => setTimeout(r, 500));
-        continue;
-      }
-      return null;
-    } catch (e) {
-      console.error(`fetchTradeRules 错误 (尝试 ${attempt+1}/${retry+1}):`, e);
-      if (attempt === retry) return null;
-      await new Promise(r => setTimeout(r, 500));
-    }
-  }
-  return null;
-},
   
-// 获取基金经理和综合评价
-fetchManagerAndEval(code) {
+async fetchFundFullInfo(code) {
   return new Promise((resolve) => {
     const script = document.createElement('script');
     script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}`;
     script.onload = () => {
-      let manager = null, evalData = null;
+      // 提取基金经理
+      let manager = null;
       if (window.Data_currentFundManager && window.Data_currentFundManager.length > 0) {
         manager = window.Data_currentFundManager[0];
       }
+      // 综合评价
+      let evalData = null;
       if (window.Data_performanceEvaluation) {
         evalData = window.Data_performanceEvaluation;
       }
-      document.head.removeChild(script);
-      resolve({ manager, eval: evalData });
+      // 基金基本信息（规模等）
+      let fundInfo = null;
+      if (window.Data_fundInfo) {
+        fundInfo = window.Data_fundInfo;
+      }
+      // 费率列表（包含申购、赎回、管理、托管等）
+      let feeList = null;
+      if (window.Data_flxx && Array.isArray(window.Data_flxx)) {
+        feeList = window.Data_flxx;
+      }
+      // 申购规则
+      let buyInfo = null;
+      if (window.Data_sgxx) {
+        buyInfo = window.Data_sgxx;
+      }
+      // 赎回规则
+      let sellInfo = null;
+      if (window.Data_shxx) {
+        sellInfo = window.Data_shxx;
+      }
+      
+      // 清理全局变量，避免内存占用
+      const result = { manager, evalData, fundInfo, feeList, buyInfo, sellInfo };
+      setTimeout(() => {
+        window.Data_currentFundManager = null;
+        window.Data_performanceEvaluation = null;
+        window.Data_fundInfo = null;
+        window.Data_flxx = null;
+        window.Data_sgxx = null;
+        window.Data_shxx = null;
+      }, 100);
+      resolve(result);
     };
-    script.onerror = () => { document.head.removeChild(script); resolve({ manager: null, eval: null }); };
+    script.onerror = () => {
+      resolve({ manager: null, evalData: null, fundInfo: null, feeList: null, buyInfo: null, sellInfo: null });
+    };
     document.head.appendChild(script);
   });
 },
@@ -5080,118 +5083,95 @@ async renderPerformanceTab(code) {
   if (!container) return;
   container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">加载基本信息与交易规则...</div>';
 
-  // --- 并行获取所有数据源 ---
-  const [managerEvalRes, jjflHtml] = await Promise.all([
-    this.fetchManagerAndEval(code),
-    this.fetchJJFLHtml(code)
-  ]);
-
-  const manager = managerEvalRes.manager;
-  const evalData = managerEvalRes.eval;
+  const fullInfo = await this.fetchFundFullInfo(code);
+  const { manager, evalData, fundInfo, feeList, buyInfo, sellInfo } = fullInfo;
   const isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
 
-  // --- 定义辅助函数：从费率页面HTML中提取指定表格数据 ---
-  const extractTable = (html, tablePattern) => {
-    const regex = new RegExp(`<h4[^>]*><label[^>]*>${tablePattern}</label>.*?<tbody>(.*?)</tbody>`, 'is');
-    const match = html.match(regex);
-    if (!match) return null;
-    const tbody = match[1];
-    const rows = tbody.match(/<tr[^>]*>(.*?)<\/tr>/gis);
-    if (!rows) return null;
-    const result = {};
-    rows.forEach(row => {
-      const cells = row.match(/<td[^>]*>(.*?)<\/td>/gis);
-      if (cells && cells.length >= 2) {
-        const left = cells[0].replace(/<[^>]+>/g, '').trim();
-        const right = cells[1].replace(/<[^>]+>/g, '').trim();
-        result[left] = right;
+  // ========== 1. 解析申购规则 ==========
+  let buyMin = '--', buyAddMin = '--', buyLimit = '--', buyConfirmDays = '--';
+  if (buyInfo) {
+    buyMin = buyInfo.buyMin || buyInfo.minsg || buyInfo.minAmt || '--';
+    buyAddMin = buyInfo.buyAddMin || buyInfo.addAmt || '--';
+    buyLimit = buyInfo.buyLimit || buyInfo.maxsg || buyInfo.maxAmt || '--';
+    buyConfirmDays = buyInfo.confirmDays || buyInfo.tdays || '--';
+  }
+
+  // ========== 2. 解析赎回规则 ==========
+  let sellMin = '--', sellConfirmDays = '--', moneyArrival = '--';
+  if (sellInfo) {
+    sellMin = sellInfo.sellMin || sellInfo.minsh || '--';
+    sellConfirmDays = sellInfo.confirmDays || '--';
+    moneyArrival = sellInfo.arrivalDays || '--';
+  }
+
+  // ========== 3. 解析费率 ==========
+  let buyFeeRanges = [];   // 申购费率阶梯
+  let sellFeeRanges = [];  // 赎回费率阶梯
+  let manageRate = '--', custodianRate = '--', serviceRate = '--';
+
+  if (feeList && Array.isArray(feeList)) {
+    feeList.forEach(item => {
+      const flmc = item.flmc || '';
+      if (flmc.includes('申购费率')) {
+        if (item.rateList && Array.isArray(item.rateList)) {
+          item.rateList.forEach(rateItem => {
+            let condition = rateItem.moneyMinDesc || '';
+            if (!condition && rateItem.moneyMin !== undefined && rateItem.moneyMax !== undefined) {
+              condition = `${rateItem.moneyMin} ≤ 金额 < ${rateItem.moneyMax}`;
+            }
+            buyFeeRanges.push({
+              condition: condition || '申购金额',
+              rate: rateItem.rate || '--',
+              discount: rateItem.discountRate || rateItem.rate
+            });
+          });
+        } else if (item.rate) {
+          buyFeeRanges.push({ condition: '默认费率', rate: item.rate, discount: item.discountRate || item.rate });
+        }
+      } else if (flmc.includes('赎回费率')) {
+        if (item.rateList && Array.isArray(item.rateList)) {
+          item.rateList.forEach(rateItem => {
+            let condition = rateItem.holdDesc || '';
+            if (!condition && rateItem.holdDays !== undefined) {
+              condition = `持有 < ${rateItem.holdDays} 天`;
+            }
+            sellFeeRanges.push({
+              condition: condition || '持有期限',
+              rate: rateItem.rate || '--'
+            });
+          });
+        } else if (item.rate) {
+          sellFeeRanges.push({ condition: '默认费率', rate: item.rate });
+        }
+      } else if (flmc.includes('管理费率')) {
+        manageRate = item.rate || item.fl || '--';
+      } else if (flmc.includes('托管费率')) {
+        custodianRate = item.rate || item.fl || '--';
+      } else if (flmc.includes('销售服务费率')) {
+        serviceRate = item.rate || item.fl || '--';
       }
     });
-    return result;
-  };
-
-  // 1. 解析申购与赎回金额
-  let tradeData = {};
-  if (jjflHtml) {
-    tradeData = extractTable(jjflHtml, '申购与赎回金额') || {};
   }
 
-  // 2. 解析交易确认日
-  let confirmData = {};
-  if (jjflHtml) {
-    confirmData = extractTable(jjflHtml, '交易确认日') || {};
-  }
+  // 基金规模
+  let fundSize = fundInfo ? (fundInfo.fundscale || fundInfo.fundSize || '--') : '--';
 
-  // 3. 解析运作费用
-  let feeData = {};
-  if (jjflHtml) {
-    feeData = extractTable(jjflHtml, '运作费用') || {};
-  }
-
-  // 4. 提取申购费率（前端）
-  let buyFeeRanges = [];
-  if (jjflHtml) {
-    const buyFeeMatch = jjflHtml.match(/<h4[^>]*><label[^>]*>认购费率（前端）<\/label>.*?<tbody>(.*?)<\/tbody>/is);
-    if (buyFeeMatch) {
-      const rows = buyFeeMatch[1].match(/<tr[^>]*>(.*?)<\/tr>/gis);
-      if (rows) {
-        buyFeeRanges = rows.map(row => {
-          const cells = row.match(/<td[^>]*>(.*?)<\/td>/gis);
-          if (cells && cells.length >= 3) {
-            const amount = cells[0].replace(/<[^>]+>/g, '').trim();
-            const term = cells[1].replace(/<[^>]+>/g, '').trim();
-            const feeCell = cells[2].innerHTML || cells[2];
-            let original = '', discount = '';
-            const origMatch = feeCell.match(/<span[^>]*>原费率<\/span>\s*([^<]+)/);
-            if (origMatch) original = origMatch[1].trim();
-            const discMatch = feeCell.match(/<div[^>]*>天天基金优惠费率<\/div>\s*([^<]+)/);
-            if (discMatch) discount = discMatch[1].trim();
-            if (!discount) discount = original;
-            return { amount, term, original, discount };
-          }
-          return null;
-        }).filter(item => item !== null);
-      }
-    }
-  }
-
-  // 5. 提取赎回费率
-  let sellFeeRanges = [];
-  if (jjflHtml) {
-    const sellFeeMatch = jjflHtml.match(/<h4[^>]*><label[^>]*>赎回费率<\/label>.*?<tbody>(.*?)<\/tbody>/is);
-    if (sellFeeMatch) {
-      const rows = sellFeeMatch[1].match(/<tr[^>]*>(.*?)<\/tr>/gis);
-      if (rows) {
-        sellFeeRanges = rows.map(row => {
-          const cells = row.match(/<td[^>]*>(.*?)<\/td>/gis);
-          if (cells && cells.length >= 3) {
-            const amount = cells[0].replace(/<[^>]+>/g, '').trim();
-            const term = cells[1].replace(/<[^>]+>/g, '').trim();
-            const rate = cells[2].replace(/<[^>]+>/g, '').trim();
-            return { amount, term, rate };
-          }
-          return null;
-        }).filter(item => item !== null);
-      }
-    }
-  }
-
-  // --- 构建HTML卡片 ---
-
-  // 1. 基金经理卡片
+  // ========== 4. 构建HTML卡片 ==========
+  
+  // 基金经理卡片
   let managerHtml = '';
   if (manager) {
     managerHtml = `
       <div class="card" style="padding:15px;">
         <h3 style="margin:0 0 12px 0; color:#1677ff; font-size:15px;">👨‍💼 现任经理: ${manager.name}</h3>
         <p style="margin:8px 0; font-size:13px; color:#475569;"><strong>任职时长：</strong> ${manager.workTime || '--'}</p>
-        <p style="margin:8px 0; font-size:13px; color:#475569;"><strong>管理规模：</strong> ${manager.fundSize || '--'}</p>
+        <p style="margin:8px 0; font-size:13px; color:#475569;"><strong>管理规模：</strong> ${manager.fundSize || fundSize || '--'}</p>
         <p style="margin:8px 0; font-size:13px; color:#475569;"><strong>综合评分：</strong> <span style="color:#f43f5e; font-weight:900;">${manager.power ? manager.power.avr : '--'} 分</span></p>
       </div>
     `;
   }
 
-  // 2. 基金综合评价卡片
+  // 综合评价卡片
   let evalHtml = '';
   if (isEvalValid) {
     let barHtml = '';
@@ -5200,7 +5180,7 @@ async renderPerformanceTab(code) {
       const valText = evalData.data[i] !== null ? evalData.data[i] : '--';
       barHtml += `
         <div style="margin-bottom:8px; display:flex; align-items:center;">
-          <span style="width:60px; font-size:13px; color:#475569; font-weight:bold;">${evalData.categories[i]}</span>
+          <span style="width:75px; font-size:13px; color:#475569; font-weight:bold;">${evalData.categories[i]}</span>
           <div style="flex:1; background:#e2e8f0; height:8px; border-radius:4px; overflow:hidden; margin:0 10px;">
             <div style="width:${valNum}%; background:#3b82f6; height:8px;"></div>
           </div>
@@ -5211,35 +5191,42 @@ async renderPerformanceTab(code) {
     evalHtml = `<div class="card" style="padding:15px;"><h3 style="margin:0 0 16px 0; font-size:15px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right; font-weight:900;">${evalData.avr || '--'} 分</span></h3>${barHtml}</div>`;
   }
 
-  // 3. 交易规则与限额卡片
-  let tradeCardHtml = '';
-  if (Object.keys(tradeData).length > 0) {
-    tradeCardHtml = `
-      <div class="card" style="margin-top: 15px; padding: 16px;">
-        <h3 style="margin:0 0 16px 0; font-size:15px; color:#1e293b; display:flex; align-items:center; gap:6px;">
-          <span style="display:inline-block; width:4px; height:15px; background:#10b981; border-radius:2px;"></span>交易规则与限额
+  // 交易规则卡片
+  const tradeCardHtml = `
+    <div class="card" style="margin-top: 15px; padding: 16px;">
+      <h3 style="margin:0 0 16px 0; font-size:15px; color:#1e293b; display:flex; align-items:center; gap:6px;">
+        <span style="display:inline-block; width:4px; height:15px; background:#10b981; border-radius:2px;"></span>交易规则与限额
+      </h3>
+      <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px 20px; font-size:13px; color:#64748b;">
+        <div>申购起点: <strong style="color:#1e293b; margin-left:4px;">${buyMin}</strong></div>
+        <div>追加申购: <strong style="color:#1e293b; margin-left:4px;">${buyAddMin}</strong></div>
+        <div>申购限额: <strong style="color:#1e293b; margin-left:4px;">${buyLimit}</strong></div>
+        <div>申购确认日: <strong style="color:#1e293b; margin-left:4px;">${buyConfirmDays}</strong></div>
+        <div>赎回起点: <strong style="color:#1e293b; margin-left:4px;">${sellMin}</strong></div>
+        <div>赎回确认日: <strong style="color:#1e293b; margin-left:4px;">${sellConfirmDays}</strong></div>
+        <div>赎回到账: <strong style="color:#1e293b; margin-left:4px;">${moneyArrival}</strong></div>
+      </div>
+    </div>
+  `;
+
+  // 运作费用卡片
+  let operatingFeeHtml = '';
+  if (manageRate !== '--' || custodianRate !== '--' || serviceRate !== '--') {
+    operatingFeeHtml = `
+      <div class="card" style="margin-top:15px; padding:16px;">
+        <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; display:flex; align-items:center; gap:6px;">
+          <span style="display:inline-block; width:4px; height:15px; background:#10b981; border-radius:2px;"></span>运作费用
         </h3>
         <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px 20px; font-size:13px; color:#64748b;">
-          <div>申购起点: <strong style="color:#1e293b; margin-left:4px;">${tradeData['申购起点'] || '--'}</strong></div>
-          <div>定投起点: <strong style="color:#1e293b; margin-left:4px;">${tradeData['定投起点'] || '--'}</strong></div>
-          <div>首次购买: <strong style="color:#1e293b; margin-left:4px;">${tradeData['首次购买'] || '--'}</strong></div>
-          <div>追加购买: <strong style="color:#1e293b; margin-left:4px;">${tradeData['追加购买'] || '--'}</strong></div>
-          <div>日累计申购限额: <strong style="color:#1e293b; margin-left:4px;">${tradeData['日累计申购限额'] || '--'}</strong></div>
-          <div>持仓上限: <strong style="color:#1e293b; margin-left:4px;">${tradeData['持仓上限'] || '--'}</strong></div>
-          <div>最小赎回份额: <strong style="color:#1e293b; margin-left:4px;">${tradeData['最小赎回份额'] || '--'}</strong></div>
-          <div>部分赎回最低保留份额: <strong style="color:#1e293b; margin-left:4px;">${tradeData['部分赎回最低保留份额'] || '--'}</strong></div>
+          <div>管理费率: <strong style="color:#1e293b; margin-left:4px;">${manageRate}</strong></div>
+          <div>托管费率: <strong style="color:#1e293b; margin-left:4px;">${custodianRate}</strong></div>
+          <div>销售服务费率: <strong style="color:#1e293b; margin-left:4px;">${serviceRate}</strong></div>
         </div>
-      </div>
-    `;
-  } else {
-    tradeCardHtml = `
-      <div class="card" style="margin-top:15px; padding:16px; text-align:center;">
-        <span style="color:#94a3b8;">⚡ 暂无法获取交易规则数据，可前往天天基金网查看详情</span>
       </div>
     `;
   }
 
-  // 4. 费率表格卡片
+  // 申赎费率表格
   let rateHtml = '';
   if (buyFeeRanges.length > 0 || sellFeeRanges.length > 0) {
     let innerHtml = `
@@ -5251,12 +5238,12 @@ async renderPerformanceTab(code) {
     if (buyFeeRanges.length) {
       innerHtml += `<div style="font-size:12px; color:#64748b; font-weight:bold; margin:8px 0 6px; background:#f8fafc; padding:4px 8px; border-radius:4px;">申购费率</div>`;
       buyFeeRanges.forEach(rate => {
-        const showRate = (rate.discount && rate.original !== rate.discount)
-          ? `<del style="color:#94a3b8; font-size:11px; margin-right:6px;">${rate.original}</del><strong style="color:#f43f5e">${rate.discount}</strong>`
-          : `<strong style="color:#f43f5e">${rate.original}</strong>`;
+        const showRate = (rate.discount && rate.rate !== rate.discount)
+          ? `<del style="color:#94a3b8; font-size:11px; margin-right:6px;">${rate.rate}</del><strong style="color:#f43f5e">${rate.discount}</strong>`
+          : `<strong style="color:#f43f5e">${rate.rate}</strong>`;
         innerHtml += `
           <div style="display:flex; justify-content:space-between; margin-bottom:4px; padding:6px 8px; border-bottom:1px dashed #f1f5f9; font-size:13px;">
-            <span style="color:#1e293b; font-weight:bold;">${rate.amount} ${rate.term}</span>
+            <span style="color:#1e293b; font-weight:bold;">${rate.condition}</span>
             <span>${showRate}</span>
           </div>
         `;
@@ -5267,7 +5254,7 @@ async renderPerformanceTab(code) {
       sellFeeRanges.forEach(rate => {
         innerHtml += `
           <div style="display:flex; justify-content:space-between; margin-bottom:4px; padding:6px 8px; border-bottom:1px dashed #f1f5f9; font-size:13px;">
-            <span style="color:#1e293b; font-weight:bold;">${rate.amount} ${rate.term}</span>
+            <span style="color:#1e293b; font-weight:bold;">${rate.condition}</span>
             <strong style="color:#10b981">${rate.rate}</strong>
           </div>
         `;
@@ -5277,47 +5264,13 @@ async renderPerformanceTab(code) {
     rateHtml = innerHtml;
   }
 
-  // 5. 运作费用卡片
-  let operatingFeeHtml = '';
-  if (Object.keys(feeData).length > 0) {
-    operatingFeeHtml = `
-      <div class="card" style="margin-top:15px; padding:16px;">
-        <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; display:flex; align-items:center; gap:6px;">
-          <span style="display:inline-block; width:4px; height:15px; background:#10b981; border-radius:2px;"></span>运作费用
-        </h3>
-        <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px 20px; font-size:13px; color:#64748b;">
-          <div>管理费率: <strong style="color:#1e293b; margin-left:4px;">${feeData['管理费率'] || '--'}</strong></div>
-          <div>托管费率: <strong style="color:#1e293b; margin-left:4px;">${feeData['托管费率'] || '--'}</strong></div>
-          <div>销售服务费率: <strong style="color:#1e293b; margin-left:4px;">${feeData['销售服务费率'] || '--'}</strong></div>
-        </div>
-      </div>
-    `;
-  }
-
-  // 6. 交易确认日卡片
-  let confirmDayHtml = '';
-  if (Object.keys(confirmData).length > 0) {
-    confirmDayHtml = `
-      <div class="card" style="margin-top:15px; padding:16px;">
-        <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; display:flex; align-items:center; gap:6px;">
-          <span style="display:inline-block; width:4px; height:15px; background:#10b981; border-radius:2px;"></span>交易确认日
-        </h3>
-        <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px 20px; font-size:13px; color:#64748b;">
-          <div>买入确认日: <strong style="color:#1e293b; margin-left:4px;">${confirmData['买入确认日'] || '--'}</strong></div>
-          <div>卖出确认日: <strong style="color:#1e293b; margin-left:4px;">${confirmData['卖出确认日'] || '--'}</strong></div>
-        </div>
-      </div>
-    `;
-  }
-
-  // 将所有卡片组合起来
+  // 最终组装
   const finalHtml = `
     <div class="grid-cards" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:15px;">
       ${managerHtml} ${evalHtml}
     </div>
     ${tradeCardHtml}
     ${operatingFeeHtml}
-    ${confirmDayHtml}
     ${rateHtml}
   `;
   container.innerHTML = finalHtml;

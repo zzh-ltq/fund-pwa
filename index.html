@@ -4923,18 +4923,37 @@ ds(e, i) {
 },
 
 
-  // 【核心修复】：获取基金交易规则及费率（改用 JSONP 解决浏览器 CORS 跨域拦截导致的数据为空）
-  async fetchTradeRules(code) {
-      try {
-          const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNTradeRule?Fcode=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
-          // 使用 JSONP 绕过浏览器跨域限制，东方财富的接口参数名为 callback
-          const res = await fetchJSONP(url, 'callback');
-          if (res && res.Datas) {
-              return res.Datas;
-          }
-      } catch (e) {}
+  // ========== 替换 fetchTradeRules 函数 ==========
+async fetchTradeRules(code, retry = 2) {
+  for (let attempt = 0; attempt <= retry; attempt++) {
+    try {
+      const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNTradeRule?Fcode=${code}&deviceid=1&plat=Wap&product=EFund&version=2.0.0`;
+      // 使用 JSONP 绕过跨域
+      const res = await fetchJSONP(url, 'callback');
+      
+      // 兼容不同的返回结构
+      if (res && res.Success !== false && res.Datas) {
+        // Datas 可能是数组或对象
+        const datas = res.Datas;
+        if (Array.isArray(datas) && datas.length > 0) {
+          return datas[0];
+        } else if (typeof datas === 'object') {
+          return datas;
+        }
+      }
+      // 部分版本直接返回数据对象
+      if (res && (res.BuyRule || res.SellRule)) {
+        return res;
+      }
       return null;
-  },
+    } catch(e) {
+      console.warn(`fetchTradeRules 失败 (尝试 ${attempt+1}/${retry+1}): ${e.message}`);
+      if (attempt === retry) return null;
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  return null;
+},
   
 // 获取基金经理和综合评价
 fetchManagerAndEval(code) {
@@ -5044,132 +5063,193 @@ async renderPerformanceTab(code) {
   if (activeBtn) activeBtn.classList.add('active');
 },
 
-  async renderBasicInfoTab(code) {
-    const container = document.getElementById('det-basicinfo-area');
-    if (!container) return;
-    container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">加载基本信息与交易规则...</div>';
-    
-    const [managerEvalRes, tradeRules] = await Promise.all([
-      this.fetchManagerAndEval(code),
-      this.fetchTradeRules(code)
-    ]);
+  // ========== 替换 renderBasicInfoTab 函数 ==========
+async renderBasicInfoTab(code) {
+  const container = document.getElementById('det-basicinfo-area');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">加载基本信息与交易规则...</div>';
+  
+  const [managerEvalRes, tradeRulesRaw] = await Promise.all([
+    this.fetchManagerAndEval(code),
+    this.fetchTradeRules(code)
+  ]);
 
-    const manager = managerEvalRes.manager;
-    const evalData = managerEvalRes.eval;
+  const manager = managerEvalRes.manager;
+  const evalData = managerEvalRes.eval;
 
-    let topHtml = '<div class="grid-cards" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:15px;">';
-    
-    if (manager) {
-      topHtml += `
-        <div class="card" style="padding:15px;">
-          <h3 style="margin:0 0 12px 0; color:#1677ff; font-size:15px;">👨‍💼 现任经理: ${manager.name}</h3>
-          <p style="margin: 8px 0; font-size:13px; color:#475569;"><strong>任职时长：</strong> ${manager.workTime || '--'}</p>
-          <p style="margin: 8px 0; font-size:13px; color:#475569;"><strong>管理规模：</strong> ${manager.fundSize || '--'}</p>
-          <p style="margin: 8px 0; font-size:13px; color:#475569;"><strong>综合评分：</strong> <span style="color:#f43f5e; font-weight:900;">${manager.power ? manager.power.avr : '--'} 分</span></p>
-        </div>`;
-    }
-    
-    let isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
-
-    if (isEvalValid) {
-      let barHtml = '';
-      for (let i = 0; i < evalData.categories.length; i++) {
-        let valNum = evalData.data[i] !== null ? evalData.data[i] : 0;
-        let valText = evalData.data[i] !== null ? evalData.data[i] : '--';
-        
-        barHtml += `
-          <div style="margin-bottom: 8px; display: flex; align-items: center;">
-            <span style="width: 60px; font-size: 13px; color: #475569; font-weight:bold;">${evalData.categories[i]}</span>
-            <div style="flex: 1; background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden; margin: 0 10px;">
-              <div style="width: ${valNum}%; background: #3b82f6; height: 8px;"></div>
-            </div>
-            <span style="width: 30px; font-size: 13px; color: #3b82f6; font-weight:bold;">${valText}</span>
-          </div>`;
-      }
-      topHtml += `<div class="card" style="padding:15px;"><h3 style="margin:0 0 16px 0; font-size:15px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right; font-weight:900;">${evalData.avr || '--'} 分</span></h3>${barHtml}</div>`;
-    }
-    topHtml += '</div>';
-    
-    let tradeCardHtml = '';
-    if (tradeRules) {
-        // 安全提取数组，防止接口变更返回 null
-        let buyRulesList = Array.isArray(tradeRules.BuyRule) ? tradeRules.BuyRule : [];
-        let sellRulesList = Array.isArray(tradeRules.SellRule) ? tradeRules.SellRule : [];
-
-        let buyInfo = buyRulesList.find(r => r.TITLE && r.TITLE.includes('规则'))?.LIST || [];
-        let sellInfo = sellRulesList.find(r => r.TITLE && r.TITLE.includes('规则'))?.LIST || [];
-        let buyRates = buyRulesList.find(r => r.TITLE && r.TITLE.includes('费率'))?.LIST || [];
-        let sellRates = sellRulesList.find(r => r.TITLE && r.TITLE.includes('费率'))?.LIST || [];
-
-        const getVal = (list, keyword) => list.find(l => l.TITLE && l.TITLE.includes(keyword))?.CONTENT || '--';
-        
-        let buyMin = getVal(buyInfo, '买入起点');
-        // 兼容不同基金的命名差异
-        let buyLimit = getVal(buyInfo, '买入'); 
-        if (buyLimit === '--') buyLimit = getVal(buyInfo, '限额');
-        let sellMin = getVal(sellInfo, '卖出起点');
-        let buyT = getVal(buyInfo, '买入确认');
-        let sellT = getVal(sellInfo, '卖出确认');
-        let moneyT = getVal(sellInfo, '资金到账');
-
-        let ruleHtml = `
-            <div class="card" style="margin-top: 15px; padding: 16px;">
-                <h3 style="margin: 0 0 16px 0; font-size: 15px; color: #1e293b; display:flex; align-items:center; gap:6px;">
-                    <span style="display:inline-block; width:4px; height:15px; background:#10b981; border-radius:2px;"></span>交易规则与限额
-                </h3>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px 5px; font-size:13px; color:#64748b;">
-                    <div>买入起点: <strong style="color:#1e293b; margin-left:4px;">${buyMin}</strong></div>
-                    <div>买入限额: <strong style="color:#1e293b; margin-left:4px;">${buyLimit}</strong></div>
-                    <div>卖出起点: <strong style="color:#1e293b; margin-left:4px;">${sellMin}</strong></div>
-                    <div>买入确认: <strong style="color:#1e293b; margin-left:4px;">${buyT}</strong></div>
-                    <div>卖出确认: <strong style="color:#1e293b; margin-left:4px;">${sellT}</strong></div>
-                    <div>资金到账: <strong style="color:#1e293b; margin-left:4px;">${moneyT}</strong></div>
-                </div>
-            </div>
-        `;
-
-        let rateHtml = '';
-        if (buyRates.length > 0 || sellRates.length > 0) {
-            rateHtml = `
-                <div class="card" style="margin-top: 15px; padding: 16px;">
-                    <h3 style="margin: 0 0 12px 0; font-size: 15px; color: #1e293b; display:flex; align-items:center; gap:6px;">
-                        <span style="display:inline-block; width:4px; height:15px; background:#f59e0b; border-radius:2px;"></span>申赎费率明细
-                    </h3>
-            `;
-            
-            if (buyRates.length > 0) {
-                rateHtml += `<div style="font-size:12px; color:#64748b; font-weight:bold; margin-top:8px; margin-bottom:6px; background:#f8fafc; padding:4px 8px; border-radius:4px;">申购费率 (前端)</div>`;
-                buyRates.forEach(r => {
-                    let rateShow = r.RATE === r.DISCOUNTRATE ? 
-                        `<strong style="color:#f43f5e">${r.RATE || '--'}</strong>` : 
-                        `<del style="color:#94a3b8; font-size:11px; margin-right:6px;">${r.RATE || ''}</del><strong style="color:#f43f5e">${r.DISCOUNTRATE || '--'}</strong>`;
-                    rateHtml += `<div style="display:flex; justify-content:space-between; margin-bottom:4px; padding:6px 8px; border-bottom:1px dashed #f1f5f9; font-size:13px;">
-                        <span style="color:#1e293b; font-weight:bold;">${r.CONDITION || '--'}</span>
-                        <span>${rateShow}</span>
-                    </div>`;
-                });
-            }
-
-            if (sellRates.length > 0) {
-                rateHtml += `<div style="font-size:12px; color:#64748b; font-weight:bold; margin-top:16px; margin-bottom:6px; background:#f8fafc; padding:4px 8px; border-radius:4px;">赎回费率</div>`;
-                sellRates.forEach(r => {
-                    rateHtml += `<div style="display:flex; justify-content:space-between; margin-bottom:4px; padding:6px 8px; border-bottom:1px dashed #f1f5f9; font-size:13px;">
-                        <span style="color:#1e293b; font-weight:bold;">${r.CONDITION || '--'}</span>
-                        <strong style="color:#10b981">${r.RATE || '--'}</strong>
-                    </div>`;
-                });
-            }
-            rateHtml += `</div>`;
+  // 辅助：从规则数组中按多种关键词提取字段值
+  const extractField = (ruleList, keywords, defaultValue = '--') => {
+    if (!ruleList || !Array.isArray(ruleList)) return defaultValue;
+    for (const item of ruleList) {
+      if (!item.TITLE) continue;
+      const title = item.TITLE.toLowerCase();
+      for (const kw of keywords) {
+        if (title.includes(kw.toLowerCase())) {
+          const content = item.CONTENT || item.VALUE;
+          if (content) return content.trim();
+          // 如果子节点有 LIST，尝试取第一条
+          if (item.LIST && Array.isArray(item.LIST) && item.LIST.length > 0) {
+            const first = item.LIST[0];
+            return (first.CONTENT || first.VALUE || defaultValue).trim();
+          }
+          return defaultValue;
         }
-        tradeCardHtml = ruleHtml + rateHtml;
+      }
+    }
+    return defaultValue;
+  };
+
+  // 从费率规则中提取费率明细表
+  const extractRateList = (ruleList, type = 'buy') => {
+    if (!ruleList || !Array.isArray(ruleList)) return [];
+    const rateKeywords = ['费率', '申购费率', '赎回费率', '认购费率'];
+    let rateItem = null;
+    for (const item of ruleList) {
+      const title = (item.TITLE || '').toLowerCase();
+      if (type === 'buy' && (title.includes('申购') || title.includes('认购'))) {
+        rateItem = item;
+        break;
+      }
+      if (type === 'sell' && title.includes('赎回')) {
+        rateItem = item;
+        break;
+      }
+    }
+    if (!rateItem || !rateItem.LIST || !Array.isArray(rateItem.LIST)) return [];
+    return rateItem.LIST.filter(rate => rate.CONDITION || rate.RATE);
+  };
+
+  // 获取原始规则数组
+  const buyRules = tradeRulesRaw?.BuyRule && Array.isArray(tradeRulesRaw.BuyRule) ? tradeRulesRaw.BuyRule : [];
+  const sellRules = tradeRulesRaw?.SellRule && Array.isArray(tradeRulesRaw.SellRule) ? tradeRulesRaw.SellRule : [];
+
+  // 提取交易规则关键字段
+  const buyMin = extractField(buyRules, ['买入起点', '申购起点', '起购金额', '最低申购金额'], '--');
+  const buyLimit = extractField(buyRules, ['买入限额', '申购限额', '单日申购上限', '最大申购金额'], '--');
+  const sellMin = extractField(sellRules, ['卖出起点', '赎回起点', '最低赎回份额', '最低赎回金额'], '--');
+  const buyConfirm = extractField(buyRules, ['买入确认', '申购确认', '确认日', '份额确认'], '--');
+  const sellConfirm = extractField(sellRules, ['卖出确认', '赎回确认', '确认日'], '--');
+  const moneyArrival = extractField(sellRules, ['资金到账', '到账时间', '赎回到账'], '--');
+
+  // 构建交易规则卡片HTML
+  let tradeCardHtml = '';
+  if (buyRules.length > 0 || sellRules.length > 0) {
+    tradeCardHtml = `
+      <div class="card" style="margin-top: 15px; padding: 16px;">
+        <h3 style="margin: 0 0 16px 0; font-size: 15px; color: #1e293b; display:flex; align-items:center; gap:6px;">
+          <span style="display:inline-block; width:4px; height:15px; background:#10b981; border-radius:2px;"></span>交易规则与限额
+        </h3>
+        <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:12px 20px; font-size:13px; color:#64748b;">
+          <div>买入起点: <strong style="color:#1e293b; margin-left:4px;">${buyMin}</strong></div>
+          <div>买入限额: <strong style="color:#1e293b; margin-left:4px;">${buyLimit}</strong></div>
+          <div>卖出起点: <strong style="color:#1e293b; margin-left:4px;">${sellMin}</strong></div>
+          <div>买入确认: <strong style="color:#1e293b; margin-left:4px;">${buyConfirm}</strong></div>
+          <div>卖出确认: <strong style="color:#1e293b; margin-left:4px;">${sellConfirm}</strong></div>
+          <div>资金到账: <strong style="color:#1e293b; margin-left:4px;">${moneyArrival}</strong></div>
+        </div>
+      </div>
+    `;
+  }
+
+  // 费率表格生成
+  let rateHtml = '';
+  const buyRates = extractRateList(buyRules, 'buy');
+  const sellRates = extractRateList(sellRules, 'sell');
+
+  if (buyRates.length > 0 || sellRates.length > 0) {
+    let innerHtml = `
+      <div class="card" style="margin-top: 15px; padding: 16px;">
+        <h3 style="margin: 0 0 12px 0; font-size: 15px; color: #1e293b; display:flex; align-items:center; gap:6px;">
+          <span style="display:inline-block; width:4px; height:15px; background:#f59e0b; border-radius:2px;"></span>申赎费率明细
+        </h3>
+    `;
+    
+    if (buyRates.length > 0) {
+      innerHtml += `<div style="font-size:12px; color:#64748b; font-weight:bold; margin-top:8px; margin-bottom:6px; background:#f8fafc; padding:4px 8px; border-radius:4px;">申购费率</div>`;
+      buyRates.forEach(rate => {
+        const condition = rate.CONDITION || '申购金额';
+        const originalRate = rate.RATE || '--';
+        const discountRate = rate.DISCOUNTRATE || rate.RATE;
+        let rateShow = '';
+        if (discountRate && originalRate !== discountRate) {
+          rateShow = `<del style="color:#94a3b8; font-size:11px; margin-right:6px;">${originalRate}</del>
+                      <strong style="color:#f43f5e">${discountRate}</strong>`;
+        } else {
+          rateShow = `<strong style="color:#f43f5e">${originalRate}</strong>`;
+        }
+        innerHtml += `
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px; padding:6px 8px; border-bottom:1px dashed #f1f5f9; font-size:13px;">
+            <span style="color:#1e293b; font-weight:bold;">${condition}</span>
+            <span>${rateShow}</span>
+          </div>
+        `;
+      });
     }
 
-    if (!manager && !isEvalValid && !tradeRules) {
-      container.innerHTML = '<div style="padding:40px; text-align:center; color:#94a3b8;">暂无基本信息与交易数据</div>';
-    } else {
-      container.innerHTML = topHtml + tradeCardHtml;
+    if (sellRates.length > 0) {
+      innerHtml += `<div style="font-size:12px; color:#64748b; font-weight:bold; margin-top:16px; margin-bottom:6px; background:#f8fafc; padding:4px 8px; border-radius:4px;">赎回费率</div>`;
+      sellRates.forEach(rate => {
+        const condition = rate.CONDITION || '持有期限';
+        const rateVal = rate.RATE || '--';
+        innerHtml += `
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px; padding:6px 8px; border-bottom:1px dashed #f1f5f9; font-size:13px;">
+            <span style="color:#1e293b; font-weight:bold;">${condition}</span>
+            <strong style="color:#10b981">${rateVal}</strong>
+          </div>
+        `;
+      });
     }
+    innerHtml += `</div>`;
+    rateHtml = innerHtml;
   }
+
+  // 经理信息卡片
+  let managerHtml = '';
+  if (manager) {
+    managerHtml = `
+      <div class="card" style="padding:15px;">
+        <h3 style="margin:0 0 12px 0; color:#1677ff; font-size:15px;">👨‍💼 现任经理: ${manager.name}</h3>
+        <p style="margin: 8px 0; font-size:13px; color:#475569;"><strong>任职时长：</strong> ${manager.workTime || '--'}</p>
+        <p style="margin: 8px 0; font-size:13px; color:#475569;"><strong>管理规模：</strong> ${manager.fundSize || '--'}</p>
+        <p style="margin: 8px 0; font-size:13px; color:#475569;"><strong>综合评分：</strong> <span style="color:#f43f5e; font-weight:900;">${manager.power ? manager.power.avr : '--'} 分</span></p>
+      </div>
+    `;
+  }
+
+  // 综合评价卡片
+  let evalHtml = '';
+  let isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
+  if (isEvalValid) {
+    let barHtml = '';
+    for (let i = 0; i < evalData.categories.length; i++) {
+      let valNum = evalData.data[i] !== null ? evalData.data[i] : 0;
+      let valText = evalData.data[i] !== null ? evalData.data[i] : '--';
+      barHtml += `
+        <div style="margin-bottom: 8px; display: flex; align-items: center;">
+          <span style="width: 60px; font-size: 13px; color: #475569; font-weight:bold;">${evalData.categories[i]}</span>
+          <div style="flex: 1; background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden; margin: 0 10px;">
+            <div style="width: ${valNum}%; background: #3b82f6; height: 8px;"></div>
+          </div>
+          <span style="width: 30px; font-size: 13px; color: #3b82f6; font-weight:bold;">${valText}</span>
+        </div>
+      `;
+    }
+    evalHtml = `<div class="card" style="padding:15px;"><h3 style="margin:0 0 16px 0; font-size:15px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right; font-weight:900;">${evalData.avr || '--'} 分</span></h3>${barHtml}</div>`;
+  }
+
+  // 组装最终内容
+  if (!managerHtml && !evalHtml && !tradeCardHtml && !rateHtml) {
+    container.innerHTML = '<div style="padding:40px; text-align:center; color:#94a3b8;">暂无基本信息与交易数据</div>';
+  } else {
+    let finalHtml = '<div class="grid-cards" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:15px;">';
+    if (managerHtml) finalHtml += managerHtml;
+    if (evalHtml) finalHtml += evalHtml;
+    finalHtml += '</div>';
+    if (tradeCardHtml) finalHtml += tradeCardHtml;
+    if (rateHtml) finalHtml += rateHtml;
+    container.innerHTML = finalHtml;
+  }
+}
 
   
 };

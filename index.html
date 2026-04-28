@@ -4074,7 +4074,7 @@ drawIntradayFlowCanvas(data) {
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
 
-  // 【新增】：东方财富官网持仓解析兜底引擎
+  // 【修复后】：东方财富官网持仓解析兜底引擎
   fetchEastMoneyHoldings(code) {
     return new Promise((resolve) => {
         const script = document.createElement('script');
@@ -4092,11 +4092,11 @@ drawIntradayFlowCanvas(data) {
                         if (tds.length >= 7 && tds[0].innerText.trim() !== '暂无数据') {
                             const codeStr = tds[1].innerText.trim();
                             const nameStr = tds[2].innerText.trim();
-                            const ratioStr = tds[3].innerText.trim().replace('%', ''); // 第4列是占净值比
+                            // 【核心修复】：东方财富的表格里，第7列（索引为6）才是“占净值比例”！
+                            const ratioStr = tds[6].innerText.trim().replace('%', ''); 
                             
                             if (codeStr && nameStr && !isNaN(parseFloat(ratioStr))) {
                                 holdings.push({ 
-                                    // 港股代码如果不满5位自动补零，方便后续港股标签的正则匹配
                                     code: codeStr.padStart(5, '0'), 
                                     name: nameStr, 
                                     ratio: parseFloat(ratioStr) 
@@ -4114,6 +4114,7 @@ drawIntradayFlowCanvas(data) {
         document.head.appendChild(script);
     });
   },
+  
   async loadHoldings(code) { 
     document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>'; 
     try { 

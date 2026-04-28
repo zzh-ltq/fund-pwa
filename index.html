@@ -4081,18 +4081,34 @@ drawIntradayFlowCanvas(data) {
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
 
-  // 东方财富官网持仓解析引擎 (支持 jjcc 股票、zqcc 债券、hypz 行业配置)
+  // 【核心修复】：东方财富官网持仓解析引擎 (引入沙盒机制，绝对防污染)
   fetchEastMoneyTable(code, type) {
     return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${type}&code=${code}&topline=10&year=&month=&rt=${Date.now()}`;
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+
+        const finish = (result) => {
+            if (iframe.parentNode) iframe.remove();
+            resolve(result);
+        };
+
+        const timeout = setTimeout(() => finish([]), 6000); 
+
+        const doc = iframe.contentWindow.document;
+        const script = doc.createElement('script');
+        // 加上随机数防止强缓存
+        script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${type}&code=${code}&topline=10&year=&month=&rt=${Date.now()}&_=${Math.floor(Math.random()*1000)}`;
+        
         script.onload = () => {
+            clearTimeout(timeout);
+            const win = iframe.contentWindow;
             let result = [];
-            if (window.apidata && window.apidata.content) {
+            if (win.apidata && win.apidata.content) {
                 try {
                     const parser = new DOMParser();
-                    const doc = parser.parseFromString(window.apidata.content, 'text/html');
-                    const trs = doc.querySelectorAll('table.w782 tbody tr');
+                    const htmlDoc = parser.parseFromString(win.apidata.content, 'text/html');
+                    const trs = htmlDoc.querySelectorAll('table.w782 tbody tr');
                     trs.forEach(tr => {
                         const tds = tr.querySelectorAll('td');
                         if (tds.length >= 3 && tds[0].innerText.trim() !== '暂无数据') {
@@ -4106,7 +4122,6 @@ drawIntradayFlowCanvas(data) {
                                 nameStr = tds[2].innerText.trim();
                                 ratioStr = tds[3].innerText.trim().replace('%', ''); 
                             } else if (type === 'hypz' && tds.length >= 3) {
-                                // 行业配置没有代码，第2列是行业名称，第3列是占比
                                 codeStr = 'industry'; 
                                 nameStr = tds[1].innerText.trim();
                                 ratioStr = tds[2].innerText.trim().replace('%', ''); 
@@ -4122,13 +4137,11 @@ drawIntradayFlowCanvas(data) {
                         }
                     });
                 } catch(e) {}
-                window.apidata = null;
             }
-            script.remove();
-            resolve(result);
+            finish(result);
         };
-        script.onerror = () => { script.remove(); resolve([]); };
-        document.head.appendChild(script);
+        script.onerror = () => { clearTimeout(timeout); finish([]); };
+        doc.head.appendChild(script);
     });
   },
   
@@ -4137,11 +4150,9 @@ drawIntradayFlowCanvas(data) {
     try { 
       let stocks = [], bonds = [];
 
-      // 并发请求：仅保留股票和债券
-      [stocks, bonds] = await Promise.all([
-          this.fetchEastMoneyTable(code, 'jjcc'),
-          this.fetchEastMoneyTable(code, 'zqcc')
-      ]);
+      // 【核心修复】：取消并发，改为排队请求，确保东财服务器 100% 成功返回数据
+      stocks = await this.fetchEastMoneyTable(code, 'jjcc');
+      bonds = await this.fetchEastMoneyTable(code, 'zqcc');
 
       if (!stocks || stocks.length === 0) {
           try {
@@ -5004,19 +5015,15 @@ async renderPerformanceTab(code) {
     if (!container) return;
     container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">加载基本信息与行业分布...</div>';
     
-    // 【核心新增】：并发拉取 原有经理/评价数据 + 东方财富行业分布数据
-    const [managerEvalRes, industries] = await Promise.all([
-      this.fetchManagerAndEval(code),
-      this.fetchEastMoneyTable(code, 'hypz')
-    ]);
+    // 【核心修复】：取消 Promise.all 并发，改为 await 串行排队拉取，防止触发东财反爬墙拦截
+    const managerEvalRes = await this.fetchManagerAndEval(code);
+    const industries = await this.fetchEastMoneyTable(code, 'hypz');
 
     const manager = managerEvalRes.manager;
     const evalData = managerEvalRes.eval;
 
-    // 使用自适应网格，宽屏并排，窄屏上下排列
     let topHtml = '<div class="grid-cards" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:15px;">';
     
-    // 渲染经理卡片
     if (manager) {
       topHtml += `
         <div class="card" style="padding:15px;">
@@ -5027,24 +5034,29 @@ async renderPerformanceTab(code) {
         </div>`;
     }
     
-    // 渲染综合评价卡片
-    if (evalData && evalData.data) {
+    // 【核心修复】：增加有效性校验，如果全是 Null 或者没有分数，直接不显示该卡片
+    let isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
+
+    if (isEvalValid) {
       let barHtml = '';
       for (let i = 0; i < evalData.categories.length; i++) {
+        // 兜底单独某一项为 null 的情况
+        let valNum = evalData.data[i] !== null ? evalData.data[i] : 0;
+        let valText = evalData.data[i] !== null ? evalData.data[i] : '--';
+        
         barHtml += `
           <div style="margin-bottom: 8px; display: flex; align-items: center;">
             <span style="width: 60px; font-size: 13px; color: #475569; font-weight:bold;">${evalData.categories[i]}</span>
             <div style="flex: 1; background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden; margin: 0 10px;">
-              <div style="width: ${evalData.data[i]}%; background: #3b82f6; height: 8px;"></div>
+              <div style="width: ${valNum}%; background: #3b82f6; height: 8px;"></div>
             </div>
-            <span style="width: 30px; font-size: 13px; color: #3b82f6; font-weight:bold;">${evalData.data[i]}</span>
+            <span style="width: 30px; font-size: 13px; color: #3b82f6; font-weight:bold;">${valText}</span>
           </div>`;
       }
-      topHtml += `<div class="card" style="padding:15px;"><h3 style="margin:0 0 16px 0; font-size:15px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right; font-weight:900;">${evalData.avr} 分</span></h3>${barHtml}</div>`;
+      topHtml += `<div class="card" style="padding:15px;"><h3 style="margin:0 0 16px 0; font-size:15px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right; font-weight:900;">${evalData.avr || '--'} 分</span></h3>${barHtml}</div>`;
     }
     topHtml += '</div>';
     
-    // 【核心新增】：渲染行业分布卡片（占满下方整行宽度）
     let indCardHtml = '';
     if (industries && industries.length > 0) {
         let indItems = industries.map(ind => {
@@ -5064,10 +5076,9 @@ async renderPerformanceTab(code) {
                           </div>`;
     }
 
-    if (!manager && !evalData && (!industries || industries.length === 0)) {
+    if (!manager && !isEvalValid && (!industries || industries.length === 0)) {
       container.innerHTML = '<div style="padding:40px; text-align:center; color:#94a3b8;">暂无基本信息与行业数据</div>';
     } else {
-      // 拼接：上方两个小卡片并排，下方行业分布独占大卡片
       container.innerHTML = topHtml + indCardHtml;
     }
   }

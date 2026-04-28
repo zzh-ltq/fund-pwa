@@ -4074,30 +4074,38 @@ drawIntradayFlowCanvas(data) {
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
 
-  // 【修复后】：东方财富官网持仓解析兜底引擎
-  fetchEastMoneyHoldings(code) {
+  // 【新增】：东方财富官网持仓解析引擎 (支持 type='jjcc' 股票 或 type='zqcc' 债券)
+  fetchEastMoneyTable(code, type) {
     return new Promise((resolve) => {
         const script = document.createElement('script');
-        script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${code}&topline=10&year=&month=&rt=${Date.now()}`;
+        script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${type}&code=${code}&topline=10&year=&month=&rt=${Date.now()}`;
         script.onload = () => {
-            let holdings = [];
+            let result = [];
             if (window.apidata && window.apidata.content) {
                 try {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(window.apidata.content, 'text/html');
-                    // 抓取东财表格里的持仓行
                     const trs = doc.querySelectorAll('table.w782 tbody tr');
                     trs.forEach(tr => {
                         const tds = tr.querySelectorAll('td');
-                        if (tds.length >= 7 && tds[0].innerText.trim() !== '暂无数据') {
-                            const codeStr = tds[1].innerText.trim();
-                            const nameStr = tds[2].innerText.trim();
-                            // 【核心修复】：东方财富的表格里，第7列（索引为6）才是“占净值比例”！
-                            const ratioStr = tds[6].innerText.trim().replace('%', ''); 
+                        if (tds.length >= 4 && tds[0].innerText.trim() !== '暂无数据') {
+                            let codeStr, nameStr, ratioStr;
+                            // 股票提取逻辑 (第7列为占比)
+                            if (type === 'jjcc' && tds.length >= 7) {
+                                codeStr = tds[1].innerText.trim();
+                                nameStr = tds[2].innerText.trim();
+                                ratioStr = tds[6].innerText.trim().replace('%', ''); 
+                            } 
+                            // 债券提取逻辑 (第4列为占比)
+                            else if (type === 'zqcc' && tds.length >= 4) {
+                                codeStr = tds[1].innerText.trim();
+                                nameStr = tds[2].innerText.trim();
+                                ratioStr = tds[3].innerText.trim().replace('%', ''); 
+                            }
                             
                             if (codeStr && nameStr && !isNaN(parseFloat(ratioStr))) {
-                                holdings.push({ 
-                                    code: codeStr.padStart(5, '0'), 
+                                result.push({ 
+                                    code: type === 'jjcc' ? codeStr.padStart(5, '0') : codeStr, 
                                     name: nameStr, 
                                     ratio: parseFloat(ratioStr) 
                                 });
@@ -4108,7 +4116,7 @@ drawIntradayFlowCanvas(data) {
                 window.apidata = null;
             }
             script.remove();
-            resolve(holdings);
+            resolve(result);
         };
         script.onerror = () => { script.remove(); resolve([]); };
         document.head.appendChild(script);
@@ -4118,24 +4126,29 @@ drawIntradayFlowCanvas(data) {
   async loadHoldings(code) { 
     document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>'; 
     try { 
-      let holdings = [];
-      
-      // 引擎 1：主引擎（百度股市通，针对A股结构化好，速度快）
-      try {
-          const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
-          const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
-          const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || []; 
-          holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
-      } catch(e) {}
+      let stocks = [];
+      let bonds = [];
 
-      // 引擎 2：兜底引擎（如果百度没收录，强制使用东方财富页面解析法拿取最新 10 大重仓）
-      if (!holdings || holdings.length === 0) {
-          holdings = await this.fetchEastMoneyHoldings(code);
+      // 【核心修改1】：优先并发请求东方财富的“股票”与“债券”数据
+      [stocks, bonds] = await Promise.all([
+          this.fetchEastMoneyTable(code, 'jjcc'),
+          this.fetchEastMoneyTable(code, 'zqcc')
+      ]);
+
+      // 【核心修改2】：如果东财没有查到股票，用百度股市通作为终极兜底
+      if (!stocks || stocks.length === 0) {
+          try {
+              const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
+              const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
+              const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || []; 
+              stocks = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
+          } catch(e) {}
       }
 
-      if(!holdings || holdings.length === 0) throw new Error(); 
+      if((!stocks || stocks.length === 0) && (!bonds || bonds.length === 0)) throw new Error(); 
       
-      const secids = holdings.map(h => {
+      // 合并处理股票和债券的 secids 用于查询涨跌幅
+      const stockSecids = stocks.map(h => {
           let pfx = '0.';
           if (h.code.length === 5) pfx = '116.'; 
           else if (h.code.startsWith('6') || h.code.startsWith('9')) pfx = '1.';
@@ -4143,58 +4156,99 @@ drawIntradayFlowCanvas(data) {
           h.fallbackSecid = pfx + h.code; 
           return pfx + h.code;
       }).join(','); 
-      
-      const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${secids}&fields=f2,f3,f12,f13,f60,f100&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb'); 
-      
+
+      const bondSecids = bonds.map(h => {
+          let pfx = h.code.startsWith('1') ? '1.' : '0.'; // 债券简单猜测前缀
+          h.fallbackSecid = pfx + h.code;
+          return pfx + h.code;
+      }).join(',');
+
+      const allSecids = [stockSecids, bondSecids].filter(x=>x).join(',');
+
       let qtMap = {}; 
-      (qtData?.data?.diff || []).forEach(item => { 
-        let chg = 0; 
-        if (item.f3 !== '-' && !isNaN(parseFloat(item.f3))) { 
-          chg = parseFloat(item.f3); 
-        } else if (item.f2 !== '-' && item.f60 !== '-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))) { 
-          let f2 = parseFloat(item.f2); 
-          let f60 = parseFloat(item.f60); 
-          if (f60 > 0) chg = ((f2 - f60) / f60) * 100; 
-        } 
-        qtMap[item.f12] = {
-            chg: Number(chg.toFixed(2)),
-            industry: (item.f100 && item.f100 !== '-') ? item.f100 : '',
-            fullSecid: `${item.f13}.${item.f12}` 
-        }; 
-      }); 
+      if (allSecids) {
+          const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${allSecids}&fields=f2,f3,f12,f13,f60,f100&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb'); 
+          (qtData?.data?.diff || []).forEach(item => { 
+            let chg = 0; 
+            if (item.f3 !== '-' && !isNaN(parseFloat(item.f3))) { 
+              chg = parseFloat(item.f3); 
+            } else if (item.f2 !== '-' && item.f60 !== '-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))) { 
+              let f2 = parseFloat(item.f2); 
+              let f60 = parseFloat(item.f60); 
+              if (f60 > 0) chg = ((f2 - f60) / f60) * 100; 
+            } 
+            qtMap[item.f12] = {
+                chg: chg !== 0 ? Number(chg.toFixed(2)) : '--', // 债券波动可能为0或查不到，存为 '--'
+                industry: (item.f100 && item.f100 !== '-') ? item.f100 : '',
+                fullSecid: `${item.f13}.${item.f12}` 
+            }; 
+          }); 
+      }
       
       let sumR = 0, est = 0; 
-      let hHtml = holdings.map(h => { 
-        let stockInfo = qtMap[h.code] || { chg: 0, industry: '', fullSecid: h.fallbackSecid };
-        let chg = stockInfo.chg;
-        let ind = stockInfo.industry;
-        let secid = stockInfo.fullSecid; 
+      let stocksHtml = '';
+      if (stocks.length > 0) {
+          stocksHtml = stocks.map(h => { 
+            let stockInfo = qtMap[h.code] || { chg: '--', industry: '', fullSecid: h.fallbackSecid };
+            let chg = stockInfo.chg;
+            let ind = stockInfo.industry;
+            let secid = stockInfo.fullSecid; 
 
-        sumR += h.ratio; 
-        est += (h.ratio/100)*chg; 
-        
-        let isHK = h.code.length === 5 || secid.startsWith('116.');
-        let hkHtml = isHK ? `<span class="c-tag" style="background:#f3e8ff; color:#9333ea; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold; border: 1px solid #e9d5ff;">港股</span>` : '';
-        let indHtml = ind ? `<span class="c-tag" style="background:#e0e7ff; color:#3b82f6; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold;">${ind}</span>` : '';
+            sumR += h.ratio; 
+            if (chg !== '--') est += (h.ratio/100)*chg; 
+            
+            let isHK = h.code.length === 5 || secid.startsWith('116.');
+            let hkHtml = isHK ? `<span class="c-tag" style="background:#f3e8ff; color:#9333ea; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold; border: 1px solid #e9d5ff;">港股</span>` : '';
+            let indHtml = ind ? `<span class="c-tag" style="background:#e0e7ff; color:#3b82f6; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold;">${ind}</span>` : '';
 
-        return `<div class="list-item" style="padding: 12px 14px; cursor: pointer;" onclick="app.openMarketDetail('${secid}', '${h.name}')">
+            return `<div class="list-item" style="padding: 12px 14px; cursor: pointer;" onclick="app.openMarketDetail('${secid}', '${h.name}')">
+                      <div style="flex:2; display:flex; flex-direction:column; gap:4px;">
+                          <span style="font-weight:900; font-size:14px; color:var(--text-main);">${h.name}</span>
+                          <div style="display:flex; align-items:center; gap:6px;">
+                              <span class="c-code" style="font-size:11px;">${h.code}</span>
+                              ${hkHtml}
+                              ${indHtml}
+                          </div>
+                      </div>
+                      <span style="flex:1;text-align:center; color:var(--text-sub); font-size:13px; font-weight:800;">${h.ratio}%</span>
+                      <span style="flex:1;text-align:right; font-weight:900; font-size:15px;" class="${chg>0?'red':(chg<0?'green':'')}">${chg>0?'+':''}${chg}${chg!=='--'?'%':''}</span>
+                      <span style="color:#cbd5e1; font-size:18px; margin-left:10px; font-weight:bold;">›</span>
+                    </div>`; 
+          }).join(''); 
+      }
+      
+      // 【核心修改3】：隔离渲染债券区块，并带上专属标签
+      let bondsHtml = '';
+      if (bonds.length > 0) {
+          let bHtml = bonds.map(h => {
+             let stockInfo = qtMap[h.code] || { chg: '--', fullSecid: h.fallbackSecid };
+             let chg = stockInfo.chg;
+             let secid = stockInfo.fullSecid;
+
+             return `<div class="list-item" style="padding: 12px 14px; cursor: pointer;" onclick="app.openMarketDetail('${secid}', '${h.name}')">
                   <div style="flex:2; display:flex; flex-direction:column; gap:4px;">
                       <span style="font-weight:900; font-size:14px; color:var(--text-main);">${h.name}</span>
                       <div style="display:flex; align-items:center; gap:6px;">
                           <span class="c-code" style="font-size:11px;">${h.code}</span>
-                          ${hkHtml}
-                          ${indHtml}
+                          <span class="c-tag" style="background:#fefce8; color:#ca8a04; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold; border: 1px solid #fef08a;">债券</span>
                       </div>
                   </div>
                   <span style="flex:1;text-align:center; color:var(--text-sub); font-size:13px; font-weight:800;">${h.ratio}%</span>
-                  <span style="flex:1;text-align:right; font-weight:900; font-size:15px;" class="${chg>=0?'red':'green'}">${chg>0?'+':''}${chg}%</span>
+                  <span style="flex:1;text-align:right; font-weight:900; font-size:15px;" class="${chg>0?'red':(chg<0?'green':'')}">${chg>0?'+':''}${chg}${chg!=='--'?'%':''}</span>
                   <span style="color:#cbd5e1; font-size:18px; margin-left:10px; font-weight:bold;">›</span>
                 </div>`; 
-      }).join(''); 
+          }).join('');
+          bondsHtml = `<div style="margin: 18px 0 8px; font-weight: 900; color: #1e293b; font-size: 14px; border-left: 4px solid #ca8a04; padding-left: 8px;">债券持仓明细</div>${bHtml}`;
+      }
+
+      let topCard = '';
+      if (stocks.length > 0) {
+         topCard = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px;"><span>前十股票占比</span><span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px;"><span>股票加权估算</span><span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>`;
+      }
       
-      document.getElementById('det-hold-area').innerHTML = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px;"><span>前十总占比</span><span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px;"><span>加权估算涨幅</span><span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>${hHtml}`; 
+      document.getElementById('det-hold-area').innerHTML = topCard + stocksHtml + bondsHtml; 
     } catch(e) { 
-      document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无股票持仓数据或网络请求失败</div>'; 
+      document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无股票或债券持仓数据</div>'; 
     } 
   },
   

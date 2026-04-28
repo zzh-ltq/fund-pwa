@@ -508,16 +508,20 @@
   <!-- 弹窗:基金详情 -->
   <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div><div class="nav-title">基金详情</div><div style="width:60px;"></div></div><div class="scroll-area"><div class="card" style="margin-bottom: 12px;"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2><span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span><select id="det-group-select" onchange="app.addToGroupFromDetail()" style="margin-left:8px; padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);"><option value="">+ 加自选</option></select></div><div id="det-rt-block" style="text-align:right; display:none;"><div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div><div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;"><div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div></div><div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div></div></div></div>
     <div class="detail-tabs" id="det-tabs">
-      <div class="action-pill active" onclick="app.renderDetailTab(15)">15日</div>
-      <div class="action-pill" onclick="app.renderDetailTab(30)">30日</div>
-      <div class="action-pill" onclick="app.renderDetailTab(60)">60日</div>
-      <div class="action-pill" onclick="app.renderDetailTab(90)">90日</div>
+      <div class="action-pill active" onclick="app.renderDetailTab('trend')">📈 业绩走势</div>
       <div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div>
-      <div class="action-pill" onclick="app.renderDetailTab('performance')">📈 业绩</div>
+      <div class="action-pill" onclick="app.renderDetailTab('performance')">📊 业绩</div>
       <div class="action-pill" onclick="app.renderDetailTab('basic')">ℹ️ 基本信息</div>
       <div class="action-pill" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff;" onclick="app.renderDetailTab('analysis')">🤖 AI波段研判</div>
     </div>
     <div id="det-chart-area">
+      <!-- 新增业绩走势的二级菜单 -->
+      <div class="detail-tabs" style="margin-bottom: 12px; gap: 8px;" id="det-trend-subtabs">
+        <div class="action-pill" data-trend="15" onclick="app.renderTrendTab(15)">15日</div>
+        <div class="action-pill active" data-trend="30" onclick="app.renderTrendTab(30)">30日</div>
+        <div class="action-pill" data-trend="60" onclick="app.renderTrendTab(60)">60日</div>
+        <div class="action-pill" data-trend="90" onclick="app.renderTrendTab(90)">90日</div>
+      </div>
       <div class="card" style="padding:12px; margin-bottom: 12px;">
         <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:8px; padding:0 2px;">
           <span style="color:#1e293b; font-weight:800;">业绩走势(累计涨跌)</span>
@@ -3822,7 +3826,6 @@ drawIntradayFlowCanvas(data) {
     this.currentDetailCode = code; 
     const f = this.data.fundsCache[code]; 
     
-    // 防错处理：万一未加载出基础信息，显示默认code
     document.getElementById('det-name').innerText = f?.name || code; 
     document.getElementById('det-code').innerText = f?.code || code; 
     
@@ -3835,11 +3838,14 @@ drawIntradayFlowCanvas(data) {
     } 
     
     this.updateDetailRtInfo(code); 
-    this.renderDetailTab(30); 
+    
+    // 【修改】：默认打开时进入 "业绩走势" 主菜单
+    this.renderDetailTab('trend'); 
     this.openModal('detail'); 
   },
   
   updateDetailRtInfo(code) { 
+    // ... 保持原有代码不变 ...
     const rtBlock = document.getElementById('det-rt-block'); 
     const rtVal = document.getElementById('det-rt-val'); 
     const rtChg = document.getElementById('det-rt-chg'); 
@@ -3859,6 +3865,7 @@ drawIntradayFlowCanvas(data) {
   },
   
   addToGroupFromDetail() { 
+    // ... 保持原有代码不变 ...
     const sel = document.getElementById('det-group-select'); 
     const gid = sel.value; 
     if(!gid) return; 
@@ -3875,52 +3882,52 @@ drawIntradayFlowCanvas(data) {
     } else this.showToast('已存在', 'error'); 
     sel.value = ''; 
   },
+
+  renderDetailTab(tabId) {
+    const tabs = document.querySelectorAll('#det-tabs .action-pill');
+    tabs.forEach(el => el.classList.remove('active'));
+    
+    // 根据文字匹配高亮对应的主菜单标签
+    const idxMap = { 'trend': 0, 'hold': 1, 'performance': 2, 'basic': 3, 'analysis': 4 };
+    if (tabs[idxMap[tabId]]) tabs[idxMap[tabId]].classList.add('active');
+    
+    document.getElementById('det-chart-area').style.display = 'none';
+    document.getElementById('det-hold-area').style.display = 'none';
+    document.getElementById('det-analysis-area').style.display = 'none';
+    document.getElementById('det-performance-area').style.display = 'none';
+    document.getElementById('det-basicinfo-area').style.display = 'none';
+    
+    if (tabId === 'hold') {
+      document.getElementById('det-hold-area').style.display = 'block';
+      this.loadHoldings(this.currentDetailCode);
+    } else if (tabId === 'analysis') {
+      document.getElementById('det-analysis-area').style.display = 'block';
+      this.generateAnalysisReport(this.currentDetailCode);
+    } else if (tabId === 'performance') {
+      document.getElementById('det-performance-area').style.display = 'block';
+      this.renderPerformanceTab(this.currentDetailCode);
+    } else if (tabId === 'basic') {
+      document.getElementById('det-basicinfo-area').style.display = 'block';
+      this.renderBasicInfoTab(this.currentDetailCode);
+    } else if (tabId === 'trend') {
+      document.getElementById('det-chart-area').style.display = 'block';
+      // 默认进入 30日 走势
+      this.renderTrendTab(this.currentTrendDays || 30);
+    }
+  },
   
-  renderDetailTab(days) {
-  const tabs = document.querySelectorAll('#det-tabs .action-pill');
-  tabs.forEach(el => el.classList.remove('active'));
-  
-  // 高亮当前选中的tab
-  if (days === 15 && tabs[0]) tabs[0].classList.add('active');
-  else if (days === 30 && tabs[1]) tabs[1].classList.add('active');
-  else if (days === 60 && tabs[2]) tabs[2].classList.add('active');
-  else if (days === 90 && tabs[3]) tabs[3].classList.add('active');
-  else if (days === 'hold' && tabs[4]) tabs[4].classList.add('active');
-  else if (days === 'performance' && tabs[5]) tabs[5].classList.add('active');
-  else if (days === 'basic' && tabs[6]) tabs[6].classList.add('active');
-  else if (days === 'analysis' && tabs[7]) tabs[7].classList.add('active');
-  
-  // 隐藏所有内容区域
-  document.getElementById('det-chart-area').style.display = 'none';
-  document.getElementById('det-hold-area').style.display = 'none';
-  document.getElementById('det-analysis-area').style.display = 'none';
-  document.getElementById('det-performance-area').style.display = 'none';
-  document.getElementById('det-basicinfo-area').style.display = 'none';
-  
-  if (days === 'hold') {
-    document.getElementById('det-hold-area').style.display = 'block';
-    this.loadHoldings(this.currentDetailCode);
-    return;
-  } else if (days === 'analysis') {
-    document.getElementById('det-analysis-area').style.display = 'block';
-    this.generateAnalysisReport(this.currentDetailCode);
-    return;
-  } else if (days === 'performance') {
-    document.getElementById('det-performance-area').style.display = 'block';
-    this.renderPerformanceTab(this.currentDetailCode);
-    return;
-  } else if (days === 'basic') {
-    document.getElementById('det-basicinfo-area').style.display = 'block';
-    this.renderBasicInfoTab(this.currentDetailCode);
-    return;
-  }
-  
-  // 原有的走势图逻辑
-  document.getElementById('det-chart-area').style.display = 'block';
-  const f = this.data.fundsCache[this.currentDetailCode];
-  if (!f || !f.netWorth) return;
-  const nw = f.netWorth.slice(-days);
-  if (nw.length < 2) return;
+  // 【新增】：专门处理二级时间标签点击画图的函数
+  renderTrendTab(days) {
+    this.currentTrendDays = days;
+    const subTabs = document.querySelectorAll('#det-trend-subtabs .action-pill');
+    subTabs.forEach(el => el.classList.remove('active'));
+    const targetTab = document.querySelector(`#det-trend-subtabs .action-pill[data-trend="${days}"]`);
+    if(targetTab) targetTab.classList.add('active');
+
+    const f = this.data.fundsCache[this.currentDetailCode];
+    if (!f || !f.netWorth) return;
+    const nw = f.netWorth.slice(-days);
+    if (nw.length < 2) return;
     
     let tbl = nw.slice().reverse().map((item, i, arr) => { 
       let chg = i < arr.length-1 ? ((item.y - arr[i+1].y)/arr[i+1].y*100).toFixed(2) : '--'; 
@@ -4074,7 +4081,7 @@ drawIntradayFlowCanvas(data) {
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
 
-  // 【新增】：东方财富官网持仓解析引擎 (支持 type='jjcc' 股票 或 type='zqcc' 债券)
+  // 东方财富官网持仓解析引擎 (支持 jjcc 股票、zqcc 债券、hypz 行业配置)
   fetchEastMoneyTable(code, type) {
     return new Promise((resolve) => {
         const script = document.createElement('script');
@@ -4088,19 +4095,21 @@ drawIntradayFlowCanvas(data) {
                     const trs = doc.querySelectorAll('table.w782 tbody tr');
                     trs.forEach(tr => {
                         const tds = tr.querySelectorAll('td');
-                        if (tds.length >= 4 && tds[0].innerText.trim() !== '暂无数据') {
+                        if (tds.length >= 3 && tds[0].innerText.trim() !== '暂无数据') {
                             let codeStr, nameStr, ratioStr;
-                            // 股票提取逻辑 (第7列为占比)
                             if (type === 'jjcc' && tds.length >= 7) {
                                 codeStr = tds[1].innerText.trim();
                                 nameStr = tds[2].innerText.trim();
                                 ratioStr = tds[6].innerText.trim().replace('%', ''); 
-                            } 
-                            // 债券提取逻辑 (第4列为占比)
-                            else if (type === 'zqcc' && tds.length >= 4) {
+                            } else if (type === 'zqcc' && tds.length >= 4) {
                                 codeStr = tds[1].innerText.trim();
                                 nameStr = tds[2].innerText.trim();
                                 ratioStr = tds[3].innerText.trim().replace('%', ''); 
+                            } else if (type === 'hypz' && tds.length >= 3) {
+                                // 行业配置没有代码，第2列是行业名称，第3列是占比
+                                codeStr = 'industry'; 
+                                nameStr = tds[1].innerText.trim();
+                                ratioStr = tds[2].innerText.trim().replace('%', ''); 
                             }
                             
                             if (codeStr && nameStr && !isNaN(parseFloat(ratioStr))) {
@@ -4126,16 +4135,15 @@ drawIntradayFlowCanvas(data) {
   async loadHoldings(code) { 
     document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>'; 
     try { 
-      let stocks = [];
-      let bonds = [];
+      let stocks = [], bonds = [], industries = [];
 
-      // 【核心修改1】：优先并发请求东方财富的“股票”与“债券”数据
-      [stocks, bonds] = await Promise.all([
+      // 并发请求：股票、债券、行业分布
+      [stocks, bonds, industries] = await Promise.all([
           this.fetchEastMoneyTable(code, 'jjcc'),
-          this.fetchEastMoneyTable(code, 'zqcc')
+          this.fetchEastMoneyTable(code, 'zqcc'),
+          this.fetchEastMoneyTable(code, 'hypz')
       ]);
 
-      // 【核心修改2】：如果东财没有查到股票，用百度股市通作为终极兜底
       if (!stocks || stocks.length === 0) {
           try {
               const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
@@ -4145,9 +4153,8 @@ drawIntradayFlowCanvas(data) {
           } catch(e) {}
       }
 
-      if((!stocks || stocks.length === 0) && (!bonds || bonds.length === 0)) throw new Error(); 
+      if((!stocks || stocks.length === 0) && (!bonds || bonds.length === 0) && (!industries || industries.length === 0)) throw new Error(); 
       
-      // 合并处理股票和债券的 secids 用于查询涨跌幅
       const stockSecids = stocks.map(h => {
           let pfx = '0.';
           if (h.code.length === 5) pfx = '116.'; 
@@ -4158,7 +4165,7 @@ drawIntradayFlowCanvas(data) {
       }).join(','); 
 
       const bondSecids = bonds.map(h => {
-          let pfx = h.code.startsWith('1') ? '1.' : '0.'; // 债券简单猜测前缀
+          let pfx = h.code.startsWith('1') ? '1.' : '0.';
           h.fallbackSecid = pfx + h.code;
           return pfx + h.code;
       }).join(',');
@@ -4178,7 +4185,7 @@ drawIntradayFlowCanvas(data) {
               if (f60 > 0) chg = ((f2 - f60) / f60) * 100; 
             } 
             qtMap[item.f12] = {
-                chg: chg !== 0 ? Number(chg.toFixed(2)) : '--', // 债券波动可能为0或查不到，存为 '--'
+                chg: chg !== 0 ? Number(chg.toFixed(2)) : '--', 
                 industry: (item.f100 && item.f100 !== '-') ? item.f100 : '',
                 fullSecid: `${item.f13}.${item.f12}` 
             }; 
@@ -4217,14 +4224,30 @@ drawIntradayFlowCanvas(data) {
           }).join(''); 
       }
       
-      // 【核心修改3】：隔离渲染债券区块，并带上专属标签
+      // 【新增】：渲染行业分布条形图（插在股票和债券之间）
+      let industriesHtml = '';
+      if (industries.length > 0) {
+          let indHtml = industries.map(ind => {
+              return `<div style="margin-bottom: 12px; display: flex; align-items: center;">
+                        <span style="width: 80px; font-size: 13px; color: #1e293b; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${ind.name}">${ind.name}</span>
+                        <div style="flex: 1; background: transparent; height: 14px; margin: 0 10px;">
+                            <div style="width: ${ind.ratio}%; background: #5c8bff; height: 100%; border-radius: 2px; transition: width 0.5s;"></div>
+                        </div>
+                        <span style="width: 50px; font-size: 13px; color: #1e293b; text-align: right;">${ind.ratio.toFixed(2)}%</span>
+                      </div>`;
+          }).join('');
+          industriesHtml = `<div class="card" style="margin: 16px 0 12px; padding-bottom: 4px;">
+                              <div style="margin-bottom: 16px; font-weight: 900; color: #1e293b; font-size: 14px; border-left: 4px solid #3b82f6; padding-left: 8px;">行业分布</div>
+                              ${indHtml}
+                            </div>`;
+      }
+
       let bondsHtml = '';
       if (bonds.length > 0) {
           let bHtml = bonds.map(h => {
              let stockInfo = qtMap[h.code] || { chg: '--', fullSecid: h.fallbackSecid };
              let chg = stockInfo.chg;
              let secid = stockInfo.fullSecid;
-
              return `<div class="list-item" style="padding: 12px 14px; cursor: pointer;" onclick="app.openMarketDetail('${secid}', '${h.name}')">
                   <div style="flex:2; display:flex; flex-direction:column; gap:4px;">
                       <span style="font-weight:900; font-size:14px; color:var(--text-main);">${h.name}</span>
@@ -4246,7 +4269,8 @@ drawIntradayFlowCanvas(data) {
          topCard = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px;"><span>前十股票占比</span><span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px;"><span>股票加权估算</span><span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>`;
       }
       
-      document.getElementById('det-hold-area').innerHTML = topCard + stocksHtml + bondsHtml; 
+      // 按顺序拼装：头部统计卡片 -> 股票列表 -> 行业分布 -> 债券列表
+      document.getElementById('det-hold-area').innerHTML = topCard + stocksHtml + industriesHtml + bondsHtml; 
     } catch(e) { 
       document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无股票或债券持仓数据</div>'; 
     } 

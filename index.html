@@ -4073,19 +4073,69 @@ drawIntradayFlowCanvas(data) {
     
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
-  
+
+  // 【新增】：东方财富官网持仓解析兜底引擎
+  fetchEastMoneyHoldings(code) {
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${code}&topline=10&year=&month=&rt=${Date.now()}`;
+        script.onload = () => {
+            let holdings = [];
+            if (window.apidata && window.apidata.content) {
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(window.apidata.content, 'text/html');
+                    // 抓取东财表格里的持仓行
+                    const trs = doc.querySelectorAll('table.w782 tbody tr');
+                    trs.forEach(tr => {
+                        const tds = tr.querySelectorAll('td');
+                        if (tds.length >= 7 && tds[0].innerText.trim() !== '暂无数据') {
+                            const codeStr = tds[1].innerText.trim();
+                            const nameStr = tds[2].innerText.trim();
+                            const ratioStr = tds[3].innerText.trim().replace('%', ''); // 第4列是占净值比
+                            
+                            if (codeStr && nameStr && !isNaN(parseFloat(ratioStr))) {
+                                holdings.push({ 
+                                    // 港股代码如果不满5位自动补零，方便后续港股标签的正则匹配
+                                    code: codeStr.padStart(5, '0'), 
+                                    name: nameStr, 
+                                    ratio: parseFloat(ratioStr) 
+                                });
+                            }
+                        }
+                    });
+                } catch(e) {}
+                window.apidata = null;
+            }
+            script.remove();
+            resolve(holdings);
+        };
+        script.onerror = () => { script.remove(); resolve([]); };
+        document.head.appendChild(script);
+    });
+  },
   async loadHoldings(code) { 
     document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>'; 
     try { 
-      const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
-      const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
-      const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || []; 
-      const holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
-      if(holdings.length === 0) throw new Error(); 
+      let holdings = [];
+      
+      // 引擎 1：主引擎（百度股市通，针对A股结构化好，速度快）
+      try {
+          const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
+          const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
+          const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || []; 
+          holdings = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
+      } catch(e) {}
+
+      // 引擎 2：兜底引擎（如果百度没收录，强制使用东方财富页面解析法拿取最新 10 大重仓）
+      if (!holdings || holdings.length === 0) {
+          holdings = await this.fetchEastMoneyHoldings(code);
+      }
+
+      if(!holdings || holdings.length === 0) throw new Error(); 
       
       const secids = holdings.map(h => {
           let pfx = '0.';
-          // 5位代码默认为港股
           if (h.code.length === 5) pfx = '116.'; 
           else if (h.code.startsWith('6') || h.code.startsWith('9')) pfx = '1.';
           else if (h.code.startsWith('4') || h.code.startsWith('8')) pfx = '0.';
@@ -4122,13 +4172,10 @@ drawIntradayFlowCanvas(data) {
         sumR += h.ratio; 
         est += (h.ratio/100)*chg; 
         
-        // 【核心修改1】：识别是否为港股 (116 是东方财富港股专属前缀，长度5位是特征双重保险)
         let isHK = h.code.length === 5 || secid.startsWith('116.');
         let hkHtml = isHK ? `<span class="c-tag" style="background:#f3e8ff; color:#9333ea; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold; border: 1px solid #e9d5ff;">港股</span>` : '';
-        
         let indHtml = ind ? `<span class="c-tag" style="background:#e0e7ff; color:#3b82f6; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold;">${ind}</span>` : '';
 
-        // 【核心修改2】：把港股专属标签放在行业标签前面展示
         return `<div class="list-item" style="padding: 12px 14px; cursor: pointer;" onclick="app.openMarketDetail('${secid}', '${h.name}')">
                   <div style="flex:2; display:flex; flex-direction:column; gap:4px;">
                       <span style="font-weight:900; font-size:14px; color:var(--text-main);">${h.name}</span>

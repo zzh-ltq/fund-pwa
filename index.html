@@ -4081,68 +4081,88 @@ drawIntradayFlowCanvas(data) {
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
 
-  // 【核心修复】：东方财富官网持仓解析引擎 (引入沙盒机制，绝对防污染)
-  fetchEastMoneyTable(code, type) {
-    return new Promise((resolve) => {
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        document.body.appendChild(iframe);
+  // 【终极修复】：东方财富官网持仓解析引擎 (引入沙盒重试机制，绝对防污染防拦截)
+  async fetchEastMoneyTable(code, type, maxRetries = 2) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const result = await new Promise((resolve) => {
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
 
-        const finish = (result) => {
-            if (iframe.parentNode) iframe.remove();
-            resolve(result);
-        };
+            const finish = (data) => {
+                if (iframe.parentNode) iframe.remove();
+                resolve(data);
+            };
 
-        const timeout = setTimeout(() => finish([]), 6000); 
+            const timeout = setTimeout(() => finish(null), 4000); 
 
-        const doc = iframe.contentWindow.document;
-        const script = doc.createElement('script');
-        // 加上随机数防止强缓存
-        script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${type}&code=${code}&topline=10&year=&month=&rt=${Date.now()}&_=${Math.floor(Math.random()*1000)}`;
+            const doc = iframe.contentWindow.document;
+            
+            // 屏蔽沙盒内的红字报错，尽量保持主控制台干净
+            iframe.contentWindow.onerror = () => true; 
+
+            const script = doc.createElement('script');
+            // 每次重试时轻微改变时间戳，绕过错误缓存
+            script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${type}&code=${code}&topline=10&year=&month=&rt=${Date.now() + attempt}`;
+            
+            script.onload = () => {
+                clearTimeout(timeout);
+                const win = iframe.contentWindow;
+                
+                // 核心防线：判断数据有没有被服务器恶意截断
+                if (win.apidata && win.apidata.content) {
+                    let parsedData = [];
+                    try {
+                        const parser = new DOMParser();
+                        const htmlDoc = parser.parseFromString(win.apidata.content, 'text/html');
+                        const trs = htmlDoc.querySelectorAll('table.w782 tbody tr');
+                        trs.forEach(tr => {
+                            const tds = tr.querySelectorAll('td');
+                            if (tds.length >= 3 && tds[0].innerText.trim() !== '暂无数据') {
+                                let codeStr, nameStr, ratioStr;
+                                if (type === 'jjcc' && tds.length >= 7) {
+                                    codeStr = tds[1].innerText.trim();
+                                    nameStr = tds[2].innerText.trim();
+                                    ratioStr = tds[6].innerText.trim().replace('%', ''); 
+                                } else if (type === 'zqcc' && tds.length >= 4) {
+                                    codeStr = tds[1].innerText.trim();
+                                    nameStr = tds[2].innerText.trim();
+                                    ratioStr = tds[3].innerText.trim().replace('%', ''); 
+                                } else if (type === 'hypz' && tds.length >= 3) {
+                                    codeStr = 'industry'; 
+                                    nameStr = tds[1].innerText.trim();
+                                    ratioStr = tds[2].innerText.trim().replace('%', ''); 
+                                }
+                                
+                                if (codeStr && nameStr && !isNaN(parseFloat(ratioStr))) {
+                                    parsedData.push({ 
+                                        code: type === 'jjcc' ? codeStr.padStart(5, '0') : codeStr, 
+                                        name: nameStr, 
+                                        ratio: parseFloat(ratioStr) 
+                                    });
+                                }
+                            }
+                        });
+                        finish(parsedData); // 成功解析出数据，返回
+                    } catch(e) {
+                        finish(null); // DOM解析异常，触发重试
+                    }
+                } else {
+                    finish(null); // 数据被截断导致 apidata 未定义，直接触发重试！
+                }
+            };
+            script.onerror = () => { clearTimeout(timeout); finish(null); };
+            doc.head.appendChild(script);
+        });
+
+        // 如果 result 不是 null，说明成功拿到了数据（哪怕是个空数组 []），直接返回结束战斗
+        if (result !== null) return result; 
         
-        script.onload = () => {
-            clearTimeout(timeout);
-            const win = iframe.contentWindow;
-            let result = [];
-            if (win.apidata && win.apidata.content) {
-                try {
-                    const parser = new DOMParser();
-                    const htmlDoc = parser.parseFromString(win.apidata.content, 'text/html');
-                    const trs = htmlDoc.querySelectorAll('table.w782 tbody tr');
-                    trs.forEach(tr => {
-                        const tds = tr.querySelectorAll('td');
-                        if (tds.length >= 3 && tds[0].innerText.trim() !== '暂无数据') {
-                            let codeStr, nameStr, ratioStr;
-                            if (type === 'jjcc' && tds.length >= 7) {
-                                codeStr = tds[1].innerText.trim();
-                                nameStr = tds[2].innerText.trim();
-                                ratioStr = tds[6].innerText.trim().replace('%', ''); 
-                            } else if (type === 'zqcc' && tds.length >= 4) {
-                                codeStr = tds[1].innerText.trim();
-                                nameStr = tds[2].innerText.trim();
-                                ratioStr = tds[3].innerText.trim().replace('%', ''); 
-                            } else if (type === 'hypz' && tds.length >= 3) {
-                                codeStr = 'industry'; 
-                                nameStr = tds[1].innerText.trim();
-                                ratioStr = tds[2].innerText.trim().replace('%', ''); 
-                            }
-                            
-                            if (codeStr && nameStr && !isNaN(parseFloat(ratioStr))) {
-                                result.push({ 
-                                    code: type === 'jjcc' ? codeStr.padStart(5, '0') : codeStr, 
-                                    name: nameStr, 
-                                    ratio: parseFloat(ratioStr) 
-                                });
-                            }
-                        }
-                    });
-                } catch(e) {}
-            }
-            finish(result);
-        };
-        script.onerror = () => { clearTimeout(timeout); finish([]); };
-        doc.head.appendChild(script);
-    });
+        // 如果遭遇服务器拦截（返回了 null），休息 500 毫秒后自动发起下一次重试进攻
+        await new Promise(r => setTimeout(r, 500));
+    }
+    
+    return []; // 如果 3 次重试都被拦截，无奈返回空数组兜底，保证网页不卡死
   },
   
   async loadHoldings(code) { 

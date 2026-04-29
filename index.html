@@ -4951,39 +4951,9 @@ async fetchFundFullInfo(code) {
     document.head.appendChild(script);
   });
 },
-  async fetchTradeRuleMobileFallback(code, retry = 1) {
-  const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFundTradeRuleNew?Fcode=${code}&deviceid=1&plat=Android&product=EFund&version=2.0.0`;
-  for (let i = 0; i <= retry; i++) {
-    try {
-      const data = await fetchJSONP(url, 'callback');
-      if (data && data.Datas) {
-        let trade = data.Datas;
-        if (Array.isArray(trade)) trade = trade[0];
-        return trade;
-      }
-    } catch (e) {
-      if (i === retry) console.warn(`移动端接口最终失败 ${code}:`, e);
-      else await new Promise(r => setTimeout(r, 300));
-    }
-  }
-  return null;
-},
+ 
 
-  async fetchTradeRuleMobile(code) {
-  const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFundTradeRuleNew?Fcode=${code}&deviceid=1&plat=Android&product=EFund&version=2.0.0`;
-  try {
-    const data = await fetchJSONP(url, 'callback');
-    if (data && data.Datas) {
-      let trade = data.Datas;
-      if (Array.isArray(trade)) trade = trade[0];
-      return trade;
-    }
-    return null;
-  } catch (e) {
-    console.warn(`移动端交易规则接口失败 ${code}:`, e);
-    return null;
-  }
-},
+
 
   async fetchJJFLHtml(code) {
   try {

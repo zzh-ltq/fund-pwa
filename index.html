@@ -387,7 +387,7 @@
   <!-- 自选首页 -->
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
-      <div style="display:flex; gap:8px;"><div class="nav-btn" onclick="app.switchTab('sync')">☁️同步</div><div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div></div>
+      <div style="display:flex; gap:8px;"><div class="nav-btn" onclick="app.switchTab('sync')">☁️同步</div><div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div><div class="nav-btn" style="background:#fff;" onclick="app.batchUpdateSellConfirmInfo()">🔄赎率</div></div>
       <div class="nav-title">📈 养鸡小能手</div>
       <div class="nav-btn" style="background:#fff;" onclick="app.openSearch()">🔍搜索</div>
     </div>
@@ -812,6 +812,61 @@ const app = {
   // ==========================================
   // 3. 通用辅助函数
   // ==========================================
+
+  async batchUpdateSellConfirmInfo() {
+  // 获取所有基金代码（去重）
+  const allCodes = new Set();
+  this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
+  const codes = Array.from(allCodes);
+  if (codes.length === 0) {
+    this.showToast('暂无基金数据', 'error');
+    return;
+  }
+
+  this.showToast(`开始获取 ${codes.length} 只基金的卖出确认信息...`);
+  
+  // 显示加载提示（复用全局加载弹窗）
+  const loadingModal = document.getElementById('modal-loading');
+  const titleText = document.getElementById('loading-modal-title');
+  const progressText = document.getElementById('loading-progress-text');
+  titleText.innerText = '正在更新卖出确认信息...';
+  loadingModal.style.display = 'flex';
+  progressText.innerText = `0 / ${codes.length}`;
+
+  let updatedCount = 0;
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i];
+    const html = await this.fetchFundRateHtml(code);
+    if (html) {
+      const trade = this.parseFundRateHtml(html, code);
+      if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+      this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
+      this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
+      updatedCount++;
+      // 每更新5只保存一次，避免频繁写入
+      if (updatedCount % 5 === 0 || i === codes.length - 1) {
+        await this.saveData();
+      }
+    }
+    progressText.innerText = `${i+1} / ${codes.length}`;
+    // 适当延迟，避免请求过频
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  loadingModal.style.display = 'none';
+  this.showToast(`✅ 更新完成，成功获取 ${updatedCount} 只基金的卖出确认信息`);
+  
+  // 刷新首页卡片显示
+  if (document.getElementById('view-home').classList.contains('active')) {
+    this.renderHome();
+  }
+  
+  // 可选：将数据备份到云端（调用已有的 pushToCloud）
+  if (this.s3) {
+    this.pushToCloud();
+  }
+},
+  
   formatEMDate(ts, length = 10, offset = 0) { 
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length); 
   },
@@ -1436,7 +1491,6 @@ rtManualRefreshMarket() {
       rtHtml = `<div class="rt-card-row"><div style="font-size:10px; color:#94a3b8;">⚡ 估算 ${rt.gztime.slice(11)}</div><div style="display:flex; gap:8px; align-items:baseline;"><span class="${rtCol}" style="font-size:15px; font-weight:900;">${rt.gsz.toFixed(4)}</span><span class="${rtCol}" style="font-size:13px; font-weight:bold; background:rgba(0,0,0,0.03); padding:0 4px; border-radius:4px;">${rt.gszzl > 0 ? '+' : ''}${rt.gszzl.toFixed(2)}%</span></div></div>`; 
     } 
 
-    // 构建卖出确认日提示
 let sellConfirmHtml = '';
 if (f.sellConfirmDays && f.sellConfirmDays !== '--') {
   let tip = '';
@@ -4486,8 +4540,6 @@ drawIntradayFlowCanvas(data) {
       
       this.saveData(); 
       this.processGroupRisks(); 
-      // 新增：后台更新交易规则信息（不阻塞UI）
-      this.updateAllFundsTradeInfo();
       
       if (!isSilent) { 
         loadingModal.style.display = 'none'; 
@@ -4504,28 +4556,6 @@ drawIntradayFlowCanvas(data) {
     } 
   },
 
-  async updateAllFundsTradeInfo() {
-  const allCodes = new Set();
-  this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
-  const codes = Array.from(allCodes);
-  for (let code of codes) {
-    if (this.data.fundsCache[code]?.sellConfirmDays) continue; // 已有缓存则跳过
-    const html = await this.fetchFundRateHtml(code);
-    if (html) {
-      const trade = this.parseFundRateHtml(html, code);
-      if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-      this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
-      this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
-      await this.saveData();
-      // 更新当前页面的卡片显示（如果首页当前激活）
-      if (document.getElementById('view-home').classList.contains('active')) {
-        this.renderHome();
-      }
-      // 延迟一下避免请求过频
-      await new Promise(r => setTimeout(r, 500));
-    }
-  }
-},
   
   enablePCMouseScroll() { 
     const sliders = document.querySelectorAll('.tabs-scroll'); 
@@ -5232,14 +5262,31 @@ parseFundRateHtml(html, code) {
     return cleaned;
   };
 
-  // 解析赎回费率，找出免赎回费的最短持有天数（7天或30天）
+// 在 parseFundRateHtml 函数内部，解析 sellRateHtml 后添加：
 let noSellFeeDays = null;
-if (sellRateHtml.includes('<table')) {
-  // 简单正则匹配：持有≥7天 费率0.00% 或 持有≥30天 费率0.00%
-  const has7DayFree = /持有.*?[≥]\\s*7.*?0\\.00%/i.test(sellRateHtml);
-  const has30DayFree = /持有.*?[≥]\\s*30.*?0\\.00%/i.test(sellRateHtml);
-  if (has7DayFree) noSellFeeDays = 7;
-  else if (has30DayFree) noSellFeeDays = 30;
+if (sellRateHtml && sellRateHtml.includes('<table')) {
+  // 匹配持有期限和费率 0.00%
+  const lines = sellRateHtml.split(/\n/);
+  for (let line of lines) {
+    // 匹配持有≥7天且费率0.00%
+    if (/持有.*?[≥]\\s*7.*?0\\.00%/.test(line)) {
+      noSellFeeDays = 7;
+      break;
+    }
+    // 匹配持有≥30天且费率0.00%
+    if (/持有.*?[≥]\\s*30.*?0\\.00%/.test(line)) {
+      noSellFeeDays = 30;
+      break;
+    }
+    // 部分表格表示为 "大于等于7天" 或 "7天≤持有"
+    if (/([7-9]|1[0-9]|2[0-9]|30)天[^0-9]*0\\.00%/.test(line)) {
+      const match = line.match(/(\d+)天/);
+      if (match && (parseInt(match[1]) === 7 || parseInt(match[1]) === 30)) {
+        noSellFeeDays = parseInt(match[1]);
+        break;
+      }
+    }
+  }
 }
 
   return {

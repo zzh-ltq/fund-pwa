@@ -5151,34 +5151,35 @@ async renderPerformanceTab(code) {
   if (activeBtn) activeBtn.classList.add('active');
 },
 
-  // ========== 新增：通过代理获取天天基金费率页面 HTML ==========
-async fetchFundRateHtml(code, retry = 2) {
-  const targetUrl = `https://fundf10.eastmoney.com/jjfl_${code}.html`;
-  const proxyList = [
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`,
-    `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-    `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`
-  ];
-  for (let i = 0; i < proxyList.length && retry > 0; i++) {
-    try {
-      const response = await fetch(proxyList[i]);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      let html = '';
-      if (proxyList[i].includes('allorigins')) {
-        const json = await response.json();
-        html = json.contents;
-      } else {
-        html = await response.text();
+// ========== 更新：通过私有云函数代理获取天天基金费率页面 HTML ==========https://fund-proxy-kngosbemwj.cn-hangzhou.fcapp.run
+  async fetchFundRateHtml(code, retry = 2) {
+    // ⚠️ 请在这里填入你刚刚在阿里云/华为云创建的云函数公网URL (不要漏掉最后的 ?code=)
+    const cloudFunctionBaseUrl = `https://fund-proxy-kngosbemwj.cn-hangzhou.fcapp.run/?code=`;
+    
+    for (let i = 0; i <= retry; i++) {
+      try {
+        // 请求我们的私有云函数
+        const response = await fetch(`${cloudFunctionBaseUrl}${code}`);
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const html = await response.text();
+        
+        // 校验返回的 HTML 是否包含了有效的费率数据特征，防止遇到验证码页面
+        if (html && (html.includes('申购费率') || html.includes('jjfl'))) {
+          return html;
+        } else {
+          throw new Error('云函数返回的数据无效或被目标网站拦截');
+        }
+      } catch (err) {
+        console.warn(`云端获取费率数据失败 (重试 ${i}/${retry}):`, err.message);
+        if (i === retry) return null;
+        // 等待 500 毫秒后重试，避免并发过快
+        await new Promise(r => setTimeout(r, 500));
       }
-      if (html && (html.includes('申购费率') || html.includes('jjfl'))) {
-        return html;
-      }
-    } catch (err) {
-      console.warn(`代理 ${i+1} 失败:`, err.message);
     }
-  }
-  return null;
-},
+    return null;
+  },
 
 parseFundRateHtml(html, code) {
   const parser = new DOMParser();

@@ -4932,18 +4932,41 @@ async fetchFundFullInfo(code) {
       const evalData = window.Data_performanceEvaluation || null;
       const fundInfo = window.Data_fundInfo || null;
       const feeList = window.Data_flxx || null;
-      // 清理全局变量，避免内存占用
+      // 关键：申购与赎回规则
+      const buyRule = window.Data_sgxx || null;   // 申购规则
+      const sellRule = window.Data_shxx || null;  // 赎回规则
+
+      // 清理全局变量，避免内存堆积
       setTimeout(() => {
         window.Data_currentFundManager = null;
         window.Data_performanceEvaluation = null;
         window.Data_fundInfo = null;
         window.Data_flxx = null;
+        window.Data_sgxx = null;
+        window.Data_shxx = null;
       }, 100);
-      resolve({ manager, evalData, fundInfo, feeList });
+      resolve({ manager, evalData, fundInfo, feeList, buyRule, sellRule });
     };
-    script.onerror = () => resolve({ manager: null, evalData: null, fundInfo: null, feeList: null });
+    script.onerror = () => resolve({ manager: null, evalData: null, fundInfo: null, feeList: null, buyRule: null, sellRule: null });
     document.head.appendChild(script);
   });
+},
+  async fetchTradeRuleMobileFallback(code, retry = 1) {
+  const url = `https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFundTradeRuleNew?Fcode=${code}&deviceid=1&plat=Android&product=EFund&version=2.0.0`;
+  for (let i = 0; i <= retry; i++) {
+    try {
+      const data = await fetchJSONP(url, 'callback');
+      if (data && data.Datas) {
+        let trade = data.Datas;
+        if (Array.isArray(trade)) trade = trade[0];
+        return trade;
+      }
+    } catch (e) {
+      if (i === retry) console.warn(`移动端接口最终失败 ${code}:`, e);
+      else await new Promise(r => setTimeout(r, 300));
+    }
+  }
+  return null;
 },
 
   async fetchTradeRuleMobile(code) {
@@ -5067,76 +5090,87 @@ async renderPerformanceTab(code) {
   if (!container) return;
   container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">加载基本信息与交易规则...</div>';
 
-  // 并行获取多个数据源
-  const [fullInfo, mobileTrade] = await Promise.all([
-    this.fetchFundFullInfo(code),
-    this.fetchTradeRuleMobile(code)
-  ]);
-
-  const { manager, evalData, fundInfo, feeList } = fullInfo;
+  // 获取完整信息
+  const fullInfo = await this.fetchFundFullInfo(code);
+  const { manager, evalData, fundInfo, feeList, buyRule, sellRule } = fullInfo;
   const isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
   const fundSize = fundInfo ? (fundInfo.fundscale || fundInfo.fundSize || '--') : '--';
 
-  // 从移动端接口提取交易规则
+  // ---- 从 buyRule / sellRule 提取交易规则（最优先）----
   let buyMin = '--', buyAddMin = '--', buyLimit = '--', buyConfirm = '--';
   let sellMin = '--', sellConfirm = '--', moneyArrival = '--';
+
+  if (buyRule) {
+    buyMin = buyRule.buyMin || buyRule.minsg || buyRule.minAmt || '--';
+    buyAddMin = buyRule.buyAddMin || buyRule.addAmt || '--';
+    buyLimit = buyRule.buyLimit || buyRule.maxsg || buyRule.maxAmt || '--';
+    buyConfirm = buyRule.confirmDays ? `T+${buyRule.confirmDays}` : (buyRule.tdays ? `T+${buyRule.tdays}` : '--');
+  }
+  if (sellRule) {
+    sellMin = sellRule.sellMin || sellRule.minsh || '--';
+    sellConfirm = sellRule.confirmDays ? `T+${sellRule.confirmDays}` : '--';
+    moneyArrival = sellRule.arrivalDays ? `${sellRule.arrivalDays}天` : '--';
+  }
+
+  // ---- 从 feeList 提取费率阶梯和运作费用 ----
   let buyFeeRanges = [], sellFeeRanges = [];
   let manageRate = '--', custodianRate = '--', serviceRate = '--';
 
-  if (mobileTrade) {
-    buyMin = mobileTrade.BuyMinMoney || mobileTrade.buyMinMoney || '--';
-    buyAddMin = mobileTrade.BuyAddMinMoney || mobileTrade.buyAddMinMoney || '--';
-    buyLimit = mobileTrade.BuyMaxMoney || mobileTrade.buyMaxMoney || '--';
-    buyConfirm = mobileTrade.BuyConfirmDays ? `T+${mobileTrade.BuyConfirmDays}` : (mobileTrade.buyConfirmDays ? `T+${mobileTrade.buyConfirmDays}` : '--');
-
-    sellMin = mobileTrade.SellMinVolume || mobileTrade.sellMinVolume || '--';
-    sellConfirm = mobileTrade.SellConfirmDays ? `T+${mobileTrade.SellConfirmDays}` : (mobileTrade.sellConfirmDays ? `T+${mobileTrade.sellConfirmDays}` : '--');
-    moneyArrival = mobileTrade.MoneyArrivalDays ? `${mobileTrade.MoneyArrivalDays}天` : (mobileTrade.moneyArrivalDays ? `${mobileTrade.moneyArrivalDays}天` : '--');
-
-    if (mobileTrade.ListBuyRate && Array.isArray(mobileTrade.ListBuyRate)) {
-      buyFeeRanges = mobileTrade.ListBuyRate.map(item => ({
-        condition: item.MoneyStartDesc || (item.MoneyStart ? `${item.MoneyStart}元起` : '默认'),
-        rate: item.Rate || '--',
-        discount: item.DiscountRate || item.Rate
-      }));
-    }
-    if (mobileTrade.ListSellRate && Array.isArray(mobileTrade.ListSellRate)) {
-      sellFeeRanges = mobileTrade.ListSellRate.map(item => ({
-        condition: item.HoldDayDesc || (item.HoldDayStart ? `持有≥${item.HoldDayStart}天` : '默认'),
-        rate: item.Rate || '--'
-      }));
-    }
-    manageRate = mobileTrade.FundManagerRate || '--';
-    custodianRate = mobileTrade.FundCustodianRate || '--';
-    serviceRate = mobileTrade.FundSaleServiceRate || '--';
-  }
-
-  // 如果移动端接口未获取到费率，从 pingzhongdata 补充
-  if ((buyFeeRanges.length === 0 || sellFeeRanges.length === 0) && feeList && Array.isArray(feeList)) {
+  if (feeList && Array.isArray(feeList)) {
     feeList.forEach(item => {
       const flmc = item.flmc || '';
-      if (flmc.includes('申购费率') && item.rateList && buyFeeRanges.length === 0) {
-        buyFeeRanges = item.rateList.map(rateItem => ({
-          condition: rateItem.moneyMinDesc || `${rateItem.moneyMin} ≤ 金额 < ${rateItem.moneyMax}`,
-          rate: rateItem.rate || '--',
-          discount: rateItem.discountRate || rateItem.rate
+      if (flmc.includes('申购费率') && item.rateList && item.rateList.length) {
+        buyFeeRanges = item.rateList.map(r => ({
+          condition: r.moneyMinDesc || `${r.moneyMin} ≤ 金额 < ${r.moneyMax}`,
+          rate: r.rate || '--',
+          discount: r.discountRate || r.rate
         }));
-      } else if (flmc.includes('赎回费率') && item.rateList && sellFeeRanges.length === 0) {
-        sellFeeRanges = item.rateList.map(rateItem => ({
-          condition: rateItem.holdDesc || `持有 < ${rateItem.holdDays} 天`,
-          rate: rateItem.rate || '--'
+      } else if (flmc.includes('赎回费率') && item.rateList && item.rateList.length) {
+        sellFeeRanges = item.rateList.map(r => ({
+          condition: r.holdDesc || (r.holdDays ? `持有 < ${r.holdDays} 天` : '默认'),
+          rate: r.rate || '--'
         }));
-      } else if (flmc.includes('管理费率') && manageRate === '--') {
+      } else if (flmc.includes('管理费率')) {
         manageRate = item.rate || item.fl || '--';
-      } else if (flmc.includes('托管费率') && custodianRate === '--') {
+      } else if (flmc.includes('托管费率')) {
         custodianRate = item.rate || item.fl || '--';
-      } else if (flmc.includes('销售服务费率') && serviceRate === '--') {
+      } else if (flmc.includes('销售服务费率')) {
         serviceRate = item.rate || item.fl || '--';
       }
     });
   }
 
-  // 构建卡片 HTML（经理、评价、交易规则、运作费用、费率表格）
+  // ---- 如果内置规则缺失，尝试移动端接口降级 ----
+  if (buyMin === '--' && sellMin === '--') {
+    const mobileTrade = await this.fetchTradeRuleMobileFallback(code);
+    if (mobileTrade) {
+      buyMin = mobileTrade.BuyMinMoney || mobileTrade.buyMinMoney || buyMin;
+      buyAddMin = mobileTrade.BuyAddMinMoney || mobileTrade.buyAddMinMoney || buyAddMin;
+      buyLimit = mobileTrade.BuyMaxMoney || mobileTrade.buyMaxMoney || buyLimit;
+      buyConfirm = mobileTrade.BuyConfirmDays ? `T+${mobileTrade.BuyConfirmDays}` : buyConfirm;
+      sellMin = mobileTrade.SellMinVolume || mobileTrade.sellMinVolume || sellMin;
+      sellConfirm = mobileTrade.SellConfirmDays ? `T+${mobileTrade.SellConfirmDays}` : sellConfirm;
+      moneyArrival = mobileTrade.MoneyArrivalDays ? `${mobileTrade.MoneyArrivalDays}天` : moneyArrival;
+      if (buyFeeRanges.length === 0 && mobileTrade.ListBuyRate) {
+        buyFeeRanges = mobileTrade.ListBuyRate.map(r => ({
+          condition: r.MoneyStartDesc || (r.MoneyStart ? `${r.MoneyStart}元起` : '默认'),
+          rate: r.Rate || '--',
+          discount: r.DiscountRate || r.Rate
+        }));
+      }
+      if (sellFeeRanges.length === 0 && mobileTrade.ListSellRate) {
+        sellFeeRanges = mobileTrade.ListSellRate.map(r => ({
+          condition: r.HoldDayDesc || (r.HoldDayStart ? `持有≥${r.HoldDayStart}天` : '默认'),
+          rate: r.Rate || '--'
+        }));
+      }
+      if (manageRate === '--') manageRate = mobileTrade.FundManagerRate || '--';
+      if (custodianRate === '--') custodianRate = mobileTrade.FundCustodianRate || '--';
+      if (serviceRate === '--') serviceRate = mobileTrade.FundSaleServiceRate || '--';
+    }
+  }
+
+  // ========== 构建 HTML 卡片 ==========
   let managerHtml = '';
   if (manager) {
     managerHtml = `

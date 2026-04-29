@@ -813,74 +813,74 @@ const app = {
   // 3. 通用辅助函数
   // ==========================================
 
-// 一键极速更新“卖出确认日与免手续费”信息 (纯前端直连百度，告别报错)
   async batchUpdateSellConfirmInfo() {
-    const allCodes = new Set();
-    this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
-    const codes = Array.from(allCodes);
-    if (codes.length === 0) { this.showToast('暂无基金数据', 'error'); return; }
+  const allCodes = new Set();
+  this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
+  const codes = Array.from(allCodes);
+  if (codes.length === 0) {
+    this.showToast('暂无基金数据', 'error');
+    return;
+  }
 
-    const loadingModal = document.getElementById('modal-loading');
-    const titleText = document.getElementById('loading-modal-title');
-    const progressText = document.getElementById('loading-progress-text');
-    titleText.innerText = '极速解析百度交易规则...';
-    loadingModal.style.display = 'flex';
-    progressText.innerText = `0 / ${codes.length}`;
+  this.showToast(`开始获取 ${codes.length} 只基金的卖出确认信息...`);
+  
+  const loadingModal = document.getElementById('modal-loading');
+  const titleText = document.getElementById('loading-modal-title');
+  const progressText = document.getElementById('loading-progress-text');
+  titleText.innerText = '正在更新卖出确认信息...';
+  loadingModal.style.display = 'flex';
+  progressText.innerText = `0 / ${codes.length}`;
 
-    let updatedCount = 0;
-    let index = 0;
-    const concurrency = 6; // 百度接口抗压极强，并发可开到 6
-
-    const updateOne = async (code) => {
-      try {
-        const tradeData = await this.fetchBaiduTradeInfo(code);
-        if (tradeData) {
-          let sellConfirm = tradeData.sellConfirmDay || tradeData.sell_confirm || '--';
-          let noSellFeeDays = null;
-          
-          const sellRates = tradeData.sellRate || tradeData.sell_rate;
-          if (sellRates && Array.isArray(sellRates)) {
-            sellRates.forEach(r => {
-              const condition = r.condition || r.time || '';
-              const rate = r.rate || r.currentRate || '';
-              if (rate === '0.00%' || rate === '0%') {
-                let match = condition.match(/(\d+)天/);
-                if (match) {
-                  let days = parseInt(match[1]);
-                  if (!noSellFeeDays || days < noSellFeeDays) noSellFeeDays = days;
-                }
-              }
-            });
-          }
-
-          if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-          let changed = false;
-          if (this.data.fundsCache[code].sellConfirmDays !== sellConfirm) {
-            this.data.fundsCache[code].sellConfirmDays = sellConfirm;
-            changed = true;
-          }
-          if (this.data.fundsCache[code].noSellFeeDays !== noSellFeeDays) {
-            this.data.fundsCache[code].noSellFeeDays = noSellFeeDays;
-            changed = true;
-          }
-          if (changed) updatedCount++;
+  let updatedCount = 0;
+  const concurrency = 5;               // 并发数（可根据网络情况调整）
+  let index = 0;
+  
+  const updateOne = async (code) => {
+    try {
+      const html = await this.fetchFundRateHtml(code);
+      if (html) {
+        const trade = this.parseFundRateHtml(html, code);
+        if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+        let changed = false;
+        if (this.data.fundsCache[code].sellConfirmDays !== trade.sellConfirm) {
+          this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
+          changed = true;
         }
-      } catch (err) {}
-      progressText.innerText = `${Math.min(index + 1, codes.length)} / ${codes.length}`;
-    };
-
-    while (index < codes.length) {
-      const batch = codes.slice(index, index + concurrency);
-      await Promise.all(batch.map(code => updateOne(code)));
-      index += concurrency;
-      if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+        if (this.data.fundsCache[code].noSellFeeDays !== trade.noSellFeeDays) {
+          this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
+          changed = true;
+        }
+        if (changed) updatedCount++;
+      }
+    } catch (err) {
+      console.warn(`更新 ${code} 失败:`, err);
     }
+    progressText.innerText = `${Math.min(index+1, codes.length)} / ${codes.length}`;
+  };
 
-    await this.saveData();
-    loadingModal.style.display = 'none';
-    this.showToast(`✅ 更新完成，成功提取 ${updatedCount} 只基金规则！`);
-    if (this.s3) this.pushToCloud();
-  },
+  while (index < codes.length) {
+    const batch = codes.slice(index, index + concurrency);
+    await Promise.all(batch.map(code => updateOne(code)));
+    index += concurrency;
+    if (index < codes.length) await new Promise(r => setTimeout(r, 300));
+    // 每批更新后刷新一下首页显示（可选）
+    if (document.getElementById('view-home').classList.contains('active')) {
+      this.renderHome();
+    }
+  }
+
+  await this.saveData();
+  loadingModal.style.display = 'none';
+  this.showToast(`✅ 更新完成，成功更新 ${updatedCount} 只基金的卖出确认信息`);
+  
+  if (document.getElementById('view-home').classList.contains('active')) {
+    this.renderHome();
+  }
+  
+  if (this.s3) {
+    this.pushToCloud();
+  }
+},
   
   formatEMDate(ts, length = 10, offset = 0) { 
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length); 
@@ -5047,23 +5047,6 @@ async fetchFundFullInfo(code) {
     document.head.appendChild(script);
   });
 },
-  // ========== 终极稳定方案：接入百度公共数据总线 (永不跨域、防拦截) ==========
-  async fetchBaiduTradeInfo(code) {
-    try {
-      const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1`, 'cb');
-      const result = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result;
-      if (!result || !result.content || !result.content.tabs) return null;
-
-      // 提取交易规则页签
-      const tradeTab = result.content.tabs.find(t => t.type === 'trade');
-      if (!tradeTab || !tradeTab.content) return null;
-
-      return tradeTab.content; // 直接返回百度的交易数据对象
-    } catch (e) {
-      console.warn('百度交易数据获取失败:', e);
-      return null;
-    }
-  },
  
 
 
@@ -5168,140 +5151,360 @@ async renderPerformanceTab(code) {
   if (activeBtn) activeBtn.classList.add('active');
 },
 
-
-// 渲染基本信息主入口（彻底抛弃东财代理，使用百度极速数据）
-  async renderBasicInfoTab(code) {
-    const container = document.getElementById('det-basicinfo-area');
-    if (!container) return;
-    container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">极速加载基本信息与交易规则...</div>';
-
-    // 并行获取东财的基础评估和百度的交易规则
-    const [fullInfo, tradeData] = await Promise.all([
-      this.fetchFundFullInfo(code),
-      this.fetchBaiduTradeInfo(code)
-    ]);
-
-    const { manager, evalData, fundInfo } = fullInfo;
-    const fundSize = fundInfo ? (fundInfo.fundscale || fundInfo.fundSize || '--') : '--';
-    const isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
-
-    // 1. 初始化兜底数据
-    let trade = {
-      buyMin: '--', sipMin: '--', buyMax: '--', 
-      buyConfirm: '--', sellConfirm: '--', 
-      buyStatus: '--', sellStatus: '--', 
-      noSellFeeDays: null
-    };
-
-    let buyRateHtml = '<p style="padding:12px; color:#94a3b8;">暂无申购费率数据</p>';
-    let sellRateHtml = '<p style="padding:12px; color:#94a3b8;">暂无赎回费率数据</p>';
-
-    // 2. 解析百度传回来的超规范 JSON 数据
-    if (tradeData) {
-      trade.buyStatus = tradeData.buyStatus || tradeData.buy_status || '--';
-      trade.sellStatus = tradeData.sellStatus || tradeData.sell_status || '--';
-      trade.buyConfirm = tradeData.buyConfirmDay || tradeData.buy_confirm || '--';
-      trade.sellConfirm = tradeData.sellConfirmDay || tradeData.sell_confirm || '--';
-      trade.buyMin = tradeData.buyMin || tradeData.min_buy || '--';
-      trade.buyMax = tradeData.buyMax || '--';
-
-      // 提取申购费率
-      const buyRates = tradeData.buyRate || tradeData.buy_rate;
-      if (buyRates && Array.isArray(buyRates) && buyRates.length > 0) {
-        buyRateHtml = '<table class="rate-table" style="width:100%;"><thead><tr><th>适用金额/期限</th><th>原费率</th><th>现费率</th></tr></thead><tbody>';
-        buyRates.forEach(r => {
-          const condition = r.condition || r.amount || '--';
-          const origin = r.originalRate || r.old_rate || '--';
-          const current = r.currentRate || r.rate || '--';
-          buyRateHtml += `<tr><td>${condition}</td><td><del>${origin}</del></td><td><span class="red">${current}</span></td></tr>`;
-        });
-        buyRateHtml += '</tbody></table>';
+async fetchFundRateHtml(code, retry = 2) {
+  // 替换为你的 Deno Deploy 函数地址
+  const PROXY_URL = "https://fund-rate-proxy.deno.dev"; // 改成你的实际 URL
+  
+  for (let i = 0; i <= retry; i++) {
+    try {
+      // 请求代理函数，默认返回原始 HTML（兼容现有解析逻辑）
+      const response = await fetch(`${PROXY_URL}?code=${code}`, {
+        method: "GET",
+        headers: { "Accept": "text/html" }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
+      
+      const html = await response.text();
+      // 简单校验内容有效性
+      if (html && (html.includes('申购费率') || html.includes('jjfl') || html.includes('赎回费率'))) {
+        return html;
+      }
+      // 如果返回的是 JSON 错误对象（兜底）
+      if (html.includes('"error"')) {
+        console.warn(`Proxy returned error for ${code}:`, html);
+        continue;
+      }
+    } catch (err) {
+      console.warn(`Attempt ${i+1} failed for ${code}:`, err.message);
+    }
+    // 重试前等待
+    if (i < retry) await new Promise(r => setTimeout(r, 500));
+  }
+  return null;
+},
 
-      // 提取赎回费率，并智能计算 noSellFeeDays
-      const sellRates = tradeData.sellRate || tradeData.sell_rate;
-      if (sellRates && Array.isArray(sellRates) && sellRates.length > 0) {
-        sellRateHtml = '<table class="rate-table" style="width:100%;"><thead><tr><th>持有期限</th><th>费率</th></tr></thead><tbody>';
-        sellRates.forEach(r => {
-          const condition = r.condition || r.time || '--';
-          const rate = r.rate || r.currentRate || '--';
-          sellRateHtml += `<tr><td>${condition}</td><td>${rate}</td></tr>`;
-          
-          if (rate === '0.00%' || rate === '0%') {
-            let match = condition.match(/(\d+)天/);
-            if (match) {
-              let days = parseInt(match[1]);
-              if (!trade.noSellFeeDays || days < trade.noSellFeeDays) trade.noSellFeeDays = days;
+parseFundRateHtml(html, code) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+
+  // ----- 仿照 index1.html 的提取函数 extractCellData -----
+  const extractCellData = (keywordList, defaultValue = '--') => {
+    const ths = Array.from(doc.querySelectorAll('th, td.item, .textr, .info_td'));
+    for (let th of ths) {
+      const text = th.textContent.replace(/\s+/g, '');
+      if (keywordList.some(kw => text.includes(kw))) {
+        // 优先找下一个兄弟元素
+        let nextEl = th.nextElementSibling;
+        if (nextEl && (nextEl.tagName === 'TD' || nextEl.tagName === 'TH')) {
+          return nextEl.textContent.trim();
+        }
+        // 如果在同一行内，取同一行后面的 td
+        const parentRow = th.closest('tr');
+        if (parentRow) {
+          const cells = parentRow.querySelectorAll('td');
+          for (let i = 0; i < cells.length; i++) {
+            if (cells[i] === th && i + 1 < cells.length) {
+              return cells[i + 1].textContent.trim();
             }
           }
-        });
-        sellRateHtml += '</tbody></table>';
+        }
       }
     }
+    return defaultValue;
+  };
 
-    // 3. 将极其重要的交易规则缓存，供卡片展示
-    if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-    this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
-    this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
-    this.saveData();
+  // ----- 申购与赎回金额 -----
+  const buyMin = extractCellData(['申购起点', '起购金额', '首次购买额', '最小申购金额'], '10.00元');
+  const sipMin = extractCellData(['定投起点', '定投起购金额', '定投最低金额'], '10.00元');
+  const buyMax = extractCellData(['日累计申购限额', '单日单账户', '申购限额'], '无限制');
+  const buyConfirm = extractCellData(['买入确认日', '申购确认日'], 'T+1');
+  const sellConfirm = extractCellData(['卖出确认日', '赎回确认日'], 'T+1');
+  const buyStatus = extractCellData(['申购状态'], '开放申购');
+  const sellStatus = extractCellData(['赎回状态'], '开放赎回');
 
-    // ----- UI 组装 (经理与评价) -----
-    let managerHtml = '';
-    if (manager) {
-      managerHtml = `
-        <div class="card" style="padding:12px; height:100%;">
-          <h3 style="margin:0 0 10px 0; color:#1677ff; font-size:15px;">👨‍💼 现任经理: ${manager.name}</h3>
-          <div style="font-size:12px; color:#475569; line-height:1.6;">
-            <div>任职时长：${manager.workTime || '--'}</div>
-            <div>管理规模：${manager.fundSize || fundSize || '--'}</div>
-            <div>综合评分：<span style="color:#f43f5e; font-weight:900;">${manager.power ? manager.power.avr : '--'} 分</span></div>
+  // ----- 申购费率表格（精确避免认购费率）-----
+  let buyRateHtml = '<p style="padding:12px; color:#94a3b8;">暂无申购费率数据</p>';
+  const titles = doc.querySelectorAll('h4.t, .box h4, h3, .tit, .info_title, div.tit, strong');
+  for (let title of titles) {
+    const text = title.textContent.replace(/\s/g, '');
+    if (text.includes('申购费率') && !text.includes('认购费率')) {
+      let next = title.nextElementSibling;
+      let depth = 0;
+      while (next && depth < 5) {
+        if (next.tagName === 'TABLE') {
+          buyRateHtml = next.outerHTML;
+          break;
+        }
+        const innerTable = next.querySelector('table');
+        if (innerTable) {
+          buyRateHtml = innerTable.outerHTML;
+          break;
+        }
+        next = next.nextElementSibling;
+        depth++;
+      }
+      if (buyRateHtml !== '<p style="padding:12px; color:#94a3b8;">暂无申购费率数据</p>') break;
+    }
+  }
+
+  // ----- 赎回费率表格 -----
+  let sellRateHtml = '<p style="padding:12px; color:#94a3b8;">暂无赎回费率数据</p>';
+  for (let title of titles) {
+    if (title.textContent.includes('赎回费率')) {
+      let next = title.nextElementSibling;
+      let depth = 0;
+      while (next && depth < 5) {
+        if (next.tagName === 'TABLE') {
+          sellRateHtml = next.outerHTML;
+          break;
+        }
+        const innerTable = next.querySelector('table');
+        if (innerTable) {
+          sellRateHtml = innerTable.outerHTML;
+          break;
+        }
+        next = next.nextElementSibling;
+        depth++;
+      }
+      if (sellRateHtml !== '<p style="padding:12px; color:#94a3b8;">暂无赎回费率数据</p>') break;
+    }
+  }
+
+  // 清理表格中的多余竖线（如“原费率|”）
+  const cleanTable = (html) => {
+    if (!html.includes('<table')) return html;
+    // 移除“原费率|”这种文本
+    let cleaned = html.replace(/原费率\s*\|/g, '');
+    // 移除多余的空格和换行
+    cleaned = cleaned.replace(/\|\s*\|/g, '|');
+    return cleaned;
+  };
+
+// 解析免赎回费的最短持有天数（7天或30天）
+let noSellFeeDays = null;
+if (sellRateHtml && sellRateHtml.includes('<table')) {
+  // 方式1：用正则直接匹配“大于等于30天”和“0.00%”
+  const combined = sellRateHtml;
+  // 匹配“大于等于30天”或“≥30天”附近存在0.00%
+  if (/(?:大于等于|≥)\s*30\s*天[^0-9]*0\.00%/.test(combined)) {
+    noSellFeeDays = 30;
+  } else if (/(?:大于等于|≥)\s*7\s*天[^0-9]*0\.00%/.test(combined)) {
+    noSellFeeDays = 7;
+  }
+  
+  // 方式2：如果方式1未匹配，则解析表格DOM
+  if (!noSellFeeDays) {
+    const parser = new DOMParser();
+    const rateDoc = parser.parseFromString(sellRateHtml, 'text/html');
+    const rows = rateDoc.querySelectorAll('table tr');
+    for (let row of rows) {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 2) {
+        const conditionText = cells[0].textContent.trim();
+        const rateText = cells[1]?.textContent.trim() || cells[cells.length-1]?.textContent.trim();
+        if (/0(\.00)?%/.test(rateText)) {
+          // 尝试匹配天数
+          let dayMatch = conditionText.match(/(\d+)天/);
+          if (dayMatch) {
+            const days = parseInt(dayMatch[1]);
+            if (days === 7 || days === 30) {
+              noSellFeeDays = days;
+              break;
+            }
+          }
+          // 匹配“大于等于7/30天”
+          let geMatch = conditionText.match(/(?:大于等于|≥|>=)\s*(\d+)\s*天/);
+          if (geMatch) {
+            const days = parseInt(geMatch[1]);
+            if (days === 7 || days === 30) {
+              noSellFeeDays = days;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+  return {
+    buyMin, sipMin, buyMax, buyConfirm, sellConfirm, buyStatus, sellStatus, noSellFeeDays,
+    buyRateHtml: cleanTable(buyRateHtml),
+    sellRateHtml: cleanTable(sellRateHtml)
+  };
+},
+
+async renderBasicInfoTab(code) {
+  const container = document.getElementById('det-basicinfo-area');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">加载基本信息与交易规则...</div>';
+
+  // 并行获取经理/评价 + 费率页面HTML
+  const [fullInfo, html] = await Promise.all([
+    this.fetchFundFullInfo(code),
+    this.fetchFundRateHtml(code)
+  ]);
+
+  const { manager, evalData, fundInfo } = fullInfo;
+  const fundSize = fundInfo ? (fundInfo.fundscale || fundInfo.fundSize || '--') : '--';
+  const isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
+
+  // 解析交易规则（默认占位）
+  let trade = {
+    buyMin: '--', sipMin: '--', buyMax: '--', buyConfirm: '--', sellConfirm: '--',
+    buyStatus: '--', sellStatus: '--', buyRateHtml: '<p>暂无数据</p>', sellRateHtml: '<p>暂无数据</p>',
+    noSellFeeDays: null  // 记录免赎回费的最短持有天数（7或30）
+  };
+  if (html) {
+    trade = this.parseFundRateHtml(html, code);
+  } else {
+    trade.buyRateHtml = '<p style="padding:12px; color:#f43f5e;">❌ 费率页面加载失败，请检查网络</p>';
+    trade.sellRateHtml = '<p style="padding:12px; color:#f43f5e;">❌ 费率页面加载失败</p>';
+  }
+
+  // 将交易规则缓存到 fundsCache 中，供首页卡片使用
+  if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+  this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
+  this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
+  // 异步保存（不阻塞渲染）
+  this.saveData();
+
+  // 美化表格（添加横向滚动）
+  const formatTable = (tableHtml) => {
+    if (!tableHtml.includes('<table')) return tableHtml;
+    let cleaned = tableHtml.replace(/ class="[^"]*"/gi, '')
+                           .replace(/ style="[^"]*"/gi, '')
+                           .replace(/<table/gi, '<table class="rate-table" style="width:100%; border-collapse:collapse; font-size:12px;"');
+    return `<div class="table-wrapper" style="overflow-x:auto; margin-top:6px;">${cleaned}</div>`;
+  };
+
+  // ----- 经理卡片 -----
+  let managerHtml = '';
+  if (manager) {
+    managerHtml = `
+      <div class="card" style="padding:12px; height:100%;">
+        <h3 style="margin:0 0 10px 0; color:#1677ff; font-size:15px;">👨‍💼 现任经理: ${manager.name}</h3>
+        <div style="font-size:12px; color:#475569; line-height:1.6;">
+          <div>任职时长：${manager.workTime || '--'}</div>
+          <div>管理规模：${manager.fundSize || fundSize || '--'}</div>
+          <div>综合评分：<span style="color:#f43f5e; font-weight:900;">${manager.power ? manager.power.avr : '--'} 分</span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ----- 综合评价卡片 -----
+  let evalHtml = '';
+  if (isEvalValid) {
+    let barHtml = '';
+    for (let i = 0; i < evalData.categories.length; i++) {
+      const valNum = evalData.data[i] !== null ? evalData.data[i] : 0;
+      const valText = evalData.data[i] !== null ? evalData.data[i] : '--';
+      barHtml += `
+        <div style="margin-bottom:6px; display:flex; align-items:center;">
+          <span style="width:70px; font-size:11px; color:#475569;">${evalData.categories[i]}</span>
+          <div style="flex:1; background:#e2e8f0; height:4px; border-radius:4px; margin:0 8px;">
+            <div style="width:${valNum}%; background:#3b82f6; height:4px;"></div>
           </div>
+          <span style="width:30px; font-size:11px; color:#3b82f6;">${valText}</span>
         </div>
       `;
     }
-
-    let evalHtml = '';
-    if (isEvalValid) {
-      let barHtml = evalData.categories.map((cat, i) => {
-        const valNum = evalData.data[i] !== null ? evalData.data[i] : 0;
-        return `
-          <div style="margin-bottom:6px; display:flex; align-items:center;">
-            <span style="width:70px; font-size:11px; color:#475569;">${cat}</span>
-            <div style="flex:1; background:#e2e8f0; height:4px; border-radius:4px; margin:0 8px;">
-              <div style="width:${valNum}%; background:#3b82f6; height:4px;"></div>
-            </div>
-            <span style="width:30px; font-size:11px; color:#3b82f6;">${valNum}</span>
-          </div>`;
-      }).join('');
-      evalHtml = `<div class="card" style="padding:12px; height:100%;"><h3 style="margin:0 0 10px 0; font-size:14px; color:#1e293b;">📊 综合评价 <span style="color:#f43f5e; float:right;">${evalData.avr || '--'} 分</span></h3>${barHtml}</div>`;
-    }
-
-    // ----- UI 组装 (规则与表格) -----
-    const tradeRowHtml = `
-      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-top:12px;">
-        <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px;">📌 状态</h4><div style="font-size:12px; line-height:1.5;"><div>申购：<strong style="color:${trade.buyStatus.includes('开放') ? '#10b981' : '#f43f5e'}">${trade.buyStatus}</strong></div><div>赎回：<strong style="color:${trade.sellStatus.includes('开放') ? '#10b981' : '#f43f5e'}">${trade.sellStatus}</strong></div></div></div>
-        <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px;">💰 金额</h4><div style="font-size:12px; line-height:1.5;"><div>申购起点：${trade.buyMin}</div><div>限额：${trade.buyMax}</div></div></div>
-        <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px;">📅 确认日</h4><div style="font-size:12px; line-height:1.5;"><div>买入：${trade.buyConfirm}</div><div>卖出：${trade.sellConfirm}</div></div></div>
+    evalHtml = `
+      <div class="card" style="padding:12px; height:100%;">
+        <h3 style="margin:0 0 10px 0; font-size:14px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right;">${evalData.avr || '--'} 分</span></h3>
+        ${barHtml}
       </div>
     `;
-
-    const feeHtml = `
-      <div style="margin-top:12px;">
-        <div class="card" style="padding:12px; margin-bottom:12px; overflow-x:auto;"><h4 style="margin:0 0 8px 0; font-size:14px;">📈 申购费率（前端）</h4>${buyRateHtml}</div>
-        <div class="card" style="padding:12px; overflow-x:auto;"><h4 style="margin:0 0 8px 0; font-size:14px;">📉 赎回费率</h4>${sellRateHtml}</div>
-      </div>
-    `;
-
-    let topRowHtml = (managerHtml && evalHtml) ? `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">${managerHtml}${evalHtml}</div>` : `<div style="margin-bottom:12px;">${managerHtml || evalHtml}</div>`;
-    container.innerHTML = topRowHtml + tradeRowHtml + feeHtml;
-
-    if (!document.querySelector('#dynamic-rate-style')) {
-      const style = document.createElement('style');
-      style.id = 'dynamic-rate-style';
-      style.textContent = `.rate-table th, .rate-table td { border: 1px solid #e2e8f0; padding: 6px 4px; font-size: 12px; text-align: center; background-color: #fff; white-space:nowrap; } .rate-table th { background-color: #f8fafc; font-weight: 600; color: #1e293b; }`;
-      document.head.appendChild(style);
-    }
   }
+
+  // ----- 申赎状态、金额规则、确认日 三个卡片并列一行（使用grid）-----
+  const tradeRowHtml = `
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-top:12px;">
+      <!-- 申赎状态卡片 -->
+      <div class="card" style="padding:10px;">
+        <h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📌 申赎状态</h4>
+        <div style="font-size:12px; line-height:1.5;">
+          <div>申购：<strong style="color:${trade.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'}">${trade.buyStatus}</strong></div>
+          <div>赎回：<strong style="color:${trade.sellStatus === '开放赎回' ? '#10b981' : '#f43f5e'}">${trade.sellStatus}</strong></div>
+        </div>
+      </div>
+      
+      <!-- 金额规则卡片 -->
+      <div class="card" style="padding:10px;">
+        <h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">💰 金额规则</h4>
+        <div style="font-size:12px; line-height:1.5;">
+          <div>申购起点：${trade.buyMin}</div>
+          <div>定投起点：${trade.sipMin}</div>
+          <div>日累计限额：${trade.buyMax}</div>
+        </div>
+      </div>
+      
+      <!-- 确认日卡片 -->
+      <div class="card" style="padding:10px;">
+        <h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📅 确认日</h4>
+        <div style="font-size:12px; line-height:1.5;">
+          <div>买入确认：${trade.buyConfirm}</div>
+          <div>卖出确认：${trade.sellConfirm}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // 费率表格区域
+  const feeHtml = `
+    <div style="margin-top:12px;">
+      <div class="card" style="padding:12px; margin-bottom:12px;">
+        <h4 style="margin:0 0 8px 0; font-size:14px;">📈 申购费率（前端）</h4>
+        ${formatTable(trade.buyRateHtml)}
+      </div>
+      <div class="card" style="padding:12px;">
+        <h4 style="margin:0 0 8px 0; font-size:14px;">📉 赎回费率</h4>
+        ${formatTable(trade.sellRateHtml)}
+      </div>
+    </div>
+  `;
+
+  // 最终组装：经理与评价并列一行（如果有评价则两列，否则经理占满）
+  let topRowHtml = '';
+  if (managerHtml && evalHtml) {
+    topRowHtml = `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">${managerHtml}${evalHtml}</div>`;
+  } else if (managerHtml) {
+    topRowHtml = `<div style="margin-bottom:12px;">${managerHtml}</div>`;
+  } else if (evalHtml) {
+    topRowHtml = `<div style="margin-bottom:12px;">${evalHtml}</div>`;
+  }
+
+  container.innerHTML = topRowHtml + tradeRowHtml + feeHtml;
+
+  // 动态注入表格样式
+  if (!document.querySelector('#dynamic-rate-style')) {
+    const style = document.createElement('style');
+    style.id = 'dynamic-rate-style';
+    style.textContent = `
+      .rate-table th, .rate-table td {
+        border: 1px solid #e2e8f0;
+        padding: 6px 4px;
+        font-size: 12px;
+        text-align: center;
+        background-color: #fff;
+      }
+      .rate-table th {
+        background-color: #f8fafc;
+        font-weight: 600;
+        color: #1e293b;
+      }
+      .table-wrapper {
+        overflow-x: auto;
+        border-radius: 8px;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
 
   
 };

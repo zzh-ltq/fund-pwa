@@ -5151,40 +5151,32 @@ async renderPerformanceTab(code) {
   if (activeBtn) activeBtn.classList.add('active');
 },
 
-async fetchFundRateHtml(code, retry = 2) {
-  // 替换为你的 Deno Deploy 函数地址
-  const PROXY_URL = "https://free-cat-45.zzh-ltq.deno.net"; // 改成你的实际 URL
-  
-  for (let i = 0; i <= retry; i++) {
-    try {
-      // 请求代理函数，默认返回原始 HTML（兼容现有解析逻辑）
-      const response = await fetch(`${PROXY_URL}?code=${code}`, {
-        method: "GET",
-        headers: { "Accept": "text/html" }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+// ========== 终极完全免费方案：通过 Deno Deploy 代理获取 HTML ==========
+  async fetchFundRateHtml(code, retry = 2) {
+    // ⚠️ 请在这里填入你在 Deno Deploy 生成的域名，注意结尾要加上 /?code=
+    const denoProxyUrl = `https://free-cat-45.zzh-ltq.deno.net/?code=`;
+    
+    for (let i = 0; i <= retry; i++) {
+      try {
+        const response = await fetch(`${denoProxyUrl}${code}`);
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+        
+        const html = await response.text();
+        
+        // 校验数据完整性，防止取到空页面
+        if (html && (html.includes('申购费率') || html.includes('jjfl'))) {
+          return html;
+        }
+        throw new Error('代理返回数据无效');
+      } catch (err) {
+        console.warn(`Deno 代理获取失败 (重试 ${i}/${retry}):`, err.message);
+        if (i === retry) return null;
+        // 等待 600 毫秒后再试
+        await new Promise(r => setTimeout(r, 600)); 
       }
-      
-      const html = await response.text();
-      // 简单校验内容有效性
-      if (html && (html.includes('申购费率') || html.includes('jjfl') || html.includes('赎回费率'))) {
-        return html;
-      }
-      // 如果返回的是 JSON 错误对象（兜底）
-      if (html.includes('"error"')) {
-        console.warn(`Proxy returned error for ${code}:`, html);
-        continue;
-      }
-    } catch (err) {
-      console.warn(`Attempt ${i+1} failed for ${code}:`, err.message);
     }
-    // 重试前等待
-    if (i < retry) await new Promise(r => setTimeout(r, 500));
-  }
-  return null;
-},
+    return null;
+  },
 
 parseFundRateHtml(html, code) {
   const parser = new DOMParser();

@@ -814,7 +814,6 @@ const app = {
   // ==========================================
 
   async batchUpdateSellConfirmInfo() {
-  // 获取所有基金代码（去重）
   const allCodes = new Set();
   this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
   const codes = Array.from(allCodes);
@@ -825,7 +824,6 @@ const app = {
 
   this.showToast(`开始获取 ${codes.length} 只基金的卖出确认信息...`);
   
-  // 显示加载提示（复用全局加载弹窗）
   const loadingModal = document.getElementById('modal-loading');
   const titleText = document.getElementById('loading-modal-title');
   const progressText = document.getElementById('loading-progress-text');
@@ -834,34 +832,51 @@ const app = {
   progressText.innerText = `0 / ${codes.length}`;
 
   let updatedCount = 0;
-  for (let i = 0; i < codes.length; i++) {
-    const code = codes[i];
-    const html = await this.fetchFundRateHtml(code);
-    if (html) {
-      const trade = this.parseFundRateHtml(html, code);
-      if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-      this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
-      this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
-      updatedCount++;
-      // 每更新5只保存一次，避免频繁写入
-      if (updatedCount % 5 === 0 || i === codes.length - 1) {
-        await this.saveData();
+  const concurrency = 5;               // 并发数（可根据网络情况调整）
+  let index = 0;
+  
+  const updateOne = async (code) => {
+    try {
+      const html = await this.fetchFundRateHtml(code);
+      if (html) {
+        const trade = this.parseFundRateHtml(html, code);
+        if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+        let changed = false;
+        if (this.data.fundsCache[code].sellConfirmDays !== trade.sellConfirm) {
+          this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
+          changed = true;
+        }
+        if (this.data.fundsCache[code].noSellFeeDays !== trade.noSellFeeDays) {
+          this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
+          changed = true;
+        }
+        if (changed) updatedCount++;
       }
+    } catch (err) {
+      console.warn(`更新 ${code} 失败:`, err);
     }
-    progressText.innerText = `${i+1} / ${codes.length}`;
-    // 适当延迟，避免请求过频
-    await new Promise(r => setTimeout(r, 200));
+    progressText.innerText = `${Math.min(index+1, codes.length)} / ${codes.length}`;
+  };
+
+  while (index < codes.length) {
+    const batch = codes.slice(index, index + concurrency);
+    await Promise.all(batch.map(code => updateOne(code)));
+    index += concurrency;
+    if (index < codes.length) await new Promise(r => setTimeout(r, 300));
+    // 每批更新后刷新一下首页显示（可选）
+    if (document.getElementById('view-home').classList.contains('active')) {
+      this.renderHome();
+    }
   }
 
+  await this.saveData();
   loadingModal.style.display = 'none';
-  this.showToast(`✅ 更新完成，成功获取 ${updatedCount} 只基金的卖出确认信息`);
+  this.showToast(`✅ 更新完成，成功更新 ${updatedCount} 只基金的卖出确认信息`);
   
-  // 刷新首页卡片显示
   if (document.getElementById('view-home').classList.contains('active')) {
     this.renderHome();
   }
   
-  // 可选：将数据备份到云端（调用已有的 pushToCloud）
   if (this.s3) {
     this.pushToCloud();
   }
@@ -5262,28 +5277,48 @@ parseFundRateHtml(html, code) {
     return cleaned;
   };
 
-// 在 parseFundRateHtml 函数内部，解析 sellRateHtml 后添加：
+// 解析免赎回费的最短持有天数（7天或30天）
 let noSellFeeDays = null;
 if (sellRateHtml && sellRateHtml.includes('<table')) {
-  // 匹配持有期限和费率 0.00%
-  const lines = sellRateHtml.split(/\n/);
-  for (let line of lines) {
-    // 匹配持有≥7天且费率0.00%
-    if (/持有.*?[≥]\\s*7.*?0\\.00%/.test(line)) {
-      noSellFeeDays = 7;
-      break;
-    }
-    // 匹配持有≥30天且费率0.00%
-    if (/持有.*?[≥]\\s*30.*?0\\.00%/.test(line)) {
-      noSellFeeDays = 30;
-      break;
-    }
-    // 部分表格表示为 "大于等于7天" 或 "7天≤持有"
-    if (/([7-9]|1[0-9]|2[0-9]|30)天[^0-9]*0\\.00%/.test(line)) {
-      const match = line.match(/(\d+)天/);
-      if (match && (parseInt(match[1]) === 7 || parseInt(match[1]) === 30)) {
-        noSellFeeDays = parseInt(match[1]);
-        break;
+  // 方式1：用正则直接匹配“大于等于30天”和“0.00%”
+  const combined = sellRateHtml;
+  // 匹配“大于等于30天”或“≥30天”附近存在0.00%
+  if (/(?:大于等于|≥)\s*30\s*天[^0-9]*0\.00%/.test(combined)) {
+    noSellFeeDays = 30;
+  } else if (/(?:大于等于|≥)\s*7\s*天[^0-9]*0\.00%/.test(combined)) {
+    noSellFeeDays = 7;
+  }
+  
+  // 方式2：如果方式1未匹配，则解析表格DOM
+  if (!noSellFeeDays) {
+    const parser = new DOMParser();
+    const rateDoc = parser.parseFromString(sellRateHtml, 'text/html');
+    const rows = rateDoc.querySelectorAll('table tr');
+    for (let row of rows) {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 2) {
+        const conditionText = cells[0].textContent.trim();
+        const rateText = cells[1]?.textContent.trim() || cells[cells.length-1]?.textContent.trim();
+        if (/0(\.00)?%/.test(rateText)) {
+          // 尝试匹配天数
+          let dayMatch = conditionText.match(/(\d+)天/);
+          if (dayMatch) {
+            const days = parseInt(dayMatch[1]);
+            if (days === 7 || days === 30) {
+              noSellFeeDays = days;
+              break;
+            }
+          }
+          // 匹配“大于等于7/30天”
+          let geMatch = conditionText.match(/(?:大于等于|≥|>=)\s*(\d+)\s*天/);
+          if (geMatch) {
+            const days = parseInt(geMatch[1]);
+            if (days === 7 || days === 30) {
+              noSellFeeDays = days;
+              break;
+            }
+          }
+        }
       }
     }
   }

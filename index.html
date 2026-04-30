@@ -786,6 +786,7 @@ const app = {
   marketSortRule: 'chg',     // 默认改为按涨跌幅排序
   marketSortDir: 'desc',     // 降序
   targetMarketSecid: '',     // 新增：用于记录当前正在绑定分组的行情代码
+  workerUrl: 'https://tight-queen-183d.978076732.workers.dev', // 替换为实际部署的 Worker 域名https://tight-queen-183d.978076732.workers.dev/
 
   // 1. 确保这个金额格式化函数存在 (如果之前漏了，这次补上)
   formatFlowAmt(val) {
@@ -5151,32 +5152,31 @@ async renderPerformanceTab(code) {
   if (activeBtn) activeBtn.classList.add('active');
 },
 
-  // ========== 新增：通过代理获取天天基金费率页面 HTML ==========
 async fetchFundRateHtml(code, retry = 2) {
-  const targetUrl = `https://fundf10.eastmoney.com/jjfl_${code}.html`;
-  const proxyList = [
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`,
-    `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-    `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`
-  ];
-  for (let i = 0; i < proxyList.length && retry > 0; i++) {
+  // 使用 Cloudflare Worker 代理，彻底解决跨域
+  const proxyUrl = `${this.workerUrl}?code=${code}`;
+  for (let attempt = 0; attempt <= retry; attempt++) {
     try {
-      const response = await fetch(proxyList[i]);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      let html = '';
-      if (proxyList[i].includes('allorigins')) {
-        const json = await response.json();
-        html = json.contents;
-      } else {
-        html = await response.text();
+      const response = await fetch(proxyUrl, {
+        method: 'GET',
+        cache: 'no-cache' // 确保每次获取最新的费率信息
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      if (html && (html.includes('申购费率') || html.includes('jjfl'))) {
+      const html = await response.text();
+      // 简单校验返回内容是否包含费率表格特征（降低无效重试）
+      if (html && (html.includes('申购费率') || html.includes('jjfl') || html.includes('赎回费率'))) {
         return html;
       }
+      // 若返回内容明显错误（如代理返回错误json），继续重试
+      if (attempt < retry) await new Promise(r => setTimeout(r, 500));
     } catch (err) {
-      console.warn(`代理 ${i+1} 失败:`, err.message);
+      console.warn(`Worker 代理请求失败 (尝试 ${attempt+1}/${retry+1}):`, err.message);
+      if (attempt < retry) await new Promise(r => setTimeout(r, 500));
     }
   }
+  // 所有重试失败后返回 null，前端会显示暂无数据
   return null;
 },
 

@@ -814,73 +814,90 @@ const app = {
   // 3. 通用辅助函数
   // ==========================================
 
-  async batchUpdateSellConfirmInfo() {
-  const allCodes = new Set();
-  this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
-  const codes = Array.from(allCodes);
-  if (codes.length === 0) {
-    this.showToast('暂无基金数据', 'error');
-    return;
-  }
-
-  this.showToast(`开始获取 ${codes.length} 只基金的卖出确认信息...`);
-  
-  const loadingModal = document.getElementById('modal-loading');
-  const titleText = document.getElementById('loading-modal-title');
-  const progressText = document.getElementById('loading-progress-text');
-  titleText.innerText = '正在更新卖出确认信息...';
-  loadingModal.style.display = 'flex';
-  progressText.innerText = `0 / ${codes.length}`;
-
-  let updatedCount = 0;
-  const concurrency = 5;               // 并发数（可根据网络情况调整）
-  let index = 0;
-  
-  const updateOne = async (code) => {
-    try {
-      const html = await this.fetchFundRateHtml(code);
-      if (html) {
-        const trade = this.parseFundRateHtml(html, code);
-        if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-        let changed = false;
-        if (this.data.fundsCache[code].sellConfirmDays !== trade.sellConfirm) {
-          this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
-          changed = true;
-        }
-        if (this.data.fundsCache[code].noSellFeeDays !== trade.noSellFeeDays) {
-          this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
-          changed = true;
-        }
-        if (changed) updatedCount++;
-      }
-    } catch (err) {
-      console.warn(`更新 ${code} 失败:`, err);
+async batchUpdateSellConfirmInfo() {
+    const allCodes = new Set();
+    this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
+    const codes = Array.from(allCodes);
+    if (codes.length === 0) {
+        this.showToast('暂无基金数据', 'error');
+        return;
     }
-    progressText.innerText = `${Math.min(index+1, codes.length)} / ${codes.length}`;
-  };
 
-  while (index < codes.length) {
-    const batch = codes.slice(index, index + concurrency);
-    await Promise.all(batch.map(code => updateOne(code)));
-    index += concurrency;
-    if (index < codes.length) await new Promise(r => setTimeout(r, 300));
-    // 每批更新后刷新一下首页显示（可选）
+    this.showToast(`开始获取 ${codes.length} 只基金的卖出确认信息...`);
+    
+    const loadingModal = document.getElementById('modal-loading');
+    const titleText = document.getElementById('loading-modal-title');
+    const progressText = document.getElementById('loading-progress-text');
+    titleText.innerText = '正在更新卖出确认信息...';
+    loadingModal.style.display = 'flex';
+    progressText.innerText = `0 / ${codes.length}`;
+
+    let updatedCount = 0;
+    let failedCount = 0;
+    const concurrency = 3;  // 降低并发数，减少被服务器限流的概率
+
+    // 逐个基金处理，而不是 Promise.all，确保单个失败不影响整体
+    for (let i = 0; i < codes.length; i++) {
+        const code = codes[i];
+        try {
+            const html = await this.fetchFundRateHtml(code);
+            if (html) {
+                const trade = this.parseFundRateHtml(html, code);
+                if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+                let changed = false;
+                if (this.data.fundsCache[code].sellConfirmDays !== trade.sellConfirm) {
+                    this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
+                    changed = true;
+                }
+                if (this.data.fundsCache[code].noSellFeeDays !== trade.noSellFeeDays) {
+                    this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
+                    changed = true;
+                }
+                if (changed) updatedCount++;
+            } else {
+                failedCount++;
+            }
+        } catch (err) {
+            console.warn(`更新 ${code} 失败:`, err);
+            failedCount++;
+        }
+        // 更新进度条
+        progressText.innerText = `${i + 1} / ${codes.length}`;
+        
+        // 每成功更新一只，可以实时刷新卡片（可选，避免最后一次性重绘卡死）
+        if ((i + 1) % 5 === 0 || i === codes.length - 1) {
+            if (document.getElementById('view-home').classList.contains('active')) {
+                this.renderHome();
+            }
+            if (document.getElementById('view-sector').classList.contains('active') && this.activeSector) {
+                this.renderSector();
+            }
+        }
+        
+        // 避免请求过快，间隔 200ms
+        await new Promise(r => setTimeout(r, 200));
+    }
+
+    await this.saveData();
+    loadingModal.style.display = 'none';
+    
+    if (failedCount > 0) {
+        this.showToast(`✅ 更新完成，成功 ${updatedCount} 只，失败 ${failedCount} 只`, 'error');
+    } else {
+        this.showToast(`✅ 所有基金卖出确认信息更新成功 (${updatedCount} 只)`);
+    }
+    
+    // 最终刷新一次视图
     if (document.getElementById('view-home').classList.contains('active')) {
-      this.renderHome();
+        this.renderHome();
     }
-  }
-
-  await this.saveData();
-  loadingModal.style.display = 'none';
-  this.showToast(`✅ 更新完成，成功更新 ${updatedCount} 只基金的卖出确认信息`);
-  
-  if (document.getElementById('view-home').classList.contains('active')) {
-    this.renderHome();
-  }
-  
-  if (this.s3) {
-    this.pushToCloud();
-  }
+    if (document.getElementById('view-sector').classList.contains('active') && this.activeSector) {
+        this.renderSector();
+    }
+    
+    if (this.s3) {
+        this.pushToCloud();
+    }
 },
   
   formatEMDate(ts, length = 10, offset = 0) { 
@@ -5205,6 +5222,16 @@ async fetchFundRateHtml(code, retry = 2) {
 },
 
 parseFundRateHtml(html, code) {
+
+  if (!html || typeof html !== 'string' || html.trim() === '') {
+        // 返回默认值，避免抛出异常
+        return {
+            buyMin: '--', sipMin: '--', buyMax: '--', buyConfirm: '--',
+            sellConfirm: '--', buyStatus: '--', sellStatus: '--', noSellFeeDays: null,
+            buyRateHtml: '<p>暂无数据</p>', sellRateHtml: '<p>暂无数据</p>'
+        };
+    }
+  
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 

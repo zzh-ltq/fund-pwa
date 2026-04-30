@@ -5151,32 +5151,34 @@ async renderPerformanceTab(code) {
   if (activeBtn) activeBtn.classList.add('active');
 },
 
-// ========== 终极完全免费方案：通过 Deno Deploy 代理获取 HTML ==========
-  async fetchFundRateHtml(code, retry = 2) {
-    // ⚠️ 请在这里填入你在 Deno Deploy 生成的域名，注意结尾要加上 /?code=
-    const denoProxyUrl = `https://free-cat-45.zzh-ltq.deno.net/?code=`;
-    
-    for (let i = 0; i <= retry; i++) {
-      try {
-        const response = await fetch(`${denoProxyUrl}${code}`);
-        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-        
-        const html = await response.text();
-        
-        // 校验数据完整性，防止取到空页面
-        if (html && (html.includes('申购费率') || html.includes('jjfl'))) {
-          return html;
-        }
-        throw new Error('代理返回数据无效');
-      } catch (err) {
-        console.warn(`Deno 代理获取失败 (重试 ${i}/${retry}):`, err.message);
-        if (i === retry) return null;
-        // 等待 600 毫秒后再试
-        await new Promise(r => setTimeout(r, 600)); 
+  // ========== 新增：通过代理获取天天基金费率页面 HTML ==========
+async fetchFundRateHtml(code, retry = 2) {
+  const targetUrl = `https://fundf10.eastmoney.com/jjfl_${code}.html`;
+  const proxyList = [
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`,
+    `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+    `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`
+  ];
+  for (let i = 0; i < proxyList.length && retry > 0; i++) {
+    try {
+      const response = await fetch(proxyList[i]);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      let html = '';
+      if (proxyList[i].includes('allorigins')) {
+        const json = await response.json();
+        html = json.contents;
+      } else {
+        html = await response.text();
       }
+      if (html && (html.includes('申购费率') || html.includes('jjfl'))) {
+        return html;
+      }
+    } catch (err) {
+      console.warn(`代理 ${i+1} 失败:`, err.message);
     }
-    return null;
-  },
+  }
+  return null;
+},
 
 parseFundRateHtml(html, code) {
   const parser = new DOMParser();

@@ -3616,6 +3616,30 @@ drawIntradayFlowCanvas(data) {
     container.className = this.secViewMode === 'card' ? 'card-grid' : ''; 
     container.innerHTML = this.secViewMode === 'card' ? funds.map(f => this.buildCardHtml(f, false)).join('') : this.buildListHtml(funds, false, true); 
   },
+
+  // 放在 app 对象中，例如在 renderSector 方法附近
+
+updateFundCardDisplay(code) {
+    // 只有当基金缓存中存在卖出确认信息时才尝试刷新卡片显示
+    const fund = this.data.fundsCache[code];
+    if (!fund || (!fund.sellConfirmDays && !fund.noSellFeeDays)) return;
+
+    // 刷新自选首页（如果当前在自选页且该基金属于当前显示的分组）
+    if (document.getElementById('view-home').classList.contains('active')) {
+        // 简单起见，直接重新渲染首页（性能影响可接受）
+        this.renderHome();
+    }
+    // 刷新板块页（如果当前在板块页且该基金属于当前显示的板块）
+    if (document.getElementById('view-sector').classList.contains('active')) {
+        if (this.activeSector) {
+            const fundsInSector = Object.values(this.data.fundsCache)
+                .filter(f => f.sectors?.includes(this.activeSector));
+            if (fundsInSector.some(f => f.code === code)) {
+                this.renderSector();
+            }
+        }
+    }
+},
   
   delSector(e, s) { 
     this.stopProp(e); 
@@ -5361,10 +5385,15 @@ async renderBasicInfoTab(code) {
 
   // 将交易规则缓存到 fundsCache 中，供首页卡片使用
   if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-  this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
-  this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
-  // 异步保存（不阻塞渲染）
-  this.saveData();
+  
+  if (trade.sellConfirm !== undefined && trade.noSellFeeDays !== undefined) {
+        if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+        this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
+        this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
+        this.saveData();
+        // 新增：刷新该基金在自选页/板块页的卡片显示
+        this.updateFundCardDisplay(code);
+    }
 
   // 美化表格（添加横向滚动）
   const formatTable = (tableHtml) => {

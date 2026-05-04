@@ -834,60 +834,64 @@ async batchUpdateSellConfirmInfo() {
 
     let updatedCount = 0;
     let failedCount = 0;
-    const concurrency = 3;  // 降低并发数，减少被服务器限流的概率
+    let processedCount = 0;
 
-    // 逐个基金处理，而不是 Promise.all，确保单个失败不影响整体
-    for (let i = 0; i < codes.length; i++) {
-        const code = codes[i];
-        try {
-            const html = await this.fetchFundRateHtml(code);
-            if (html) {
-                const trade = this.parseFundRateHtml(html, code);
-                if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-                let changed = false;
-                if (this.data.fundsCache[code].sellConfirmDays !== trade.sellConfirm) {
-                    this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
-                    changed = true;
+    // 【优化核心1】：将并发数提升为 6（浏览器对同一域名的并发限制通常是6个）
+    const batchSize = 6; 
+
+    // 【优化核心2】：将串行循环改为分批次并行处理 (Promise.all)
+    for (let i = 0; i < codes.length; i += batchSize) {
+        const chunk = codes.slice(i, i + batchSize);
+        
+        await Promise.all(chunk.map(async (code) => {
+            try {
+                const html = await this.fetchFundRateHtml(code);
+                if (html) {
+                    const trade = this.parseFundRateHtml(html, code);
+                    if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+                    let changed = false;
+                    
+                    // 只有当解析出有效数据时才覆盖
+                    if (trade.sellConfirm && trade.sellConfirm !== '--' && this.data.fundsCache[code].sellConfirmDays !== trade.sellConfirm) {
+                        this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
+                        changed = true;
+                    }
+                    if (trade.noSellFeeDays !== undefined && this.data.fundsCache[code].noSellFeeDays !== trade.noSellFeeDays) {
+                        this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
+                        changed = true;
+                    }
+                    if (changed) updatedCount++;
+                } else {
+                    failedCount++;
                 }
-                if (this.data.fundsCache[code].noSellFeeDays !== trade.noSellFeeDays) {
-                    this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
-                    changed = true;
-                }
-                if (changed) updatedCount++;
-            } else {
+            } catch (err) {
+                console.warn(`更新 ${code} 失败:`, err);
                 failedCount++;
+            } finally {
+                processedCount++;
             }
-        } catch (err) {
-            console.warn(`更新 ${code} 失败:`, err);
-            failedCount++;
-        }
-        // 更新进度条
-        progressText.innerText = `${i + 1} / ${codes.length}`;
+        }));
+
+        // 实时更新进度条
+        progressText.innerText = `${processedCount} / ${codes.length}`;
         
-        // 每成功更新一只，可以实时刷新卡片（可选，避免最后一次性重绘卡死）
-        if ((i + 1) % 5 === 0 || i === codes.length - 1) {
-            if (document.getElementById('view-home').classList.contains('active')) {
-                this.renderHome();
-            }
-            if (document.getElementById('view-sector').classList.contains('active') && this.activeSector) {
-                this.renderSector();
-            }
+        // 【优化核心3】：每批次只稍微停顿 100ms，防拦截的同时保障极速体验
+        if (i + batchSize < codes.length) {
+            await new Promise(r => setTimeout(r, 100));
         }
-        
-        // 避免请求过快，间隔 200ms
-        await new Promise(r => setTimeout(r, 200));
     }
 
+    // 【优化核心4】：所有请求完毕后，统一保存数据并进行一次完整的视图重绘
     await this.saveData();
     loadingModal.style.display = 'none';
     
     if (failedCount > 0) {
-        this.showToast(`✅ 更新完成，成功 ${updatedCount} 只，失败 ${failedCount} 只`, 'error');
+        this.showToast(`✅ 更新完成，成功 ${updatedCount} 只，失败/无数据 ${failedCount} 只`, 'error');
     } else {
-        this.showToast(`✅ 所有基金卖出确认信息更新成功 (${updatedCount} 只)`);
+        this.showToast(`✅ 所有基金卖出确认信息更新成功 (共 ${updatedCount} 只有变动)`);
     }
     
-    // 最终刷新一次视图
+    // 强制刷新当前激活的视图，确保卡片100%更新
     if (document.getElementById('view-home').classList.contains('active')) {
         this.renderHome();
     }
@@ -895,10 +899,11 @@ async batchUpdateSellConfirmInfo() {
         this.renderSector();
     }
     
+    // 如果配置了云端，自动推送到云端备份
     if (this.s3) {
         this.pushToCloud();
     }
-},
+  },
   
   formatEMDate(ts, length = 10, offset = 0) { 
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length); 

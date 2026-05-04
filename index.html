@@ -836,10 +836,9 @@ async batchUpdateSellConfirmInfo() {
     let failedCount = 0;
     let processedCount = 0;
 
-    // 【优化核心1】：将并发数提升为 6（浏览器对同一域名的并发限制通常是6个）
-    const batchSize = 6; 
+    // 【优化1：降低并发】从 6 降到 3，避免 Cloudflare Worker 瞬间过载导致 500 报错
+    const batchSize = 3; 
 
-    // 【优化核心2】：将串行循环改为分批次并行处理 (Promise.all)
     for (let i = 0; i < codes.length; i += batchSize) {
         const chunk = codes.slice(i, i + batchSize);
         
@@ -851,7 +850,6 @@ async batchUpdateSellConfirmInfo() {
                     if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
                     let changed = false;
                     
-                    // 只有当解析出有效数据时才覆盖
                     if (trade.sellConfirm && trade.sellConfirm !== '--' && this.data.fundsCache[code].sellConfirmDays !== trade.sellConfirm) {
                         this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
                         changed = true;
@@ -865,23 +863,22 @@ async batchUpdateSellConfirmInfo() {
                     failedCount++;
                 }
             } catch (err) {
-                console.warn(`更新 ${code} 失败:`, err);
+                // 静默处理单次失败，保持控制台干净
                 failedCount++;
             } finally {
                 processedCount++;
             }
         }));
 
-        // 实时更新进度条
         progressText.innerText = `${processedCount} / ${codes.length}`;
         
-        // 【优化核心3】：每批次只稍微停顿 100ms，防拦截的同时保障极速体验
+        // 【优化2：增加缓冲期】每批次请求完休息 300 毫秒，给代理节点喘息时间
         if (i + batchSize < codes.length) {
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise(r => setTimeout(r, 300));
         }
     }
 
-    // 【优化核心4】：所有请求完毕后，统一保存数据并进行一次完整的视图重绘
+    // 【优化3：仅保存本地】执行本地持久化存储
     await this.saveData();
     loadingModal.style.display = 'none';
     
@@ -891,7 +888,7 @@ async batchUpdateSellConfirmInfo() {
         this.showToast(`✅ 所有基金卖出确认信息更新成功 (共 ${updatedCount} 只有变动)`);
     }
     
-    // 强制刷新当前激活的视图，确保卡片100%更新
+    // 刷新当前激活的视图更新卡片
     if (document.getElementById('view-home').classList.contains('active')) {
         this.renderHome();
     }
@@ -899,11 +896,8 @@ async batchUpdateSellConfirmInfo() {
         this.renderSector();
     }
     
-    // 如果配置了云端，自动推送到云端备份
-    if (this.s3) {
-        this.pushToCloud();
-    }
-  },
+    // 【优化4：取消自动上传】已经删除了原有的 if(this.s3) { this.pushToCloud(); }
+},
   
   formatEMDate(ts, length = 10, offset = 0) { 
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length); 
@@ -5199,30 +5193,31 @@ async renderPerformanceTab(code) {
 },
 
 async fetchFundRateHtml(code, retry = 2) {
-  // 使用 Cloudflare Worker 代理，彻底解决跨域
   const proxyUrl = `${this.workerUrl}?code=${code}`;
   for (let attempt = 0; attempt <= retry; attempt++) {
     try {
       const response = await fetch(proxyUrl, {
         method: 'GET',
-        cache: 'no-cache' // 确保每次获取最新的费率信息
+        cache: 'no-cache'
       });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       const html = await response.text();
-      // 简单校验返回内容是否包含费率表格特征（降低无效重试）
+      // 简单校验返回内容是否包含费率表格特征
       if (html && (html.includes('申购费率') || html.includes('jjfl') || html.includes('赎回费率'))) {
         return html;
       }
-      // 若返回内容明显错误（如代理返回错误json），继续重试
-      if (attempt < retry) await new Promise(r => setTimeout(r, 500));
+      // 内容不匹配触发重试
+      if (attempt < retry) await new Promise(r => setTimeout(r, 800));
     } catch (err) {
-      console.warn(`Worker 代理请求失败 (尝试 ${attempt+1}/${retry+1}):`, err.message);
-      if (attempt < retry) await new Promise(r => setTimeout(r, 500));
+      // 捕获 500 错误，不再打印 console.warn 刷屏
+      // 如果报错，说明节点拥堵，强制休眠 800 毫秒后重试
+      if (attempt < retry) {
+          await new Promise(r => setTimeout(r, 800));
+      }
     }
   }
-  // 所有重试失败后返回 null，前端会显示暂无数据
   return null;
 },
 

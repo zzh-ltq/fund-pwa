@@ -388,7 +388,7 @@
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
       <div style="display:flex; gap:8px;"><div class="nav-btn" onclick="app.switchTab('sync')">☁️同步</div><div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div><div class="nav-btn" style="background:#fff;" onclick="app.batchUpdateSellConfirmInfo()">🔄赎率</div></div>
-      <div class="nav-title">📈 养鸡小能手</div>
+      <div class="nav-title">📈 养基王</div>
       <div class="nav-btn" style="background:#fff;" onclick="app.openSearch()">🔍搜索</div>
     </div>
     <div class="scroll-area">
@@ -1528,9 +1528,27 @@ if (f.sellConfirmDays && f.sellConfirmDays !== '--') {
   let tip = '';
   if (f.noSellFeeDays === 7) tip = '(7天无)';
   else if (f.noSellFeeDays === 30) tip = '(30天无)';
+  
+  // 读取用户自定义的到账时间，默认 T+1
+  let currentArrival = f.arrivalTime || 'T+1';
+  
+  // 构建下拉菜单
+  let selectHtml = `
+    <select onclick="app.stopProp(event)" onchange="app.updateArrivalTime(event, '${f.code}', this.value)" style="border:none; background:transparent; font-weight:bold; color:#1e293b; font-size:13px; outline:none; cursor:pointer; padding:0;">
+      <option value="T+1" ${currentArrival === 'T+1' ? 'selected' : ''}>T+1</option>
+      <option value="T+2" ${currentArrival === 'T+2' ? 'selected' : ''}>T+2</option>
+      <option value="T+3" ${currentArrival === 'T+3' ? 'selected' : ''}>T+3</option>
+      <option value="T+4" ${currentArrival === 'T+4' ? 'selected' : ''}>T+4</option>
+      <option value="T+5" ${currentArrival === 'T+5' ? 'selected' : ''}>T+5</option>
+    </select>
+  `;
+
   sellConfirmHtml = `<div class="rt-card-row" style="justify-content:space-between; margin-top:4px; padding-top:4px; border-top:1px solid #f0f0f0;">
-    <span style="font-size:10px; color:#94a3b8;">📅 卖出确认</span>
-    <span style="font-size:13px; font-weight:bold; color:#1e293b;">${f.sellConfirmDays} ${tip}</span>
+    <span style="font-size:10px; color:#94a3b8;">💰 预计到账</span>
+    <div style="display:flex; align-items:center; gap:4px;">
+        ${selectHtml}
+        <span style="font-size:12px; font-weight:bold; color:#1e293b;">${tip}</span>
+    </div>
   </div>`;
 }
     
@@ -1576,6 +1594,15 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
       ${sellConfirmHtml}
       ${rtHtml}
     </div>`; 
+  },
+
+  updateArrivalTime(e, code, val) {
+      this.stopProp(e);
+      if (this.data.fundsCache[code]) {
+          this.data.fundsCache[code].arrivalTime = val;
+          this.saveData(); // 保存到本地数据库
+          // this.showToast('到账时间已更新'); // 可选：静默保存或开启提示
+      }
   },
 
   addFundToFavGroup(e, code, selectEl) {
@@ -3136,7 +3163,8 @@ drawIntradayFlowCanvas(data) {
     if (displayIdx >= 0 && displayIdx < data.prices.length) { 
       const priceVal = data.prices[displayIdx]; 
       const timeLabel = data.xLabels[displayIdx] || ''; 
-      let displayTime = data.type === 'trend' ? timeLabel.slice(11,16) : timeLabel.slice(5,10); 
+      // 无论是分时图(返回YYYY-MM-DD HH:mm)还是K线图(返回YYYY-MM-DD)，直接显示完整的原始字符串
+      let displayTime = timeLabel;
       
       if (timeDisplayEl) { timeDisplayEl.innerText = displayTime; timeDisplayEl.style.display = 'block'; } 
       

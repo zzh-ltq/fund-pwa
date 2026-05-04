@@ -4246,7 +4246,7 @@ updateFundCardDisplay(code) {
     area.innerHTML = `<div class="card" style="margin-bottom: 12px; border-left: 4px solid ${res.finalColor};"><div style="font-size: 13px; color: var(--text-sub); margin-bottom: 4px; font-weight: bold;">💡 AI 综合波段空间研判</div><div style="display:flex; align-items:baseline; gap: 8px; margin-bottom: 8px;"><span style="font-size: 14px;">当前位置：</span><span style="font-size: 18px; font-weight: 900; color: ${res.finalColor};">${res.positionLevel}</span></div><div style="font-size:13px; font-weight:800; color: var(--text-main); line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 8px;">${res.finalAdvice}</div></div><div class="ana-block"><div class="ana-header"><span class="ana-title">🤖 核心量化模型拆解诊断</span><span style="font-size: 12px; color:var(--text-sub); font-weight:bold;">当前价格: ${res.latestPrice.toFixed(4)}</span></div>${modelsHtml}<div style="text-align:center; font-size:11px; color:#94a3b8; margin-top: 12px;">量化模型基于历史净值推算，仅供参考，不构成投资建议。</div></div>`; 
   },
 
-  // 【终极修复】：东方财富官网持仓解析引擎 (引入沙盒重试机制，绝对防污染防拦截)
+// 【终极修复】：东方财富官网持仓解析引擎 (引入沙盒重试机制，绝对防污染防拦截，支持穿透ETF)
   async fetchEastMoneyTable(code, type, maxRetries = 2) {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const result = await new Promise((resolve) => {
@@ -4262,19 +4262,15 @@ updateFundCardDisplay(code) {
             const timeout = setTimeout(() => finish(null), 4000); 
 
             const doc = iframe.contentWindow.document;
-            
-            // 屏蔽沙盒内的红字报错，尽量保持主控制台干净
             iframe.contentWindow.onerror = () => true; 
 
             const script = doc.createElement('script');
-            // 每次重试时轻微改变时间戳，绕过错误缓存
             script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${type}&code=${code}&topline=10&year=&month=&rt=${Date.now() + attempt}`;
             
             script.onload = () => {
                 clearTimeout(timeout);
                 const win = iframe.contentWindow;
                 
-                // 核心防线：判断数据有没有被服务器恶意截断
                 if (win.apidata && win.apidata.content) {
                     let parsedData = [];
                     try {
@@ -4293,6 +4289,11 @@ updateFundCardDisplay(code) {
                                     codeStr = tds[1].innerText.trim();
                                     nameStr = tds[2].innerText.trim();
                                     ratioStr = tds[3].innerText.trim().replace('%', ''); 
+                                } else if (type === 'fundcc' && tds.length >= 4) {
+                                    // 【新增】：支持抓取 ETF 联接基金的底层基金代码
+                                    codeStr = tds[1].innerText.trim();
+                                    nameStr = tds[2].innerText.trim();
+                                    ratioStr = tds[3].innerText.trim().replace('%', ''); 
                                 } else if (type === 'hypz' && tds.length >= 3) {
                                     codeStr = 'industry'; 
                                     nameStr = tds[1].innerText.trim();
@@ -4301,51 +4302,80 @@ updateFundCardDisplay(code) {
                                 
                                 if (codeStr && nameStr && !isNaN(parseFloat(ratioStr))) {
                                     parsedData.push({ 
-                                        code: type === 'jjcc' ? codeStr.padStart(5, '0') : codeStr, 
+                                        code: type === 'fundcc' ? codeStr.padStart(6, '0') : (type === 'jjcc' ? codeStr.padStart(5, '0') : codeStr), 
                                         name: nameStr, 
                                         ratio: parseFloat(ratioStr) 
                                     });
                                 }
                             }
                         });
-                        finish(parsedData); // 成功解析出数据，返回
+                        finish(parsedData); 
                     } catch(e) {
-                        finish(null); // DOM解析异常，触发重试
+                        finish(null); 
                     }
                 } else {
-                    finish(null); // 数据被截断导致 apidata 未定义，直接触发重试！
+                    finish(null); 
                 }
             };
             script.onerror = () => { clearTimeout(timeout); finish(null); };
             doc.head.appendChild(script);
         });
 
-        // 如果 result 不是 null，说明成功拿到了数据（哪怕是个空数组 []），直接返回结束战斗
         if (result !== null) return result; 
-        
-        // 如果遭遇服务器拦截（返回了 null），休息 500 毫秒后自动发起下一次重试进攻
         await new Promise(r => setTimeout(r, 500));
     }
-    
-    return []; // 如果 3 次重试都被拦截，无奈返回空数组兜底，保证网页不卡死
+    return []; 
   },
   
   async loadHoldings(code) { 
     document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>'; 
     try { 
       let stocks = [], bonds = [];
+      let underlyingEtf = null;
+      let isLinkedETF = false;
 
-      // 【核心修复】：取消并发，改为排队请求，确保东财服务器 100% 成功返回数据
       stocks = await this.fetchEastMoneyTable(code, 'jjcc');
       bonds = await this.fetchEastMoneyTable(code, 'zqcc');
 
+      // 1. 如果股票为空，先尝试百度接口
       if (!stocks || stocks.length === 0) {
           try {
               const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
               const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
-              const heavy = tabs.find(t=>t.type==='position')?.content?.heavyStock?.body || []; 
-              stocks = heavy.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
+              const posContent = tabs.find(t=>t.type==='position')?.content;
+              
+              if (posContent?.heavyStock?.body?.length > 0) {
+                  stocks = posContent.heavyStock.body.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
+              } else if (posContent?.heavyFund?.body?.length > 0) {
+                  // 如果百度接口返回了“基金持仓”，记录底层 ETF 代码
+                  underlyingEtf = {
+                      code: posContent.heavyFund.body[0].code,
+                      ratio: parseFloat(posContent.heavyFund.body[0].positionProportion) || 95
+                  };
+              }
           } catch(e) {}
+      }
+
+      // 2. 如果还是没找到底层 ETF，尝试从东方财富的 fundcc 接口抓取底层 ETF
+      if ((!stocks || stocks.length === 0) && !underlyingEtf) {
+          const fundsHeld = await this.fetchEastMoneyTable(code, 'fundcc');
+          if (fundsHeld && fundsHeld.length > 0) {
+              underlyingEtf = { code: fundsHeld[0].code, ratio: fundsHeld[0].ratio };
+          }
+      }
+
+      // 3. 【核心】：如果确定这是一只 ETF 联接基金，自动穿透抓取底层 ETF 的股票！
+      if ((!stocks || stocks.length === 0) && underlyingEtf) {
+          const etfStocks = await this.fetchEastMoneyTable(underlyingEtf.code, 'jjcc');
+          if (etfStocks && etfStocks.length > 0) {
+              isLinkedETF = true;
+              // 折算比例：ETF的股票占比 × 联接基金持有ETF的占比
+              const ratioMultiplier = underlyingEtf.ratio / 100;
+              stocks = etfStocks.map(s => ({
+                  ...s,
+                  ratio: Number((s.ratio * ratioMultiplier).toFixed(2)) 
+              }));
+          }
       }
 
       if((!stocks || stocks.length === 0) && (!bonds || bonds.length === 0)) throw new Error(); 
@@ -4443,7 +4473,18 @@ updateFundCardDisplay(code) {
 
       let topCard = '';
       if (stocks.length > 0) {
-         topCard = `<div class="card" style="margin-bottom:12px;"><div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px;"><span>前十股票占比</span><span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span></div><div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px;"><span>股票加权估算</span><span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span></div></div>`;
+         // 【新增】：如果是穿透到底层 ETF 查到的数据，给个徽章提示用户
+         let linkBadge = isLinkedETF ? `<span style="background:#e0e7ff; color:#3b82f6; padding:2px 6px; border-radius:4px; margin-left:8px; font-size:10px;">已穿透底层ETF计算</span>` : '';
+         topCard = `<div class="card" style="margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px; align-items:center;">
+                <span>前十股票占比 ${linkBadge}</span>
+                <span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; color:var(--text-sub); font-size:12px; align-items:center;">
+                <span>股票加权估算</span>
+                <span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span>
+            </div>
+         </div>`;
       }
       
       document.getElementById('det-hold-area').innerHTML = topCard + stocksHtml + bondsHtml; 

@@ -4328,16 +4328,17 @@ updateFundCardDisplay(code) {
   },
   
   async loadHoldings(code) { 
-    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">抓取中...</div>'; 
+    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">底层穿透解析中...</div>'; 
     try { 
       let stocks = [], bonds = [];
       let underlyingEtf = null;
       let isLinkedETF = false;
 
+      // 1. 尝试直接获取股票和债券持仓
       stocks = await this.fetchEastMoneyTable(code, 'jjcc');
       bonds = await this.fetchEastMoneyTable(code, 'zqcc');
 
-      // 1. 如果股票为空，先尝试百度接口
+      // 2. 如果股票为空，尝试百度备用接口
       if (!stocks || stocks.length === 0) {
           try {
               const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
@@ -4355,7 +4356,7 @@ updateFundCardDisplay(code) {
           } catch(e) {}
       }
 
-      // 2. 如果还是没找到底层 ETF，尝试从东方财富的 fundcc 接口抓取底层 ETF
+      // 3. 如果还是空，去东方财富查“基金持仓(fundcc)”
       if ((!stocks || stocks.length === 0) && !underlyingEtf) {
           const fundsHeld = await this.fetchEastMoneyTable(code, 'fundcc');
           if (fundsHeld && fundsHeld.length > 0) {
@@ -4363,43 +4364,51 @@ updateFundCardDisplay(code) {
           }
       }
 
-      // 2.5 【全新名称推演逻辑】：如果依然没找到，且名字包含"联接"，通过搜索字典精准推演底层 ETF
+      // 4. 【核心强化版】：名称交叉模糊推演底层 ETF (专门对付刚成立没有季报的联接基金)
       const fundName = this.data.fundsCache[code]?.name || '';
       if ((!stocks || stocks.length === 0) && !underlyingEtf && fundName.includes('联接')) {
-          await this.loadMasterList(); // 确保本地基金字典已加载
+          await this.loadMasterList(); 
           if (this.masterFundList && this.masterFundList.length > 0) {
-              // 提取基础名称，例如 "汇添富国证港股通创新药ETF"
-              let baseName = fundName.split('联接')[0].replace('发起式', '').trim();
-              if (!baseName.includes('ETF')) baseName += 'ETF';
               
-              // A. 尝试全名精准匹配
-              let matched = this.masterFundList.find(f => f[2] === baseName || f[2] === baseName.replace('ETF', ''));
-              
-              // B. 如果全名未匹配，提取基金公司和核心指数进行模糊交叉匹配
-              if (!matched) {
-                  let company2 = fundName.substring(0, 2); // 提取公司简称如 "汇添"
-                  let coreIndex = fundName.split('联接')[0].replace('发起式', '').replace('ETF', '').replace(company2, '').trim();
-                  // 剔除公司名可能残留的第3个字
-                  if (coreIndex.length > 2 && fundName.substring(0, 3).includes(coreIndex.charAt(0))) {
-                      coreIndex = coreIndex.substring(1); 
-                  }
-                  if (coreIndex.length >= 2) {
-                      matched = this.masterFundList.find(f => 
-                          (f[0].startsWith('15') || f[0].startsWith('51')) && // ETF代码一定以15或51开头
-                          f[2].includes(coreIndex) && 
-                          f[2].includes(company2)
-                      );
-                  }
+              // 提取公司简称 (如 "汇添富", "易方达")
+              let company = fundName.substring(0, 3); 
+              if (company === '交银施') company = '交银';
+
+              // 提取纯净的主题词 (剥离所有干扰项)
+              let cleanTheme = fundName.split('联接')[0]
+                  .replace(company, '') 
+                  .replace(company.substring(0,2), '') 
+                  .replace(/ETF|发起式|指数|证券投资基金|A|C|E|I/g, '') 
+                  .replace(/中证|国证|上证|深证|富时|标普|纳斯达克/g, '') // 剥离指数编制公司前缀
+                  .trim();
+
+              // 全网字典大排查：必须是 15 或 51 开头的 ETF，且名字同时包含“公司名”和“主题词”
+              let matched = this.masterFundList.find(f => {
+                  const isETF = f[0].startsWith('15') || f[0].startsWith('51');
+                  if (!isETF) return false;
+                  const hasCompany = f[2].includes(company) || f[2].includes(company.substring(0,2));
+                  const hasTheme = f[2].includes(cleanTheme);
+                  return hasCompany && hasTheme;
+              });
+
+              // 退一步海阔天空：如果主题词太长匹配不到，只取主题词的最后4个字（如“创新药”）再搜一次
+              if (!matched && cleanTheme.length >= 4) {
+                  let shortTheme = cleanTheme.substring(cleanTheme.length - 4);
+                  matched = this.masterFundList.find(f => {
+                      return (f[0].startsWith('15') || f[0].startsWith('51')) &&
+                             (f[2].includes(company) || f[2].includes(company.substring(0,2))) &&
+                             f[2].includes(shortTheme);
+                  });
               }
-              
+
               if (matched) {
-                  // 推演成功！联接基金的底层 ETF 仓位上限通常在 90%~95% 之间，取 94.5% 估算最合理
+                  // 匹配成功！联接基金一般留 5% 现金，所以持有 ETF 的比例按 94.5% 估算
                   underlyingEtf = { code: matched[0], ratio: 94.5 }; 
               }
           }
       }
 
-      // 3. 【核心穿透】：如果确定这是一只 ETF 联接基金，自动穿透抓取底层 ETF 的股票！
+      // 5. 【执行穿透】：拿到 ETF 代码后，抓取该 ETF 的股票，并折算比例
       if ((!stocks || stocks.length === 0) && underlyingEtf) {
           const etfStocks = await this.fetchEastMoneyTable(underlyingEtf.code, 'jjcc');
           if (etfStocks && etfStocks.length > 0) {

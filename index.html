@@ -514,7 +514,38 @@
   <div id="modal-loading" class="modal-view"><div style="width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: transparent; margin-top: -10vh;"><div class="loading-spinner"></div><div id="loading-modal-title" style="font-weight: 800; color: var(--text-main); font-size: 16px; text-shadow: 0 2px 4px rgba(255,255,255,0.8);">数据极速更新中...</div><div id="loading-progress-text" style="font-size: 18px; color: var(--blue); font-weight: 900; margin-top: 8px;">0 / 0</div><div style="font-size: 12px; color: var(--text-sub); margin-top: 8px; font-weight: bold;">更新保存后将自动重载页面</div></div></div>
 
   <!-- 弹窗:基金详情 -->
-  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div><div class="nav-title">基金详情</div><div style="width:60px;"></div></div><div class="scroll-area"><div class="card" style="margin-bottom: 12px;"><div style="display:flex; justify-content:space-between; align-items:flex-start;"><div><h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900;">--</h2><span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span><select id="det-group-select" onchange="app.addToGroupFromDetail()" style="margin-left:8px; padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);"><option value="">+ 加自选</option></select></div><div id="det-rt-block" style="text-align:right; display:none;"><div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div><div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;"><div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div></div><div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div></div></div></div>
+  <div id="modal-detail" class="modal-view" onclick="app.closeOutside(event, 'detail')">
+    <div class="modal-content" onclick="app.stopProp(event)">
+      <div class="nav-bar">
+        <div class="nav-btn left" onclick="app.closeModal('detail')">‹ 返回</div>
+        <div class="nav-title">基金详情</div><div style="width:60px;"></div>
+      </div>
+      <div class="scroll-area">
+        <div class="card" style="margin-bottom: 12px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+  <div style="flex:1;">
+    <h2 id="det-name" style="margin:0 0 6px; font-size:16px; font-weight:900; line-height:1.4;">--</h2>
+    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px;">
+      <span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span>
+      <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);"><option value="">+ 加自选</option></select>
+      
+      <!-- 新增：手动绑定底层ETF区域 -->
+      <div id="det-etf-bind-area" style="display:none; align-items:center; gap:4px;">
+        <input type="text" id="det-etf-input" placeholder="输入6位底层ETF代码" style="width:130px; margin:0; padding:4px 8px; border-radius:8px; font-size:12px; border:1px solid #cbd5e1;">
+        <button class="btn-primary" style="width:auto; margin:0; padding:4px 10px; border-radius:8px; font-size:12px;" onclick="app.bindUnderlyingETF()">绑定查仓</button>
+        <span id="det-etf-bound-badge" style="display:none; background:#e0e7ff; color:#3b82f6; font-size:11px; padding:4px 8px; border-radius:8px; font-weight:bold;">已绑: <span>--</span> <span style="cursor:pointer; color:#f43f5e; margin-left:6px; font-size:14px;" onclick="app.unbindUnderlyingETF()">×</span></span>
+      </div>
+    </div>
+  </div>
+            <div id="det-rt-block" style="text-align:right; display:none;">
+              <div id="det-rt-val" style="font-size:22px; font-weight:900;">--</div>
+              <div style="display:flex; justify-content:flex-end; align-items:center; gap:6px;">
+                <div id="det-rt-chg" style="font-size:14px; font-weight:bold;">--</div>
+              </div>
+              <div id="det-rt-time" style="font-size:10px; color:var(--text-sub); margin-top:2px;">--</div>
+            </div>
+          </div>
+        </div>
     <div class="detail-tabs" id="det-tabs">
       <div class="action-pill active" onclick="app.renderDetailTab('trend')">📈 业绩走势</div>
       <div class="action-pill" onclick="app.renderDetailTab('hold')">📄 持仓</div>
@@ -3996,17 +4027,83 @@ updateFundCardDisplay(code) {
     
     let opts = '<option value="">+ 加自选</option>' + this.data.groups.map(g => `<option value="${g.id}">${g.name}</option>`).join(''); 
     document.getElementById('det-group-select').innerHTML = opts; 
+
+    // ---- 新增：渲染手动绑定ETF的UI ----
+    const bindArea = document.getElementById('det-etf-bind-area');
+    const etfInput = document.getElementById('det-etf-input');
+    const boundBadge = document.getElementById('det-etf-bound-badge');
+    const bindBtn = bindArea.querySelector('button');
+
+    // 只有名称包含 ETF、联接 或 没找到持仓的基金才显示此工具
+    if (f && f.name && (f.name.includes('ETF') || f.name.includes('联接') || f.name.includes('指数'))) {
+        bindArea.style.display = 'flex';
+        if (f.boundEtfCode) {
+            etfInput.style.display = 'none';
+            bindBtn.style.display = 'none';
+            boundBadge.style.display = 'inline-block';
+            boundBadge.querySelector('span').innerText = f.boundEtfCode;
+        } else {
+            etfInput.style.display = 'inline-block';
+            etfInput.value = '';
+            bindBtn.style.display = 'inline-block';
+            boundBadge.style.display = 'none';
+        }
+    } else {
+        bindArea.style.display = 'none';
+    }
     
-    if (!this.rtData[code]) { 
-      const rt = await this.rtFetchSingle(code); 
-      if (rt) this.rtData[code] = rt; 
-    } 
-    
+    // ---- 优化：彻底解决打开时卡死的问题 (异步静默拉取估值) ----
     this.updateDetailRtInfo(code); 
-    
-    // 【修改】：默认打开时进入 "业绩走势" 主菜单
     this.renderDetailTab('trend'); 
     this.openModal('detail'); 
+
+    if (!this.rtData[code]) { 
+      // 去掉 await，让它在后台默默请求，不阻塞UI渲染！
+      this.rtFetchSingle(code).then(rt => {
+         if (rt) { 
+             this.rtData[code] = rt; 
+             // 请求回来后，如果用户还在看这只基金，才更新界面
+             if (this.currentDetailCode === code && document.getElementById('modal-detail').classList.contains('active')) {
+                 this.updateDetailRtInfo(code); 
+             }
+         }
+      });
+    } 
+  },
+
+  bindUnderlyingETF() {
+      const input = document.getElementById('det-etf-input').value.trim();
+      if (!/^\d{6}$/.test(input)) {
+          this.showToast('请输入正确的 6 位 ETF 基金代码 (如 159570)', 'error');
+          return;
+      }
+      const code = this.currentDetailCode;
+      if (this.data.fundsCache[code]) {
+          this.data.fundsCache[code].boundEtfCode = input;
+          this.saveData(); // 永久保存到本地数据库
+          this.showToast('✅ 绑定成功，正在穿透查询持仓...');
+          
+          this.openDetail(code); // 刷新顶部UI状态
+          // 如果当前正好在“持仓”标签页，立刻重新加载
+          if (document.getElementById('det-hold-area').style.display === 'block') {
+              this.loadHoldings(code); 
+          } else {
+              this.renderDetailTab('hold'); // 自动跳到持仓页
+          }
+      }
+  },
+  
+  unbindUnderlyingETF() {
+      const code = this.currentDetailCode;
+      if (this.data.fundsCache[code]) {
+          delete this.data.fundsCache[code].boundEtfCode;
+          this.saveData();
+          this.showToast('已解除绑定');
+          this.openDetail(code);
+          if (document.getElementById('det-hold-area').style.display === 'block') {
+              this.loadHoldings(code);
+          }
+      }
   },
   
   updateDetailRtInfo(code) { 
@@ -4364,7 +4461,15 @@ updateFundCardDisplay(code) {
           }
       }
 
-      // 4. 【核心强化版】：名称交叉模糊推演底层 ETF (专门对付刚成立没有季报的联接基金)
+      // 4. ================= 新增：人工手动绑定最高优先级拦截 =================
+      const boundCode = this.data.fundsCache[code]?.boundEtfCode;
+      if ((!stocks || stocks.length === 0) && boundCode) {
+          // 用户人工绑定的代码直接覆盖前面的结果，联接基金持仓一般为90-95%，按94.5%估算最科学
+          underlyingEtf = { code: boundCode, ratio: 94.5 };
+      }
+      // ======================================================================
+
+      // 5. ================= 核心强化版：名称交叉模糊推演底层 ETF =================
       const fundName = this.data.fundsCache[code]?.name || '';
       if ((!stocks || stocks.length === 0) && !underlyingEtf && fundName.includes('联接')) {
           await this.loadMasterList(); 
@@ -4407,12 +4512,13 @@ updateFundCardDisplay(code) {
               }
           }
       }
+      // ======================================================================
 
-      // 5. 【执行穿透】：拿到 ETF 代码后，抓取该 ETF 的股票，并折算比例
+      // 6. 【执行穿透】：拿到 ETF 代码后，抓取该 ETF 的股票，并折算比例
       if ((!stocks || stocks.length === 0) && underlyingEtf) {
           const etfStocks = await this.fetchEastMoneyTable(underlyingEtf.code, 'jjcc');
           if (etfStocks && etfStocks.length > 0) {
-              isLinkedETF = true;
+              isLinkedETF = true; // 标记穿透成功，用于 UI 显示徽章
               const ratioMultiplier = underlyingEtf.ratio / 100;
               stocks = etfStocks.map(s => ({
                   ...s,

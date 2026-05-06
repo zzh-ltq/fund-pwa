@@ -4431,85 +4431,89 @@ updateFundCardDisplay(code) {
       let underlyingEtf = null;
       let isLinkedETF = false;
 
-      // 1. 尝试直接获取股票和债券持仓
-      stocks = await this.fetchEastMoneyTable(code, 'jjcc');
+      // 无论是否穿透，原基金的债券持仓先抓取（联接基金也会留部分债券做底仓）
       bonds = await this.fetchEastMoneyTable(code, 'zqcc');
 
-      // 2. 如果股票为空，尝试百度备用接口
-      if (!stocks || stocks.length === 0) {
-          try {
-              const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
-              const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
-              const posContent = tabs.find(t=>t.type==='position')?.content;
-              
-              if (posContent?.heavyStock?.body?.length > 0) {
-                  stocks = posContent.heavyStock.body.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
-              } else if (posContent?.heavyFund?.body?.length > 0) {
-                  underlyingEtf = {
-                      code: posContent.heavyFund.body[0].code,
-                      name: posContent.heavyFund.body[0].name, // 新增记录名称
-                      ratio: parseFloat(posContent.heavyFund.body[0].positionProportion) || 94.5
-                  };
-              }
-          } catch(e) {}
-      }
-
-      // 3. 如果还是空，去东方财富查“基金持仓(fundcc)”
-      if ((!stocks || stocks.length === 0) && !underlyingEtf) {
-          const fundsHeld = await this.fetchEastMoneyTable(code, 'fundcc');
-          if (fundsHeld && fundsHeld.length > 0) {
-              underlyingEtf = { code: fundsHeld[0].code, name: fundsHeld[0].name, ratio: fundsHeld[0].ratio }; // 新增记录名称
-          }
-      }
-
-      // 4. ================= 新增：人工手动绑定最高优先级拦截 =================
+      // 1. ================= 绝对最高优先级：人工手动绑定 =================
       const boundCode = this.data.fundsCache[code]?.boundEtfCode;
-      if ((!stocks || stocks.length === 0) && boundCode) {
+      
+      if (boundCode) {
+          // 只要用户绑定了代码，直接锁定目标，完全跳过查原基金股票的步骤！
+          // 联接基金持仓一般为90-95%，按94.5%估算最科学
           underlyingEtf = { code: boundCode, name: '', ratio: 94.5 };
-      }
-      // ======================================================================
+      } 
+      // 2. ================= 如果没有绑定，走正常的自动抓取/推演流程 =================
+      else {
+          // A. 先查基金本身的股票持仓
+          stocks = await this.fetchEastMoneyTable(code, 'jjcc');
 
-      // 5. ================= 核心强化版：名称交叉模糊推演底层 ETF =================
-      const fundName = this.data.fundsCache[code]?.name || '';
-      if ((!stocks || stocks.length === 0) && !underlyingEtf && fundName.includes('联接')) {
-          await this.loadMasterList(); 
-          if (this.masterFundList && this.masterFundList.length > 0) {
-              
-              let company = fundName.substring(0, 3); 
-              if (company === '交银施') company = '交银';
+          // B. 如果没查到，尝试百度备用接口
+          if (!stocks || stocks.length === 0) {
+              try {
+                  const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
+                  const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
+                  const posContent = tabs.find(t=>t.type==='position')?.content;
+                  
+                  if (posContent?.heavyStock?.body?.length > 0) {
+                      stocks = posContent.heavyStock.body.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
+                  } else if (posContent?.heavyFund?.body?.length > 0) {
+                      underlyingEtf = {
+                          code: posContent.heavyFund.body[0].code,
+                          name: posContent.heavyFund.body[0].name,
+                          ratio: parseFloat(posContent.heavyFund.body[0].positionProportion) || 94.5
+                      };
+                  }
+              } catch(e) {}
+          }
 
-              let cleanTheme = fundName.split('联接')[0]
-                  .replace(company, '') 
-                  .replace(company.substring(0,2), '') 
-                  .replace(/ETF|发起式|指数|证券投资基金|A|C|E|I/g, '') 
-                  .replace(/中证|国证|上证|深证|富时|标普|纳斯达克/g, '') 
-                  .trim();
-
-              let matched = this.masterFundList.find(f => {
-                  const isETF = f[0].startsWith('15') || f[0].startsWith('51');
-                  if (!isETF) return false;
-                  const hasCompany = f[2].includes(company) || f[2].includes(company.substring(0,2));
-                  const hasTheme = f[2].includes(cleanTheme);
-                  return hasCompany && hasTheme;
-              });
-
-              if (!matched && cleanTheme.length >= 4) {
-                  let shortTheme = cleanTheme.substring(cleanTheme.length - 4);
-                  matched = this.masterFundList.find(f => {
-                      return (f[0].startsWith('15') || f[0].startsWith('51')) &&
-                             (f[2].includes(company) || f[2].includes(company.substring(0,2))) &&
-                             f[2].includes(shortTheme);
-                  });
+          // C. 如果还是没查到，去东方财富查“基金持仓(fundcc)”看看买没买自家 ETF
+          if ((!stocks || stocks.length === 0) && !underlyingEtf) {
+              const fundsHeld = await this.fetchEastMoneyTable(code, 'fundcc');
+              if (fundsHeld && fundsHeld.length > 0) {
+                  underlyingEtf = { code: fundsHeld[0].code, name: fundsHeld[0].name, ratio: fundsHeld[0].ratio };
               }
+          }
 
-              if (matched) {
-                  underlyingEtf = { code: matched[0], name: matched[2], ratio: 94.5 }; // 新增记录名称
+          // D. 如果统统失败，且名字包含"联接"，启动 AI 名称交叉模糊推演
+          const fundName = this.data.fundsCache[code]?.name || '';
+          if ((!stocks || stocks.length === 0) && !underlyingEtf && fundName.includes('联接')) {
+              await this.loadMasterList(); 
+              if (this.masterFundList && this.masterFundList.length > 0) {
+                  let company = fundName.substring(0, 3); 
+                  if (company === '交银施') company = '交银';
+
+                  let cleanTheme = fundName.split('联接')[0]
+                      .replace(company, '') 
+                      .replace(company.substring(0,2), '') 
+                      .replace(/ETF|发起式|指数|证券投资基金|A|C|E|I/g, '') 
+                      .replace(/中证|国证|上证|深证|富时|标普|纳斯达克/g, '') 
+                      .trim();
+
+                  let matched = this.masterFundList.find(f => {
+                      const isETF = f[0].startsWith('15') || f[0].startsWith('51');
+                      if (!isETF) return false;
+                      const hasCompany = f[2].includes(company) || f[2].includes(company.substring(0,2));
+                      const hasTheme = f[2].includes(cleanTheme);
+                      return hasCompany && hasTheme;
+                  });
+
+                  if (!matched && cleanTheme.length >= 4) {
+                      let shortTheme = cleanTheme.substring(cleanTheme.length - 4);
+                      matched = this.masterFundList.find(f => {
+                          return (f[0].startsWith('15') || f[0].startsWith('51')) &&
+                                 (f[2].includes(company) || f[2].includes(company.substring(0,2))) &&
+                                 f[2].includes(shortTheme);
+                      });
+                  }
+
+                  if (matched) {
+                      underlyingEtf = { code: matched[0], name: matched[2], ratio: 94.5 }; 
+                  }
               }
           }
       }
-      // ======================================================================
 
-      // 5.5 如果有了代码但缺少名称 (通常是人工手动绑定纯数字造成的)，去本地字典里反查一下名称
+      // 3. 补全 ETF 名称：如果有了穿透代码但缺少名称 (通常是人工手动绑定纯数字造成的)，去本地字典里反查一下名称
       if (underlyingEtf && !underlyingEtf.name) {
           await this.loadMasterList();
           if (this.masterFundList && this.masterFundList.length > 0) {
@@ -4520,12 +4524,13 @@ updateFundCardDisplay(code) {
           }
       }
 
-      // 6. 【执行穿透】：拿到 ETF 代码后，抓取该 ETF 的股票，并折算比例
-      if ((!stocks || stocks.length === 0) && underlyingEtf) {
+      // 4. 【执行终极穿透】：只要底层 ETF 目标锁定了，直接去抓取该 ETF 的股票，并按比例折算
+      if (underlyingEtf) {
           const etfStocks = await this.fetchEastMoneyTable(underlyingEtf.code, 'jjcc');
           if (etfStocks && etfStocks.length > 0) {
               isLinkedETF = true; // 标记穿透成功，用于 UI 显示徽章
               const ratioMultiplier = underlyingEtf.ratio / 100;
+              // 覆盖掉原本可能存在的空股票数组
               stocks = etfStocks.map(s => ({
                   ...s,
                   ratio: Number((s.ratio * ratioMultiplier).toFixed(2)) 
@@ -4533,6 +4538,7 @@ updateFundCardDisplay(code) {
           }
       }
 
+      // 若查了一大圈啥也没有，抛出异常渲染空状态
       if((!stocks || stocks.length === 0) && (!bonds || bonds.length === 0)) throw new Error(); 
       
       const stockSecids = stocks.map(h => {
@@ -4628,13 +4634,11 @@ updateFundCardDisplay(code) {
 
       let topCard = '';
       if (stocks.length > 0) {
-         // ======== 新增：拼接显示的名称 ========
          let etfDisplayName = underlyingEtf && underlyingEtf.code ? underlyingEtf.code : '';
          if (underlyingEtf && underlyingEtf.name) {
-             etfDisplayName += ` (${underlyingEtf.name})`; // 效果：588290 (科创板芯片ETF)
+             etfDisplayName += ` (${underlyingEtf.name})`;
          }
          let linkBadge = isLinkedETF ? `<span style="background:#e0e7ff; color:#3b82f6; padding:2px 6px; border-radius:4px; margin-left:8px; font-size:10px;">由 ${etfDisplayName} 穿透估算</span>` : '';
-         // ===================================
          
          topCard = `<div class="card" style="margin-bottom:12px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px; align-items:center;">

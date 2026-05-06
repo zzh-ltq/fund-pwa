@@ -4447,6 +4447,7 @@ updateFundCardDisplay(code) {
               } else if (posContent?.heavyFund?.body?.length > 0) {
                   underlyingEtf = {
                       code: posContent.heavyFund.body[0].code,
+                      name: posContent.heavyFund.body[0].name, // 新增记录名称
                       ratio: parseFloat(posContent.heavyFund.body[0].positionProportion) || 94.5
                   };
               }
@@ -4457,15 +4458,14 @@ updateFundCardDisplay(code) {
       if ((!stocks || stocks.length === 0) && !underlyingEtf) {
           const fundsHeld = await this.fetchEastMoneyTable(code, 'fundcc');
           if (fundsHeld && fundsHeld.length > 0) {
-              underlyingEtf = { code: fundsHeld[0].code, ratio: fundsHeld[0].ratio };
+              underlyingEtf = { code: fundsHeld[0].code, name: fundsHeld[0].name, ratio: fundsHeld[0].ratio }; // 新增记录名称
           }
       }
 
       // 4. ================= 新增：人工手动绑定最高优先级拦截 =================
       const boundCode = this.data.fundsCache[code]?.boundEtfCode;
       if ((!stocks || stocks.length === 0) && boundCode) {
-          // 用户人工绑定的代码直接覆盖前面的结果，联接基金持仓一般为90-95%，按94.5%估算最科学
-          underlyingEtf = { code: boundCode, ratio: 94.5 };
+          underlyingEtf = { code: boundCode, name: '', ratio: 94.5 };
       }
       // ======================================================================
 
@@ -4475,19 +4475,16 @@ updateFundCardDisplay(code) {
           await this.loadMasterList(); 
           if (this.masterFundList && this.masterFundList.length > 0) {
               
-              // 提取公司简称 (如 "汇添富", "易方达")
               let company = fundName.substring(0, 3); 
               if (company === '交银施') company = '交银';
 
-              // 提取纯净的主题词 (剥离所有干扰项)
               let cleanTheme = fundName.split('联接')[0]
                   .replace(company, '') 
                   .replace(company.substring(0,2), '') 
                   .replace(/ETF|发起式|指数|证券投资基金|A|C|E|I/g, '') 
-                  .replace(/中证|国证|上证|深证|富时|标普|纳斯达克/g, '') // 剥离指数编制公司前缀
+                  .replace(/中证|国证|上证|深证|富时|标普|纳斯达克/g, '') 
                   .trim();
 
-              // 全网字典大排查：必须是 15 或 51 开头的 ETF，且名字同时包含“公司名”和“主题词”
               let matched = this.masterFundList.find(f => {
                   const isETF = f[0].startsWith('15') || f[0].startsWith('51');
                   if (!isETF) return false;
@@ -4496,7 +4493,6 @@ updateFundCardDisplay(code) {
                   return hasCompany && hasTheme;
               });
 
-              // 退一步海阔天空：如果主题词太长匹配不到，只取主题词的最后4个字（如“创新药”）再搜一次
               if (!matched && cleanTheme.length >= 4) {
                   let shortTheme = cleanTheme.substring(cleanTheme.length - 4);
                   matched = this.masterFundList.find(f => {
@@ -4507,12 +4503,22 @@ updateFundCardDisplay(code) {
               }
 
               if (matched) {
-                  // 匹配成功！联接基金一般留 5% 现金，所以持有 ETF 的比例按 94.5% 估算
-                  underlyingEtf = { code: matched[0], ratio: 94.5 }; 
+                  underlyingEtf = { code: matched[0], name: matched[2], ratio: 94.5 }; // 新增记录名称
               }
           }
       }
       // ======================================================================
+
+      // 5.5 如果有了代码但缺少名称 (通常是人工手动绑定纯数字造成的)，去本地字典里反查一下名称
+      if (underlyingEtf && !underlyingEtf.name) {
+          await this.loadMasterList();
+          if (this.masterFundList && this.masterFundList.length > 0) {
+              let matched = this.masterFundList.find(f => f[0] === underlyingEtf.code);
+              if (matched) {
+                  underlyingEtf.name = matched[2];
+              }
+          }
+      }
 
       // 6. 【执行穿透】：拿到 ETF 代码后，抓取该 ETF 的股票，并折算比例
       if ((!stocks || stocks.length === 0) && underlyingEtf) {
@@ -4622,7 +4628,14 @@ updateFundCardDisplay(code) {
 
       let topCard = '';
       if (stocks.length > 0) {
-         let linkBadge = isLinkedETF ? `<span style="background:#e0e7ff; color:#3b82f6; padding:2px 6px; border-radius:4px; margin-left:8px; font-size:10px;">由 ${underlyingEtf.code} 穿透估算</span>` : '';
+         // ======== 新增：拼接显示的名称 ========
+         let etfDisplayName = underlyingEtf && underlyingEtf.code ? underlyingEtf.code : '';
+         if (underlyingEtf && underlyingEtf.name) {
+             etfDisplayName += ` (${underlyingEtf.name})`; // 效果：588290 (科创板芯片ETF)
+         }
+         let linkBadge = isLinkedETF ? `<span style="background:#e0e7ff; color:#3b82f6; padding:2px 6px; border-radius:4px; margin-left:8px; font-size:10px;">由 ${etfDisplayName} 穿透估算</span>` : '';
+         // ===================================
+         
          topCard = `<div class="card" style="margin-bottom:12px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px; align-items:center;">
                 <span>前十股票占比 ${linkBadge}</span>

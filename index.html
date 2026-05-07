@@ -529,11 +529,14 @@
       <span id="det-code" class="c-code" style="font-size:14px; padding: 4px 8px;">--</span>
       <select id="det-group-select" onchange="app.addToGroupFromDetail()" style="padding:4px 8px; border-radius:12px; border:none; color:#fff; background:var(--blue); font-weight:bold; outline:none; cursor: pointer; box-shadow: 0 2px 6px rgba(0, 102, 255, 0.2);"><option value="">+ 加自选</option></select>
       
-      <!-- 新增：手动绑定底层ETF区域 -->
-      <div id="det-etf-bind-area" style="display:none; align-items:center; gap:4px;">
-        <input type="text" id="det-etf-input" placeholder="输入6位底层ETF代码" style="width:130px; margin:0; padding:4px 8px; border-radius:8px; font-size:12px; border:1px solid #cbd5e1;">
+      <!-- 新增：手动绑定底层ETF区域 (带模糊搜索) -->
+      <div id="det-etf-bind-area" style="display:none; align-items:center; gap:4px; position:relative;">
+        <input type="text" id="det-etf-input" placeholder="输入代码或中文名称" oninput="app.searchUnderlyingETF()" onblur="app.hideETFSearchRes()" autocomplete="off" style="width:130px; margin:0; padding:4px 8px; border-radius:8px; font-size:12px; border:1px solid #cbd5e1;">
         <button class="btn-primary" style="width:auto; margin:0; padding:4px 10px; border-radius:8px; font-size:12px;" onclick="app.bindUnderlyingETF()">绑定查仓</button>
         <span id="det-etf-bound-badge" style="display:none; background:#e0e7ff; color:#3b82f6; font-size:11px; padding:4px 8px; border-radius:8px; font-weight:bold;">已绑: <span>--</span> <span style="cursor:pointer; color:#f43f5e; margin-left:6px; font-size:14px;" onclick="app.unbindUnderlyingETF()">×</span></span>
+        
+        <!-- 搜索下拉结果容器 -->
+        <div id="det-etf-search-res" style="display:none; position:absolute; top:100%; left:0; width:250px; max-height:220px; overflow-y:auto; background:#fff; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.15); z-index:100; margin-top:4px; border:1px solid #e2e8f0;"></div>
       </div>
     </div>
   </div>
@@ -4047,10 +4050,11 @@ updateFundCardDisplay(code) {
     const etfInput = document.getElementById('det-etf-input');
     const boundBadge = document.getElementById('det-etf-bound-badge');
     const bindBtn = bindArea.querySelector('button');
+    const searchRes = document.getElementById('det-etf-search-res');
 
-    // 只有名称包含 ETF、联接 或 没找到持仓的基金才显示此工具
     if (f && f.name && (f.name.includes('ETF') || f.name.includes('联接') || f.name.includes('指数'))) {
         bindArea.style.display = 'flex';
+        if (searchRes) searchRes.style.display = 'none'; // 每次打开重置并隐藏搜索面板
         if (f.boundEtfCode) {
             etfInput.style.display = 'none';
             bindBtn.style.display = 'none';
@@ -4085,6 +4089,60 @@ updateFundCardDisplay(code) {
     } 
   },
 
+  searchETFSearchTimer: null,
+  
+  // 触发模糊搜索
+  async searchUnderlyingETF() {
+    clearTimeout(this.searchETFSearchTimer);
+    const kw = document.getElementById('det-etf-input').value.trim().toLowerCase();
+    const resBox = document.getElementById('det-etf-search-res');
+    
+    if (kw.length < 2) {
+      resBox.style.display = 'none';
+      return;
+    }
+    
+    resBox.innerHTML = '<div style="padding:10px; text-align:center; color:#94a3b8; font-size:12px; font-weight:bold;">🔍 检索全网基金字典中...</div>';
+    resBox.style.display = 'block';
+    
+    this.searchETFSearchTimer = setTimeout(async () => {
+      // 借用右上角全局搜索现成的字典加载逻辑
+      const isReady = await this.loadMasterList();
+      if (!isReady || this.masterFundList.length === 0) {
+        resBox.innerHTML = '<div style="padding:10px; text-align:center; color:var(--red); font-size:12px;">字典加载失败</div>';
+        return;
+      }
+      
+      // 取最多前20个匹配项 (支持代码、拼音首字母、中文名模糊匹配)
+      const res = this.masterFundList.filter(i => i[0].includes(kw) || i[2].toLowerCase().includes(kw) || i[1].toLowerCase().includes(kw)).slice(0, 20);
+      
+      if (res.length === 0) {
+        resBox.innerHTML = '<div style="padding:10px; text-align:center; color:#94a3b8; font-size:12px;">没有匹配结果，请更换关键词</div>';
+      } else {
+        resBox.innerHTML = res.map(i => `
+          <div style="padding:10px; border-bottom:1px solid #f8fafc; cursor:pointer; display:flex; justify-content:space-between; align-items:center;" 
+               onmousedown="app.selectUnderlyingETF('${i[0]}')">
+            <span style="font-size:13px; font-weight:800; color:var(--text-main); text-overflow:ellipsis; overflow:hidden; white-space:nowrap; flex:1;">${i[2]}</span>
+            <span style="font-size:11px; font-weight:bold; color:#64748b; background:#f1f5f9; padding:2px 6px; border-radius:4px; margin-left:8px;">${i[0]}</span>
+          </div>
+        `).join('');
+      }
+    }, 300);
+  },
+
+  // 鼠标点击列表项：自动填入并直接秒查！
+  selectUnderlyingETF(code) {
+    document.getElementById('det-etf-input').value = code;
+    document.getElementById('det-etf-search-res').style.display = 'none';
+    this.bindUnderlyingETF(); // 自动代替用户点击"绑定查仓"按钮
+  },
+
+  // 当输入框失去焦点时，隐藏悬浮菜单
+  hideETFSearchRes() {
+     const resBox = document.getElementById('det-etf-search-res');
+     if(resBox) setTimeout(()=> { resBox.style.display = 'none'; }, 150);
+  },
+  
   bindUnderlyingETF() {
       const input = document.getElementById('det-etf-input').value.trim();
       if (!/^\d{6}$/.test(input)) {

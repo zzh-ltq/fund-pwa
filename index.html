@@ -2013,29 +2013,41 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     this.renderWatchedMarkets();  // ✅ 正确
   },
   
-  // 1. 完全替换 getCorrectSecid (精准处理股票和指数前缀)
+
+// 1. 完全替换 getCorrectSecid (精准处理股票、场内ETF和指数前缀)
   getCorrectSecid(savedSecid, code, groupType) {
     if (!code) return savedSecid;
     const c = String(code).toUpperCase();
 
-    // 板块绝对前缀
+    // 1. 板块绝对前缀
     if (c.startsWith('BK')) return `90.${c}`;
 
-    // 如果是股票，规则是死的，强制纠正历史错误缓存
+    // 2. 如果是股票或场内基金(ETF/LOF)，规则固定，强制纠正
     if (groupType === 'stock') {
-      if (c.startsWith('6') || c.startsWith('9')) return `1.${c}`; // 沪市主板/科创
-      if (c.startsWith('0') || c.startsWith('3') || c.startsWith('4') || c.startsWith('8')) return `0.${c}`; // 深市/北交所
+      // 沪市：6(A股), 9(B股), 51/52/56/58(沪市ETF/LOF), 68(科创板)
+      if (c.startsWith('6') || c.startsWith('9') || c.startsWith('51') || c.startsWith('52') || c.startsWith('56') || c.startsWith('58') || c.startsWith('59')) return `1.${c}`; 
+      // 深市/北交所：0(深A), 3(创业板), 4/8(北交所), 15/16(深市ETF/LOF)
+      if (c.startsWith('0') || c.startsWith('3') || c.startsWith('4') || c.startsWith('8') || c.startsWith('15') || c.startsWith('16')) return `0.${c}`; 
     }
 
-    // 如果是指数，由于东方财富前缀较混乱(98, 93, H等)，优先信任之前正确保存的带小数点的前缀
-    if (savedSecid && String(savedSecid).includes('.')) return savedSecid;
+    // 3. 如果是指数，优先信任之前正确保存的带小数点的前缀 (包含香港、美股等)
+    if (savedSecid && String(savedSecid).includes('.')) {
+        // 但如果把 ETF 误加到了指数板块，这里也要做一次纠偏
+        if (c.startsWith('51') || c.startsWith('52') || c.startsWith('56') || c.startsWith('58') || c.startsWith('59')) return `1.${c}`;
+        if (c.startsWith('15') || c.startsWith('16')) return `0.${c}`;
+        return savedSecid;
+    }
 
+    // 4. 指数的保底推断
     if (groupType === 'index') {
       if (c.startsWith('399')) return `0.${c}`;
       if (c.startsWith('000')) return `1.${c}`;
       if (c.startsWith('98')) return `0.${c}`; // 国证通常为 0.
       if (c.startsWith('93')) return `1.${c}`; // 中证通常为 1.
       if (c.startsWith('H')) return `2.${c}`;
+      // 如果用户把 ETF 误加到了指数板块组
+      if (c.startsWith('51') || c.startsWith('52') || c.startsWith('56') || c.startsWith('58') || c.startsWith('59')) return `1.${c}`;
+      if (c.startsWith('15') || c.startsWith('16')) return `0.${c}`;
     }
 
     return `0.${c}`;

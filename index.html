@@ -1378,6 +1378,7 @@ rtManualRefreshMarket() {
           }
 
           const fund = { 
+            ...oldCache, // 【关键修复】：原封不动地继承老缓存里的所有自定义属性（绑定的ETF、到账时间等）
             code, 
             name: win.fS_name || code, 
             netWorth: nw, 
@@ -1385,7 +1386,7 @@ rtManualRefreshMarket() {
             sectors: oldCache.sectors || [], 
             isStarred: oldCache.isStarred || false 
           }; 
-          this.data.fundsCache[code] = fund; 
+          this.data.fundsCache[code] = fund;
           if (!isBatch) this.saveData(); 
           finish(fund); 
         } else { 
@@ -1431,6 +1432,7 @@ rtManualRefreshMarket() {
           }
 
           const fund = { 
+            ...oldCache, // 【关键修复】：同上，保留所有手动绑定的数据
             code: task.code, 
             name: window.fS_name || task.code, 
             netWorth: nw, 
@@ -1438,7 +1440,7 @@ rtManualRefreshMarket() {
             sectors: oldCache.sectors || [], 
             isStarred: oldCache.isStarred || false 
           }; 
-          this.data.fundsCache[task.code] = fund; 
+          this.data.fundsCache[task.code] = fund;
           if (!task.isBatch) this.saveData(); 
           
           // 【核心修复】：取完数据必须立刻清空全局变量，防止残留污染下一个基金

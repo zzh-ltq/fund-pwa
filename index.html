@@ -342,7 +342,13 @@
     display: block;
     margin: 0 auto;
 }
-
+/* ========== 智投专属样式 ========== */
+    .invest-sub-tabs { display: flex; gap: 8px; margin-bottom: 10px; background: #f1f5f9; padding: 4px; border-radius: 12px; }
+    .invest-sub-tab { flex: 1; text-align: center; padding: 8px 0; font-size: 13px; font-weight: bold; color: #64748b; border-radius: 8px; transition: 0.3s; cursor:pointer;}
+    .invest-sub-tab.active { background: #fff; color: var(--blue); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .invest-tags-wrap { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;}
+    .invest-tag { padding: 6px 14px; border-radius: 16px; font-size: 12px; background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; cursor: pointer; transition: 0.2s; font-weight:bold;}
+    .invest-tag.active { background: #e6f0ff; color: #0066ff; border-color: #0066ff; }
     
     @media (min-width: 768px) {
       .app-container { max-width: 1400px; flex-direction: row; align-items: stretch; padding: 20px; gap: 20px; }
@@ -381,16 +387,16 @@
     <div class="tab-item" onclick="app.switchTab('market')" id="tab-btn-market"><span class="tab-icon">📊</span><span>行情</span></div>
     <div class="tab-item" onclick="app.switchTab('rank')" id="tab-btn-rank"><span class="tab-icon">🏆</span><span>排名</span></div>
     <div class="tab-item" onclick="app.switchTab('sector')" id="tab-btn-sector"><span class="tab-icon">🏷️</span><span>板块</span></div>
-    <div class="tab-item" onclick="app.switchTab('sync')" id="tab-btn-sync"><span class="tab-icon">⚙️</span><span>设置</span></div>
+    <div class="tab-item" onclick="app.switchTab('invest')" id="tab-btn-invest"><span class="tab-icon">🤖</span><span>智投</span></div>
   </div>
 
   <!-- 自选首页 -->
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
-      <div style="display:flex; gap:8px;"><div class="nav-btn" onclick="app.switchTab('sync')">☁️同步</div><div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div><div class="nav-btn" style="background:#fff;" onclick="app.batchUpdateSellConfirmInfo()">🔄赎率</div></div>
-      <div class="nav-title">📈 养基王</div>
-      <div class="nav-btn" style="background:#fff;" onclick="app.openSearch()">🔍搜索</div>
-    </div>
+  <div style="display:flex; gap:8px;"><div class="nav-btn" onclick="app.openSyncView()">☁️同步</div><div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div><div class="nav-btn" style="background:#fff;" onclick="app.batchUpdateSellConfirmInfo()">🔄赎率</div></div>
+  <div class="nav-title">📈 养鸡小能手</div>
+  <div class="nav-btn" style="background:#fff;" onclick="app.openSearch()">🔍搜索</div>
+  </div>
     <div class="scroll-area">
       <div class="tabs-wrapper">
         <div class="tabs-scroll" id="home-groups"></div>
@@ -487,8 +493,47 @@
     </div>
   </div>
 
+  <!-- 智投页 -->
+  <div id="view-invest" class="page-view">
+    <div class="nav-bar"><div class="nav-title">🤖 智能定投测算引擎</div><div class="nav-btn" style="background:transparent; color:var(--text-sub); box-shadow:none;" onclick="app.refreshAll()">刷新净值</div></div>
+    <div class="scroll-area">
+      <div class="tabs-scroll" id="invest-groups" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px dashed #cbd5e1;"></div>
+      
+      <div class="invest-sub-tabs">
+          <div class="invest-sub-tab active" id="inv-tab-normal" onclick="app.setInvestType('normal')">基础定投</div>
+          <div class="invest-sub-tab" id="inv-tab-smart" onclick="app.setInvestType('smart')">AI 智能定投</div>
+      </div>
+      
+      <div class="invest-tags-wrap" id="inv-smart-strategies" style="display:none; padding:10px; background:#fff; border-radius:12px; box-shadow:var(--shadow-sm);">
+          <div style="width:100%; font-size:11px; color:#94a3b8; margin-bottom:4px;">智能加减仓策略 (回测本金基准: 100元/日)</div>
+          <div class="invest-tag active" data-val="cost" onclick="app.setInvestStrategy('cost')">持仓成本偏离法 (越跌越买)</div>
+          <div class="invest-tag" data-val="ma" onclick="app.setInvestStrategy('ma')">MA20 均线偏离法 (顺势而为)</div>
+      </div>
+
+      <div id="inv-period-container">
+        <div style="font-size:12px; font-weight:bold; color:#1e293b; margin-bottom:8px; margin-top:8px;">测算回测周期 (交易日)</div>
+        <div class="invest-tags-wrap" id="inv-periods">
+            <div class="invest-tag active" data-val="15" onclick="app.setInvestPeriod(15)">15天</div>
+            <div class="invest-tag" data-val="30" onclick="app.setInvestPeriod(30)">30天</div>
+            <div class="invest-tag" data-val="60" onclick="app.setInvestPeriod(60)">60天</div>
+            <div class="invest-tag" data-val="120" onclick="app.setInvestPeriod(120)">半年</div>
+            <div class="invest-tag" data-val="250" onclick="app.setInvestPeriod(250)">1年</div>
+        </div>
+      </div>
+
+      <div class="action-bar-wrap" style="margin-top:10px; border-top:1px dashed #e2e8f0; padding-top:12px;">
+        <div class="action-row"><span style="font-size:13px; color:#1e293b; font-weight:900;" id="inv-result-title">组内基金定投收益预估</span><div class="view-toggle"><span id="ivt-card" class="active" onclick="app.setInvestView('card')">卡片</span><span id="ivt-list" onclick="app.setInvestView('list')">列表</span></div></div>
+        <div class="action-row" style="justify-content: flex-start; gap: 10px;"><div id="inv-sort-btn" class="sort-dir-btn active" onclick="app.toggleInvestSort()">收益降序 ↓</div></div>
+      </div>
+
+      <div id="invest-list"></div>
+    </div>
+  </div>
+  
   <!-- 设置页 -->
-  <div id="view-sync" class="page-view"><div class="nav-bar"><div class="nav-title">⚙️ 设置中心</div></div><div class="scroll-area"><div class="card" style="margin-bottom: 12px;"><h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">Cloudflare R2 同步配置</h3><input type="text" id="r2-bucket" placeholder="Bucket Name"><input type="text" id="r2-ak" placeholder="Access Key ID"><input type="password" id="r2-sk" placeholder="Secret Access Key"><input type="text" id="r2-endpoint" placeholder="Endpoint URL"><button class="btn-primary" onclick="app.saveR2ParamsOnly()">💾 保存配置参数</button><button class="btn-primary btn-success" onclick="app.pullFromCloud()">📥 从云端拉取最新数据</button><button class="btn-primary" style="background:#fff; color:var(--blue); border:2px solid var(--blue-light); margin-top:8px; box-shadow:none;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button></div><div class="card"><h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">数据管理</h3><button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="app.clearFundData()">🗑️ 清空本地所有基金(保留配置)</button></div></div></div>
+  <div id="view-sync" class="page-view">
+  <div class="nav-bar"><div class="nav-btn left" onclick="app.switchTab('home')">‹ 返回自选</div><div class="nav-title">⚙️ 设置中心</div><div style="width:60px;"></div></div>
+    <div class="scroll-area"><div class="card" style="margin-bottom: 12px;"><h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">Cloudflare R2 同步配置</h3><input type="text" id="r2-bucket" placeholder="Bucket Name"><input type="text" id="r2-ak" placeholder="Access Key ID"><input type="password" id="r2-sk" placeholder="Secret Access Key"><input type="text" id="r2-endpoint" placeholder="Endpoint URL"><button class="btn-primary" onclick="app.saveR2ParamsOnly()">💾 保存配置参数</button><button class="btn-primary btn-success" onclick="app.pullFromCloud()">📥 从云端拉取最新数据</button><button class="btn-primary" style="background:#fff; color:var(--blue); border:2px solid var(--blue-light); margin-top:8px; box-shadow:none;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button></div><div class="card"><h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">数据管理</h3><button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="app.clearFundData()">🗑️ 清空本地所有基金(保留配置)</button></div></div></div>
 
   <!-- 弹窗:分组管理 -->
   <div id="modal-group-mgr" class="modal-view" onclick="app.closeOutside(event, 'group-mgr')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div><div class="nav-title">分组管理</div><div style="width:60px;"></div></div><div class="mgr-header"><span style="flex:1;">分组名称</span><div style="display:flex; width:100px; justify-content:space-between;"><span>修改</span><span>清空</span><span>排序</span></div></div><div class="mgr-list-wrap" id="mgr-scroll-box"><div id="group-mgr-list" style="position:relative;"></div></div><div class="mgr-bottom-bar" style="position: relative; padding: 12px;"><button class="btn-primary" style="border-radius:20px; margin-bottom: 0;" onclick="app.createGroup()">＋ 新建分组</button></div></div></div>
@@ -3489,13 +3534,12 @@ drawIntradayFlowCanvas(data) {
       let favIcon = g.isFavorite ? '★' : '☆';
       let favColor = g.isFavorite ? '#f59e0b' : '#cbd5e1';
       
-      // 增加收藏按钮（第一个），并为 "默认" 分组预留空位对齐
+     // 增加置顶按钮 ⬆️，并把容器宽度从 130px 扩大到 165px
       let right = g.id === 'default' ? 
-        `<div class="m-btn disabled"></div><div class="m-btn disabled"></div><div class="m-btn" style="background:#f1f5f9;" onclick="app.clearGroup('${g.id}')">▤</div><div style="width:30px;"></div>` : 
-        `<div class="m-btn" style="color:${favColor}; font-size:18px;" onclick="app.toggleGroupFavorite('${g.id}')">${favIcon}</div><div class="m-btn" style="background:var(--blue-light); color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f1f5f9; color:var(--text-sub);" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`; 
+        `<div class="m-btn disabled"></div><div class="m-btn disabled"></div><div class="m-btn disabled"></div><div class="m-btn" style="background:#f1f5f9;" onclick="app.clearGroup('${g.id}')">▤</div><div style="width:30px;"></div>` : 
+        `<div class="m-btn" style="color:#0066ff; font-size:16px; background:#e6f0ff;" onclick="app.pinGroup('${g.id}')">⬆️</div><div class="m-btn" style="color:${favColor}; font-size:18px;" onclick="app.toggleGroupFavorite('${g.id}')">${favIcon}</div><div class="m-btn" style="background:var(--blue-light); color:var(--blue);" onclick="app.renameGroup('${g.id}')">✎</div><div class="m-btn" style="background:#f1f5f9; color:var(--text-sub);" onclick="app.clearGroup('${g.id}')">▤</div><div class="drag-handle" data-idx="${i}">☰</div>`; 
       
-      // 注意将 m-actions 的宽度加大到 130px 容纳新增的按钮
-      return `<div id="mgr-item-${i}" class="mgr-item" style="top:${top}px;"><div class="m-left">${left}</div><div class="m-actions" style="width:130px; justify-content:space-between;">${right}</div></div>`; 
+      return `<div id="mgr-item-${i}" class="mgr-item" style="top:${top}px;"><div class="m-left">${left}</div><div class="m-actions" style="width:165px; justify-content:space-between;">${right}</div></div>`;
     }).join(''); 
     box.innerHTML = html; 
     setTimeout(() => { 
@@ -3555,6 +3599,218 @@ drawIntradayFlowCanvas(data) {
       if(document.getElementById('view-home').classList.contains('active')) this.renderHome();
       if(document.getElementById('view-sector').classList.contains('active')) this.renderSector();
     }
+  },
+
+  // ====== 路由补充 ======
+  openSyncView() {
+    document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active')); 
+    document.getElementById('view-sync').classList.add('active'); 
+  },
+
+  // ====== 置顶功能 ======
+  pinGroup(id) {
+    const idx = this.data.groups.findIndex(g => g.id === id);
+    if (idx > 1) { // 索引0是默认的"全部"，所以置顶就是把它插到索引1的位置
+        const group = this.data.groups.splice(idx, 1)[0];
+        this.data.groups.splice(1, 0, group);
+        this.saveData();
+        this.renderGroupMgrList();
+        this.renderHomeGroups();
+        if(document.getElementById('view-invest').classList.contains('active')) this.renderInvestGroups();
+    } else if (idx === 1) {
+        this.showToast('该分组已经在最顶部了');
+    }
+  },
+
+  // ====== 智投引擎状态 ======
+  investState: {
+      groupId: 'default', type: 'normal', strategy: 'cost', period: 15, viewMode: 'card', sortDir: 'desc', sortCol: 15
+  },
+
+  // ====== 定投收益计算器 (硬核回测引擎) ======
+  calcSIP(fund, type, strategy, period) {
+      if (!fund || !fund.netWorth || fund.netWorth.length < period) return null;
+      const data = fund.netWorth.slice(-period);
+      let totalShares = 0; let totalCost = 0; const baseAmount = 100;
+
+      // 预计算 MA20 数组（给均线偏离法使用）
+      let ma20Arr = [];
+      if (type === 'smart' && strategy === 'ma') {
+          const fullData = fund.netWorth;
+          const startIndex = fullData.length - period;
+          for (let i = startIndex; i < fullData.length; i++) {
+              if (i < 19) { ma20Arr.push(fullData[i].y); continue; }
+              let sum = 0; for(let j=0; j<20; j++) sum += fullData[i-j].y;
+              ma20Arr.push(sum / 20);
+          }
+      }
+
+      for (let i = 0; i < data.length; i++) {
+          const price = data[i].y;
+          let investAmount = baseAmount; // 默认每天定投 100
+
+          if (type === 'smart') {
+              if (strategy === 'cost' && totalShares > 0) {
+                  // 持仓成本法：越跌买越多，越涨买越少
+                  const avgCost = totalCost / totalShares;
+                  const ratio = (price - avgCost) / avgCost;
+                  if (ratio < -0.05) investAmount = 150;
+                  else if (ratio < 0) investAmount = 120;
+                  else if (ratio < 0.05) investAmount = 80;
+                  else investAmount = 50;
+              } else if (strategy === 'ma') {
+                  // 均线偏离法：跌破20日线多买，站上均线少买
+                  const ma20 = ma20Arr[i] || price;
+                  const ratio = (price - ma20) / ma20;
+                  if (ratio < -0.05) investAmount = 150;
+                  else if (ratio < 0) investAmount = 120;
+                  else if (ratio < 0.05) investAmount = 80;
+                  else investAmount = 50;
+              }
+          }
+          totalCost += investAmount;
+          totalShares += investAmount / price;
+      }
+
+      const latestPrice = data[data.length - 1].y;
+      const currentValue = totalShares * latestPrice;
+      return ((currentValue - totalCost) / totalCost) * 100;
+  },
+
+  // ====== 智投页面控制器 ======
+  setInvestType(type) {
+      this.investState.type = type;
+      document.getElementById('inv-tab-normal').className = type === 'normal' ? 'invest-sub-tab active' : 'invest-sub-tab';
+      document.getElementById('inv-tab-smart').className = type === 'smart' ? 'invest-sub-tab active' : 'invest-sub-tab';
+      document.getElementById('inv-smart-strategies').style.display = type === 'smart' ? 'flex' : 'none';
+      this.renderInvest();
+  },
+  setInvestStrategy(strat) {
+      this.investState.strategy = strat;
+      document.querySelectorAll('#inv-smart-strategies .invest-tag').forEach(el => {
+          el.className = el.dataset.val === strat ? 'invest-tag active' : 'invest-tag';
+      });
+      this.renderInvest();
+  },
+  setInvestPeriod(p) {
+      this.investState.period = p;
+      document.querySelectorAll('#inv-periods .invest-tag').forEach(el => {
+          el.className = parseInt(el.dataset.val) === p ? 'invest-tag active' : 'invest-tag';
+      });
+      this.renderInvest();
+  },
+  setInvestView(mode) {
+      this.investState.viewMode = mode;
+      document.getElementById('ivt-card').className = mode === 'card' ? 'active' : '';
+      document.getElementById('ivt-list').className = mode === 'list' ? 'active' : '';
+      // 列表模式自带表头多周期，因此隐藏独立周期选择器
+      document.getElementById('inv-period-container').style.display = mode === 'card' ? 'block' : 'none';
+      this.renderInvest();
+  },
+  toggleInvestSort() {
+      this.investState.sortDir = this.investState.sortDir === 'desc' ? 'asc' : 'desc';
+      document.getElementById('inv-sort-btn').innerText = this.investState.sortDir === 'desc' ? '降序 ↓' : '升序 ↑';
+      this.renderInvest();
+  },
+  sortInvestList(colPeriod) {
+      if (this.investState.sortCol === colPeriod) {
+          this.investState.sortDir = this.investState.sortDir === 'desc' ? 'asc' : 'desc';
+      } else {
+          this.investState.sortCol = colPeriod;
+          this.investState.sortDir = 'desc';
+      }
+      this.renderInvest();
+  },
+
+  renderInvestGroups() {
+      let html = this.data.groups.map(g => { 
+        return `<div class="action-pill ${g.id === this.investState.groupId ? 'active' : ''}" onclick="app.investState.groupId='${g.id}'; app.renderInvestGroups(); app.renderInvest();">${g.name}</div>`; 
+      }).join(''); 
+      document.getElementById('invest-groups').innerHTML = html; 
+  },
+
+  // ====== 智投核心渲染引擎 ======
+  renderInvest() {
+      const group = this.data.groups.find(g => g.id === this.investState.groupId) || this.data.groups[0];
+      let funds = group.fundCodes.map(c => this.formatFund(c)).filter(f => f.isLoad);
+      const st = this.investState;
+
+      funds.forEach(f => {
+          if (st.viewMode === 'card') {
+              f._sipRet = this.calcSIP(f, st.type, st.strategy, st.period);
+          } else {
+              f._sip15 = this.calcSIP(f, st.type, st.strategy, 15);
+              f._sip30 = this.calcSIP(f, st.type, st.strategy, 30);
+              f._sip60 = this.calcSIP(f, st.type, st.strategy, 60);
+              f._sip120 = this.calcSIP(f, st.type, st.strategy, 120);
+              f._sip250 = this.calcSIP(f, st.type, st.strategy, 250);
+          }
+      });
+
+      funds.sort((a, b) => {
+          let va, vb;
+          if (st.viewMode === 'card') {
+              va = a._sipRet !== null ? a._sipRet : -9999;
+              vb = b._sipRet !== null ? b._sipRet : -9999;
+          } else {
+              const colMap = { 15: '_sip15', 30: '_sip30', 60: '_sip60', 120: '_sip120', 250: '_sip250' };
+              const key = colMap[st.sortCol];
+              va = a[key] !== null ? a[key] : -9999;
+              vb = b[key] !== null ? b[key] : -9999;
+          }
+          return st.sortDir === 'desc' ? vb - va : va - vb;
+      });
+
+      const container = document.getElementById('invest-list');
+      if (funds.length === 0) {
+          container.className = '';
+          container.innerHTML = '<div style="text-align:center; padding:60px; color:#94a3b8; font-weight:bold;">当前分组暂无具备历史数据的基金</div>';
+          return;
+      }
+
+      if (st.viewMode === 'card') {
+          container.className = 'card-grid';
+          container.innerHTML = funds.map(f => {
+              const ret = f._sipRet;
+              const retTxt = ret !== null ? (ret > 0 ? '+' : '') + ret.toFixed(2) + '%' : '--';
+              const col = ret > 0 ? 'red' : (ret < 0 ? 'green' : '');
+              let strName = st.type === 'normal' ? '基础定投' : (st.strategy === 'cost' ? '智能(成本法)' : '智能(均线法)');
+
+              return `<div class="card" onclick="app.openDetail('${f.code}')">
+                  <div class="c-title-area" style="padding-right:0;"><span class="c-title">${f.name}</span><span class="c-code">${f.code}</span></div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:15px; background:#f8fafc; padding:12px; border-radius:12px; border:1px solid rgba(0,0,0,0.03);">
+                      <div style="display:flex; flex-direction:column;">
+                          <span style="font-size:11px; color:#94a3b8; font-weight:bold;">${strName} · ${st.period}天期</span>
+                          <span style="font-size:13px; color:var(--text-main); font-weight:800; margin-top:2px;">真实回测预估</span>
+                      </div>
+                      <div style="font-size:22px; font-weight:900;" class="${col}">${retTxt}</div>
+                  </div>
+              </div>`;
+          }).join('');
+      } else {
+          container.className = '';
+          const th = (p, label) => {
+              let arrow = st.sortCol === p ? (st.sortDir === 'desc' ? '<span style="color:var(--red); font-size:14px;">↓</span>' : '<span style="color:var(--green); font-size:14px;">↑</span>') : '';
+              return `<div class="l-col-rate th" onclick="app.sortInvestList(${p})">${label}${arrow}</div>`;
+          };
+          const fmt = (v) => v === null ? '<span style="color:#cbd5e1;">--</span>' : `<span class="${v > 0 ? 'red' : (v < 0 ? 'green' : '')}" style="font-weight:900;">${v > 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+
+          let header = `<div class="l-header"><div class="l-col-name th">基金名称</div>${th(15,'15天')}${th(30,'30天')}${th(60,'60天')}${th(120,'半年')}${th(250,'1年')}</div>`;
+          let rows = funds.map(f => {
+              return `<div class="l-row" onclick="app.openDetail('${f.code}')">
+                <div class="l-col-name">
+                  <div style="font-weight:800; font-size:13px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${f.name}</div>
+                  <div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">${f.code}</div>
+                </div>
+                <div class="l-col-rate">${fmt(f._sip15)}</div>
+                <div class="l-col-rate">${fmt(f._sip30)}</div>
+                <div class="l-col-rate">${fmt(f._sip60)}</div>
+                <div class="l-col-rate">${fmt(f._sip120)}</div>
+                <div class="l-col-rate">${fmt(f._sip250)}</div>
+              </div>`;
+          }).join('');
+          container.innerHTML = `<div class="list-table-container">${header}${rows}</div>`;
+      }
   },
   
   cleanOrphanFunds() { 

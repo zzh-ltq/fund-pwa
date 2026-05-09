@@ -173,14 +173,14 @@
 
     /* ========== 首页 Tabs ========== */
     .tabs-wrapper { display: flex; align-items: flex-start; padding-bottom: 10px; margin-bottom: 5px; position: relative;}
-    .tabs-scroll#home-groups { 
+    .tabs-scroll#home-groups, .tabs-scroll#invest-groups { 
       flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; 
       padding-bottom: 4px; overflow-x: visible; white-space: normal;
     }
     .tabs-scroll { flex: 1; overflow-x: auto; white-space: nowrap; display: flex; align-items: center; -webkit-overflow-scrolling: touch; padding-bottom: 4px; cursor: grab;}
     
     .action-pill { flex-shrink: 0; display: inline-flex; align-items: center; background: #f1f5f9; color: var(--text-sub); padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 10px; cursor: pointer; transition: all 0.3s;}
-    #home-groups .action-pill { margin-right: 0; margin-bottom: 0; }
+    #home-groups .action-pill, #invest-groups .action-pill { margin-right: 0; margin-bottom: 0; }
     
     .action-pill.active { background: var(--blue); color: #fff; box-shadow: 0 4px 10px rgba(0, 102, 255, 0.25); transform: translateY(-1px);}
     

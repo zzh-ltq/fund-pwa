@@ -1933,11 +1933,17 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
       this.renderSector(); 
     } 
     
-    // 修改为
     if(tabId === 'market') { 
       this.renderMarketTabs(); 
-      this.renderWatchedMarkets();  // ✅ 正确
+      this.renderWatchedMarkets(); 
     } 
+
+    // ======== 新增：进入智投页面时，自动渲染分组和列表 ========
+    if(tabId === 'invest') {
+      this.renderInvestGroups();
+      this.renderInvest();
+    }
+    // =======================================================
   },
   
   async renderMarketTabs() { 

@@ -556,8 +556,8 @@
   <div id="modal-search" class="modal-view" onclick="app.closeOutside(event, 'search')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%; border-radius: 14px; padding: 6px 12px;"><div class="nav-btn" style="background:none; box-shadow:none; color: var(--text-sub);" onclick="app.closeModal('search')">取消</div></div><div class="scroll-area" id="search-results"></div></div></div>
 
   <!-- 弹窗: AI预测回测明细 -->
-  <div id="modal-ai-backtest" class="modal-view" onclick="app.closeOutside(event, 'ai-backtest')">
-    <div class="modal-content" onclick="app.stopProp(event)">
+  <div id="modal-ai-backtest" class="modal-view" style="z-index: 300;" onclick="app.closeOutside(event, 'ai-backtest')">
+    <div class="modal-content" style="height: 90vh; margin-top: auto; border-radius: 20px 20px 0 0;" onclick="app.stopProp(event)">
       <div class="nav-bar">
         <div class="nav-btn left" onclick="app.closeModal('ai-backtest')">‹ 返回</div>
         <div class="nav-title">历史回测操作明细</div>
@@ -4796,7 +4796,7 @@ updateFundCardDisplay(code) {
       return level * 50; 
   },
 
-  // 执行高级量化模型暴力回测寻优
+// 执行高级量化模型暴力回测寻优 (增加 1000 ~ 3000 仓位限制)
   async runAITraining(code) {
       const periodInput = document.getElementById('ai-period-input').value;
       const period = parseInt(periodInput);
@@ -4818,7 +4818,6 @@ updateFundCardDisplay(code) {
       setTimeout(() => {
           const testStartIndex = nw.length - period;
           
-          // 预计算所有回测日期的因子数据（极大提升网格搜索速度）
           const preCalcData = [];
           for (let i = testStartIndex; i < nw.length; i++) {
               const inds = this._calcAdvancedIndicators(nw, i);
@@ -4829,59 +4828,66 @@ updateFundCardDisplay(code) {
               });
           }
 
-          // 因子权重搜索网格（从 -1.0 到 1.0，步长 0.5。组合数: 5^4 = 625次全量回测）
           const weightSteps = [-1.0, -0.5, 0.0, 0.5, 1.0];
           
           let bestModel = null;
           let maxReturn = -99999;
           let bestLog = [];
 
-          // 暴力穷举所有因子权重组合
           for (let w_rsi of weightSteps) {
               for (let w_ma of weightSteps) {
                   for (let w_bb of weightSteps) {
                       for (let w_mom of weightSteps) {
                           
                           let shares = 0; 
-                          let cash = 10000; // 模拟备用金
-                          let totalInvested = 0; // 记录总投入本金
+                          let cash = 10000; // 模拟初始资金 10000 用于周转
                           let runLog = [];
 
                           for (let i = 0; i < preCalcData.length; i++) {
                               const day = preCalcData[i];
                               let actionAmt = 0;
                               
+                              // 1. 生成模型建议操作金额
                               if (i === 0) {
-                                  // 规则1：第一天强制建仓 1000
-                                  actionAmt = 1000;
-                              } else {
-                                  // 规则2：依据预测模型得分定操作
-                                  if (day.inds) {
-                                      // 因子值(负数为超卖看多) 与 权重相乘。
-                                      // 如果w_rsi为负，则(负超卖 * 负权重 = 正得分 -> 强烈买入) 模型会自动学到这一点
-                                      let score = (w_rsi * day.inds.rsiN) + 
-                                                  (w_ma * day.inds.maN) + 
-                                                  (w_bb * day.inds.bbN) + 
-                                                  (w_mom * day.inds.momN);
-                                      // 取反：因为我们的指标定义上涨趋势为正，我们采用逆向思维(跌破买)，所以加个负号更容易优化
-                                      actionAmt = this._mapScoreToAction(-score);
-                                  }
+                                  actionAmt = 1000; // 第一天固定建仓 1000
+                              } else if (day.inds) {
+                                  let score = (w_rsi * day.inds.rsiN) + 
+                                              (w_ma * day.inds.maN) + 
+                                              (w_bb * day.inds.bbN) + 
+                                              (w_mom * day.inds.momN);
+                                  actionAmt = this._mapScoreToAction(-score);
                               }
 
-                              // 执行交易限制
+                              // 2. 仓位硬性边界控制限制 (基于当前持仓市值)
+                              let currentMarketValue = shares * day.price;
+                              
+                              if (actionAmt > 0) {
+                                  // 限制：加仓后总持仓不得超过 3000
+                                  if (currentMarketValue + actionAmt > 3000) {
+                                      // 向下取整到 50 的倍数
+                                      actionAmt = Math.floor((3000 - currentMarketValue) / 50) * 50;
+                                  }
+                                  if (actionAmt < 0) actionAmt = 0; // 纠错防御
+                              } else if (actionAmt < 0) {
+                                  // 限制：减仓后总持仓不得低于底仓 1000
+                                  if (currentMarketValue + actionAmt < 1000) {
+                                      let maxCanSell = currentMarketValue - 1000;
+                                      // 向下取整到 50 的倍数，然后转回负数
+                                      actionAmt = -Math.floor(maxCanSell / 50) * 50;
+                                  }
+                                  if (actionAmt > 0) actionAmt = 0; // 纠错防御
+                              }
+
+                              // 3. 执行交易
                               if (actionAmt > 0) {
                                   shares += actionAmt / day.price;
                                   cash -= actionAmt;
-                                  totalInvested += actionAmt;
                               } else if (actionAmt < 0) {
-                                  let maxSell = shares * day.price; // 最多全仓卖出
-                                  let actualSell = Math.min(Math.abs(actionAmt), maxSell);
+                                  let actualSell = Math.abs(actionAmt);
                                   shares -= actualSell / day.price;
                                   cash += actualSell;
-                                  totalInvested -= actualSell;
                               }
 
-                              // 记录最佳回测结果用
                               runLog.push({
                                   date: day.date,
                                   price: day.price,
@@ -4891,36 +4897,101 @@ updateFundCardDisplay(code) {
                               });
                           }
                           
-                          // 只有总投入大于0才有意义
-                          if (totalInvested > 0) {
-                              const finalValue = shares * preCalcData[preCalcData.length - 1].price;
-                              // 采用绝对利润 / 过程总净投入 来计算简单收益率
-                              const totalReturn = ((finalValue - totalInvested) / totalInvested) * 100;
+                          // 统一按初始建仓基准金(1000)计算收益率，最能体现波段效果
+                          const finalAssets = cash + (shares * preCalcData[preCalcData.length - 1].price);
+                          const profit = finalAssets - 10000;
+                          const totalReturn = (profit / 1000) * 100;
 
-                              if (totalReturn > maxReturn) {
-                                  maxReturn = totalReturn;
-                                  bestModel = { w_rsi, w_ma, w_bb, w_mom };
-                                  bestLog = runLog;
-                              }
+                          if (totalReturn > maxReturn) {
+                              maxReturn = totalReturn;
+                              bestModel = { w_rsi, w_ma, w_bb, w_mom };
+                              bestLog = runLog;
                           }
                       }
                   }
               }
           }
 
-          // 保存模型和最佳回测日志
           this.data.fundsCache[code].aiModel = {
               period: period,
               maxRet: maxReturn,
               params: bestModel,
-              backtestLog: bestLog // 缓存弹窗需要的日志
+              backtestLog: bestLog
           };
           this.saveData(); 
 
           this.showToast('✅ 模型优化完毕，回测收益已达最高！');
-          this.renderAIPredictTab(code); // 重新渲染界面
-          this.showAIBacktestDetails(code); // 自动弹出回测明细
+          this.renderAIPredictTab(code);
+          this.showAIBacktestDetails(code); 
       }, 50);
+  },
+
+  // 获取今日的定制仓位建议 (同步增加仓位限制)
+  getAITodayAdvice(code) {
+      const f = this.data.fundsCache[code];
+      const savedModel = f.aiModel;
+      if (!savedModel) return;
+
+      const predictInput = document.getElementById('ai-today-input').value;
+      if (predictInput === '') {
+          this.showToast('请先输入今日预估涨跌幅', 'warning'); return;
+      }
+      const predictChange = parseFloat(predictInput);
+
+      const lastPrice = f.netWorth[f.netWorth.length - 1].y;
+      const fakeTodayPrice = lastPrice * (1 + predictChange / 100);
+      
+      const virtualData = [...f.netWorth, { x: Date.now(), y: fakeTodayPrice }];
+      const lastIndex = virtualData.length - 1;
+
+      const inds = this._calcAdvancedIndicators(virtualData, lastIndex);
+      if (!inds) return this.showToast('数据不足，无法计算', 'error');
+
+      const w = savedModel.params;
+      let score = (w.w_rsi * inds.rsiN) + (w.w_ma * inds.maN) + (w.w_bb * inds.bbN) + (w.w_mom * inds.momN);
+      let actionAmt = this._mapScoreToAction(-score);
+
+      // --- 关键：应用 1000~3000 的规则限制 ---
+      // 从模型的历史最后一天获取当前的虚拟持仓市值
+      const logData = savedModel.backtestLog;
+      const currentVirtualShares = logData.length > 0 ? logData[logData.length - 1].shares : (1000 / fakeTodayPrice);
+      const currentMarketValue = currentVirtualShares * fakeTodayPrice;
+
+      if (actionAmt > 0) {
+          if (currentMarketValue + actionAmt > 3000) {
+              actionAmt = Math.floor((3000 - currentMarketValue) / 50) * 50;
+          }
+          if (actionAmt < 0) actionAmt = 0;
+      } else if (actionAmt < 0) {
+          if (currentMarketValue + actionAmt < 1000) {
+              let maxCanSell = currentMarketValue - 1000;
+              actionAmt = -Math.floor(maxCanSell / 50) * 50;
+          }
+          if (actionAmt > 0) actionAmt = 0;
+      }
+
+      let advice = '';
+      let color = '';
+      
+      if (actionAmt > 0) {
+          advice = `🔥 模型指令：加仓 ${actionAmt} 元`;
+          color = '#f43f5e';
+      } else if (actionAmt < 0) {
+          advice = `📉 模型指令：减仓 ${Math.abs(actionAmt)} 元`;
+          color = '#10b981';
+      } else {
+          advice = '👀 模型指令：持仓不动 (达到边界限制或处于震荡区)';
+          color = '#64748b';
+      }
+
+      const resBox = document.getElementById('ai-advice-result');
+      resBox.innerHTML = `
+          <div style="font-size:12px; color:#94a3b8; margin-bottom:6px;">
+            基于回测模型，当前模拟持仓市值约 <b style="color:#1e293b;">${currentMarketValue.toFixed(2)}</b> 元 (上限3000, 下限1000)
+          </div>
+          <div style="font-size:16px; font-weight:900; color:${color};">${advice}</div>
+      `;
+      resBox.style.display = 'block';
   },
 
   // 弹出回测明细表
@@ -4959,57 +5030,6 @@ updateFundCardDisplay(code) {
       this.openModal('ai-backtest');
   },
 
-  // 获取今日的定制仓位建议
-  getAITodayAdvice(code) {
-      const f = this.data.fundsCache[code];
-      const savedModel = f.aiModel;
-      if (!savedModel) return;
-
-      const predictInput = document.getElementById('ai-today-input').value;
-      if (predictInput === '') {
-          this.showToast('请先输入今日预估涨跌幅', 'warning'); return;
-      }
-      const predictChange = parseFloat(predictInput);
-
-      // 构建一个“假想的今天”
-      const lastPrice = f.netWorth[f.netWorth.length - 1].y;
-      const fakeTodayPrice = lastPrice * (1 + predictChange / 100);
-      
-      const virtualData = [...f.netWorth, { x: Date.now(), y: fakeTodayPrice }];
-      const lastIndex = virtualData.length - 1;
-
-      // 获取今日指标
-      const inds = this._calcAdvancedIndicators(virtualData, lastIndex);
-      if (!inds) return this.showToast('数据不足，无法计算', 'error');
-
-      // 提取专属权重进行打分
-      const w = savedModel.params;
-      let score = (w.w_rsi * inds.rsiN) + (w.w_ma * inds.maN) + (w.w_bb * inds.bbN) + (w.w_mom * inds.momN);
-      
-      // 取反执行并映射到 -200 ~ +200 步长 50
-      const actionAmt = this._mapScoreToAction(-score);
-
-      let advice = '';
-      let color = '';
-      
-      if (actionAmt > 0) {
-          advice = `🔥 建议果断加仓：${actionAmt} 元`;
-          color = '#f43f5e';
-      } else if (actionAmt < 0) {
-          advice = `📉 建议落袋减仓：${Math.abs(actionAmt)} 元`;
-          color = '#10b981';
-      } else {
-          advice = '👀 建议持仓不动 (信号处于弱势震荡区)';
-          color = '#64748b';
-      }
-
-      const resBox = document.getElementById('ai-advice-result');
-      resBox.innerHTML = `
-          <div style="font-size:12px; color:#94a3b8; margin-bottom:6px;">专属高级预测模型计算指令已生成：</div>
-          <div style="font-size:16px; font-weight:900; color:${color};">${advice}</div>
-      `;
-      resBox.style.display = 'block';
-  },
 
 
   // 内部工具：计算特定日期的多因子量化得分

@@ -4694,7 +4694,7 @@ updateFundCardDisplay(code) {
 // 临时记录用户的费率设置，防止切换Tab时重置
   aiTempFees: { n1: 1.50, n2: 0.50, n3: 0.00 },
 
-  // 1. 渲染 AI 预测模型 UI (引入多模型 Tab 切换)
+  // 1. 渲染 AI 预测模型 UI
   renderAIPredictTab(code, modelType = 'multifactor') {
       const area = document.getElementById('det-analysis-area');
       const f = this.data.fundsCache[code];
@@ -4703,7 +4703,6 @@ updateFundCardDisplay(code) {
           return;
       }
 
-      // 获取对应模型的缓存
       const savedModel = modelType === 'multifactor' ? (f.aiModel || null) : (f.aiModelGridT || null);
 
       let trainedInfoHtml = '';
@@ -4722,7 +4721,7 @@ updateFundCardDisplay(code) {
           if (modelType === 'multifactor') {
               paramsDesc = `因子权重: RSI(${savedModel.params?.w_rsi||0}), 偏离率(${savedModel.params?.w_ma||0}), 布林(${savedModel.params?.w_bb||0}), 动量(${savedModel.params?.w_mom||0})`;
           } else {
-              paramsDesc = `网格参数: 跌幅达 ${savedModel.params?.stepBuy}% 加仓1层, 涨幅达 ${savedModel.params?.stepSell}% 减仓1层`;
+              paramsDesc = `网格参数: 跌幅达 ${savedModel.params?.stepBuy}% 加仓, 涨幅达 ${savedModel.params?.stepSell}% 减仓`;
           }
 
           trainedInfoHtml = `
@@ -4744,10 +4743,9 @@ updateFundCardDisplay(code) {
           `;
       }
 
-      // 模型特定的描述文字
       let descHtml = modelType === 'multifactor' 
           ? `首日建仓1000，后续模型自动加减仓(步长50, <b>上限5000</b>, 允许清仓)，考虑真实赎回手续费，寻找周期内<b>绝对利润最大</b>的多因子权重组合。`
-          : `日内网格做T：以层为单位(1层=1000, <b>上限5层即50%</b>)。首日建底仓2层，依据每日涨跌幅自动高抛低吸，寻找<b>绝对利润最大</b>的网格参数。`;
+          : `底仓5000，按日涨跌幅网格做T(1层=500, 单次最大5层即2500, <b>总持仓上限6000</b>)，考虑手续费，寻找周期内<b>绝对利润最大</b>的参数。`;
 
       area.innerHTML = `
         <div class="invest-sub-tabs" style="margin-bottom: 12px; background:#f1f5f9; padding:4px; border-radius:12px; display:flex;">
@@ -4799,11 +4797,10 @@ updateFundCardDisplay(code) {
       `;
   },
 
-  // 2. 辅助：计算单个交易日的高级归一化因子
+  // 2. 辅助指标计算
   _calcAdvancedIndicators(historicalData, currentIndex) {
       if (currentIndex < 20) return null; 
       const price = historicalData[currentIndex].y;
-
       let gains = 0, losses = 0;
       for (let i = currentIndex - 13; i <= currentIndex; i++) {
           let diff = historicalData[i].y - historicalData[i-1].y;
@@ -4812,13 +4809,11 @@ updateFundCardDisplay(code) {
       let rs = (gains / 14) / (losses / 14 || 0.0001);
       let rsi = 100 - (100 / (1 + rs));
       let rsiN = (rsi - 50) / 50; 
-
       let sum = 0;
       for(let i = 0; i < 20; i++) sum += historicalData[currentIndex - i].y;
       let ma = sum / 20;
       let maBias = (price - ma) / ma;
       let maN = Math.max(-1, Math.min(1, maBias * 15)); 
-
       let sumSq = 0;
       for(let i = 0; i < 20; i++) sumSq += Math.pow(historicalData[currentIndex - i].y - ma, 2);
       let stdDev = Math.sqrt(sumSq / 20);
@@ -4826,10 +4821,8 @@ updateFundCardDisplay(code) {
       let lower = ma - 2 * stdDev;
       let bbPos = (upper - lower) === 0 ? 0.5 : (price - lower) / (upper - lower);
       let bbN = (bbPos - 0.5) * 2;
-
       let mom = (price - historicalData[currentIndex - 5].y) / historicalData[currentIndex - 5].y;
       let momN = Math.max(-1, Math.min(1, mom * 15));
-
       return { rsiN, maN, bbN, momN };
   },
 
@@ -4969,7 +4962,6 @@ updateFundCardDisplay(code) {
 
               for (let sb of stepBuyList) {
                   for (let ss of stepSellList) {
-                      let layers = 0; // 0 到 5 层
                       let totalInvested = 0, totalWithdraw = 0, totalShares = 0;
                       let shareQueue = [], runLog = [];
 
@@ -4978,58 +4970,73 @@ updateFundCardDisplay(code) {
                           let actionLayers = 0;
                           
                           if (i === 0) {
-                              actionLayers = 2; // 首日建底仓2层
+                              // 首日建底仓 5000
+                              actionLayers = 10; // 这里只作为初始化标记，具体金额直接计算
                           } else {
                               if (day.dailyChange <= sb) {
                                   actionLayers = Math.floor(day.dailyChange / sb); 
-                                  actionLayers = Math.min(actionLayers, 5 - layers); 
+                                  actionLayers = Math.min(actionLayers, 5); 
                               } else if (day.dailyChange >= ss) {
                                   actionLayers = -Math.floor(day.dailyChange / ss); 
-                                  actionLayers = Math.max(actionLayers, -layers); 
+                                  actionLayers = Math.max(actionLayers, -5); 
                               }
                           }
 
-                          let actionAmt = actionLayers * 1000;
+                          let actionAmt = actionLayers * 500;
+                          if (i === 0) actionAmt = 5000;
+
+                          let currentMarketValue = totalShares * day.price;
                           let feeIncurred = 0;
+                          let layerStr = '';
 
-                          if (actionLayers > 0) {
-                              let s = actionAmt / day.price;
-                              totalShares += s;
-                              shareQueue.push({ ts: day.timestamp, shares: s });
-                              totalInvested += actionAmt;
-                              layers += actionLayers;
-                          } else if (actionLayers < 0) {
+                          if (actionAmt > 0) {
+                              if (currentMarketValue + actionAmt > 6000) {
+                                  actionAmt = Math.floor((6000 - currentMarketValue) / 50) * 50;
+                              }
+                              if (actionAmt > 0) {
+                                  let s = actionAmt / day.price;
+                                  totalShares += s;
+                                  shareQueue.push({ ts: day.timestamp, shares: s });
+                                  totalInvested += actionAmt;
+                                  layerStr = i === 0 ? `(建底仓)` : `(触发 ${actionLayers} 层)`;
+                              }
+                          } else if (actionAmt < 0) {
                               let sellAmt = Math.abs(actionAmt);
-                              let currentMarketValue = totalShares * day.price;
-                              if (sellAmt > currentMarketValue) sellAmt = currentMarketValue; // 防溢出
-                              
-                              let sharesToSell = sellAmt / day.price;
-                              let actualCashGet = 0;
-                              
-                              while (sharesToSell > 0 && shareQueue.length > 0) {
-                                  let batch = shareQueue[0];
-                                  let sToProc = Math.min(batch.shares, sharesToSell);
-                                  let holdDays = (day.timestamp - batch.ts) / 86400000;
-                                  let feeRate = holdDays < 7 ? n1 : (holdDays < 30 ? n2 : n3);
-                                  
-                                  let grossCash = sToProc * day.price;
-                                  let batchFee = grossCash * feeRate;
-                                  
-                                  actualCashGet += (grossCash - batchFee);
-                                  feeIncurred += batchFee;
-                                  
-                                  batch.shares -= sToProc;
-                                  sharesToSell -= sToProc;
-                                  if (batch.shares <= 0.000001) shareQueue.shift();
+                              if (sellAmt > currentMarketValue) {
+                                  sellAmt = Math.floor(currentMarketValue / 50) * 50;
                               }
                               
-                              totalShares -= (sellAmt / day.price);
-                              totalWithdraw += actualCashGet;
-                              layers += actionLayers; // 负数
-                              actionAmt = -sellAmt;
+                              if (sellAmt > 0) {
+                                  let sharesToSell = sellAmt / day.price;
+                                  let actualCashGet = 0;
+                                  
+                                  while (sharesToSell > 0 && shareQueue.length > 0) {
+                                      let batch = shareQueue[0];
+                                      let sToProc = Math.min(batch.shares, sharesToSell);
+                                      let holdDays = (day.timestamp - batch.ts) / 86400000;
+                                      let feeRate = holdDays < 7 ? n1 : (holdDays < 30 ? n2 : n3);
+                                      
+                                      let grossCash = sToProc * day.price;
+                                      let batchFee = grossCash * feeRate;
+                                      
+                                      actualCashGet += (grossCash - batchFee);
+                                      feeIncurred += batchFee;
+                                      
+                                      batch.shares -= sToProc;
+                                      sharesToSell -= sToProc;
+                                      if (batch.shares <= 0.000001) shareQueue.shift();
+                                  }
+                                  
+                                  totalShares -= (sellAmt / day.price);
+                                  totalWithdraw += actualCashGet;
+                                  actionAmt = -sellAmt;
+                                  layerStr = `(触发 ${Math.abs(actionLayers)} 层)`;
+                              } else {
+                                  actionAmt = 0;
+                              }
                           }
 
-                          runLog.push({ date: day.date, price: day.price, actionAmt, fee: feeIncurred, value: totalShares * day.price, layerStr: `(当前${layers}层)` });
+                          runLog.push({ date: day.date, price: day.price, actionAmt, fee: feeIncurred, value: totalShares * day.price, layerStr: layerStr });
                       }
 
                       if (totalInvested > 0) {
@@ -5104,7 +5111,7 @@ updateFundCardDisplay(code) {
       this.openModal('ai-backtest');
   },
 
-  // 5. 获取今日仓位建议
+  // 5. 获取今日仓位建议 (根据模型逻辑带出合理仓位推断)
   getAITodayAdvice(code, modelType) {
       const f = this.data.fundsCache[code];
       const savedModel = modelType === 'multifactor' ? f.aiModel : f.aiModelGridT;
@@ -5118,9 +5125,14 @@ updateFundCardDisplay(code) {
 
       let advice = '', color = '#64748b', actionAmt = 0;
 
+      // 提取最后一天虚拟持仓市值
+      const logData = savedModel.backtestLog;
+      const lastShares = logData.length > 0 ? logData[logData.length - 1].value / logData[logData.length - 1].price : 0;
+      const lastPrice = f.netWorth[f.netWorth.length - 1].y;
+      const fakeTodayPrice = lastPrice * (1 + predictChange / 100);
+      const currentMarketValue = lastShares * fakeTodayPrice;
+
       if (modelType === 'multifactor') {
-          const lastPrice = f.netWorth[f.netWorth.length - 1].y;
-          const fakeTodayPrice = lastPrice * (1 + predictChange / 100);
           const virtualData = [...f.netWorth, { x: Date.now(), y: fakeTodayPrice }];
           const inds = this._calcAdvancedIndicators(virtualData, virtualData.length - 1);
           if (!inds) return this.showToast('数据不足，无法计算', 'error');
@@ -5130,50 +5142,60 @@ updateFundCardDisplay(code) {
           actionAmt = this._mapScoreToAction(-score);
           
           if (actionAmt > 0) {
+              if (currentMarketValue + actionAmt > 5000) actionAmt = Math.floor((5000 - currentMarketValue) / 50) * 50;
+              if (actionAmt <= 0) actionAmt = 0;
+          } else if (actionAmt < 0) {
+              let sellAmt = Math.abs(actionAmt);
+              if (sellAmt > currentMarketValue) sellAmt = Math.floor(currentMarketValue / 50) * 50;
+              actionAmt = -sellAmt;
+          }
+          
+          if (actionAmt > 0) {
               advice = `🔥 建议加仓 ${actionAmt} 元`; color = '#f43f5e';
           } else if (actionAmt < 0) {
               advice = `📉 建议减仓 ${Math.abs(actionAmt)} 元`; color = '#10b981';
           } else {
-              advice = '👀 建议持仓不动 (信号处于震荡区)';
+              advice = '👀 建议持仓不动 (达到边界或处于震荡区)';
           }
       } else {
-          // 网格做T逻辑：依据历史最后一天算出当前存在的层数，给出包含限制的建议
-          let currentLayers = 0;
-          if (savedModel.backtestLog && savedModel.backtestLog.length > 0) {
-              let lastLog = savedModel.backtestLog[savedModel.backtestLog.length - 1];
-              if (lastLog.layerStr) {
-                  let match = lastLog.layerStr.match(/\d+/);
-                  if (match) currentLayers = parseInt(match[0]);
-              }
-          }
-
           let sb = savedModel.params.stepBuy;
           let ss = savedModel.params.stepSell;
           let actionLayers = 0;
 
           if (predictChange <= sb) {
               actionLayers = Math.floor(predictChange / sb); 
-              actionLayers = Math.min(actionLayers, 5 - currentLayers); 
+              actionLayers = Math.min(actionLayers, 5); 
           } else if (predictChange >= ss) {
               actionLayers = -Math.floor(predictChange / ss); 
-              actionLayers = Math.max(actionLayers, -currentLayers); 
+              actionLayers = Math.max(actionLayers, -5); 
           }
 
-          if (actionLayers > 0) {
-              advice = `🔥 建议加仓 ${actionLayers} 层 (约 ${actionLayers * 1000} 元) <br><span style="font-size:12px; font-weight:normal; color:#64748b;">加仓后将达到 ${currentLayers + actionLayers} 层</span>`; 
+          actionAmt = actionLayers * 500;
+
+          if (actionAmt > 0) {
+              if (currentMarketValue + actionAmt > 6000) actionAmt = Math.floor((6000 - currentMarketValue) / 50) * 50;
+              if (actionAmt <= 0) actionAmt = 0;
+          } else if (actionAmt < 0) {
+              let sellAmt = Math.abs(actionAmt);
+              if (sellAmt > currentMarketValue) sellAmt = Math.floor(currentMarketValue / 50) * 50;
+              actionAmt = -sellAmt;
+          }
+
+          if (actionAmt > 0) {
+              advice = `🔥 建议加仓 ${actionAmt} 元 <br><span style="font-size:12px; font-weight:normal; color:#64748b;">(触发 ${actionLayers} 层网格买入信号)</span>`; 
               color = '#f43f5e';
-          } else if (actionLayers < 0) {
-              advice = `📉 建议减仓 ${Math.abs(actionLayers)} 层 (约 ${Math.abs(actionLayers) * 1000} 元) <br><span style="font-size:12px; font-weight:normal; color:#64748b;">减仓后将剩余 ${currentLayers + actionLayers} 层</span>`; 
+          } else if (actionAmt < 0) {
+              advice = `📉 建议减仓 ${Math.abs(actionAmt)} 元 <br><span style="font-size:12px; font-weight:normal; color:#64748b;">(触发 ${Math.abs(actionLayers)} 层网格卖出信号)</span>`; 
               color = '#10b981';
           } else {
-              advice = `👀 建议持仓不动 (未触发网格线) <br><span style="font-size:12px; font-weight:normal; color:#64748b;">当前预估持有 ${currentLayers} 层</span>`;
+              advice = `👀 建议持仓不动 <br><span style="font-size:12px; font-weight:normal; color:#64748b;">(未触发网格线或受限于仓位风控)</span>`;
           }
       }
 
       const resBox = document.getElementById('ai-advice-result');
       resBox.innerHTML = `
           <div style="font-size:12px; color:#94a3b8; margin-bottom:8px;">
-            基于专属模型计算得出，纯净无风控限制建议：
+            基于专属模型计算，结合当前推算市值约 <b style="color:#1e293b;">${currentMarketValue.toFixed(2)}</b> 元：
           </div>
           <div style="font-size:16px; font-weight:900; color:${color}; line-height:1.4;">${advice}</div>
       `;

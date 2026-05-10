@@ -4738,7 +4738,9 @@ updateFundCardDisplay(code) {
       return level * 50; 
   },
 
-// 1. 渲染 AI 预测模型 UI (增加了兼容旧缓存的防错处理)
+
+
+// 1. 渲染 AI 预测模型 UI
   renderAIPredictTab(code) {
       const area = document.getElementById('det-analysis-area');
       const f = this.data.fundsCache[code];
@@ -4751,11 +4753,18 @@ updateFundCardDisplay(code) {
 
       let trainedInfoHtml = '';
       if (savedModel) {
-          // 兼容旧版没有资金统计数据的缓存
+          // 兼容旧版缓存
           let invVal = savedModel.totalInvested ? savedModel.totalInvested.toFixed(2) : '请重新构建';
           let bagVal = (savedModel.totalWithdraw !== undefined && savedModel.finalMarketValue !== undefined) 
                        ? (savedModel.totalWithdraw + savedModel.finalMarketValue).toFixed(2) 
                        : '请重新构建';
+          
+          // 优先取新的 maxProfit，如果没有则提示重构
+          let profitText = savedModel.maxProfit !== undefined 
+                           ? `<b class="${savedModel.maxProfit >= 0 ? 'red' : 'green'}">${savedModel.maxProfit > 0 ? '+' : ''}${savedModel.maxProfit.toFixed(2)} 元</b>`
+                           : '<b style="color:#f59e0b;">旧模型，请重新构建</b>';
+
+          let rateText = savedModel.maxRet !== undefined ? `(收益率 ${savedModel.maxRet.toFixed(2)}%)` : '';
 
           trainedInfoHtml = `
             <div style="background:#ecfdf5; border:1px solid #10b981; padding:12px; border-radius:12px; margin-bottom:15px;">
@@ -4765,9 +4774,9 @@ updateFundCardDisplay(code) {
                     <span>累计总投入: <b style="color:#1e293b;">${invVal}</b></span>
                     <span>落袋+市值: <b style="color:#1e293b;">${bagVal}</b></span>
                 </div>
-                <div style="display:flex; justify-content:space-between; font-size:13px; color:#1e293b; margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid #a7f3d0;">
+                <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:13px; color:#1e293b; margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid #a7f3d0;">
                     <span>训练周期: <b>近 ${savedModel.period || '--'} 天</b></span>
-                    <span>回测收益率: <b class="${savedModel.maxRet >= 0 ? 'red' : 'green'}">${savedModel.maxRet > 0 ? '+' : ''}${(savedModel.maxRet||0).toFixed(2)}%</b></span>
+                    <span style="text-align:right;">回测净利润: ${profitText} <br><span style="font-size:10px; color:#64748b; font-weight:normal;">${rateText}</span></span>
                 </div>
                 
                 <div style="font-size:10px; color:#64748b; line-height: 1.4;">
@@ -4782,7 +4791,7 @@ updateFundCardDisplay(code) {
         <div class="card" style="margin-bottom: 12px; border-left: 4px solid #8b5cf6;">
             <div style="font-size: 14px; font-weight: 900; color: var(--text-main); margin-bottom: 8px;">第一步：高级多因子寻优回测</div>
             <div style="font-size: 11px; color: var(--text-sub); margin-bottom: 12px; line-height:1.5;">
-                首日建仓1000，后续模型自动加减仓(步长50, 上限3000, 允许清仓)，考虑真实赎回手续费，寻找该基金在选定周期内收益最大的因子权重组合。
+                首日建仓1000，后续模型自动加减仓(步长50, <b>上限5000</b>, 允许清仓)，考虑真实赎回手续费，寻找该基金在选定周期内<b>绝对利润最大</b>的因子权重组合。
             </div>
             
             ${trainedInfoHtml}
@@ -4825,7 +4834,7 @@ updateFundCardDisplay(code) {
       `;
   },
 
-// 4. 执行高级量化模型暴力回测寻优
+  // 4. 执行高级量化模型暴力回测寻优 (优化目标改为最大绝对利润，上限调为5000)
   async runAITraining(code) {
       const periodInput = document.getElementById('ai-period-input').value;
       const period = parseInt(periodInput);
@@ -4844,7 +4853,7 @@ updateFundCardDisplay(code) {
       }
 
       const btn = document.getElementById('ai-train-btn');
-      btn.innerText = '🔄 包含手续费的多因子网格寻优中(约3~5秒)...';
+      btn.innerText = '🔄 追求绝对利润的网格寻优中(约3~5秒)...';
       btn.style.pointerEvents = 'none';
 
       // 释放 UI 线程
@@ -4865,7 +4874,8 @@ updateFundCardDisplay(code) {
           const weightSteps = [-1.0, -0.5, 0.0, 0.5, 1.0];
           
           let bestModel = null;
-          let maxReturn = -99999;
+          // 核心修改1：寻找的指标由 maxReturn(收益率) 变为 maxProfit(净利润金额)
+          let maxProfit = -999999; 
           let bestLog = [];
 
           for (let w_rsi of weightSteps) {
@@ -4897,9 +4907,9 @@ updateFundCardDisplay(code) {
                               let feeIncurred = 0;
                               
                               if (actionAmt > 0) {
-                                  // 限制：加仓后总持仓不得超过 3000
-                                  if (currentMarketValue + actionAmt > 3000) {
-                                      actionAmt = Math.floor((3000 - currentMarketValue) / 50) * 50;
+                                  // 核心修改2：加仓后总持仓上限放宽至 5000
+                                  if (currentMarketValue + actionAmt > 5000) {
+                                      actionAmt = Math.floor((5000 - currentMarketValue) / 50) * 50;
                                   }
                                   if (actionAmt > 0) {
                                       let s = actionAmt / day.price;
@@ -4956,16 +4966,18 @@ updateFundCardDisplay(code) {
                           
                           if (totalInvested > 0) {
                               const finalMarketValue = totalShares * preCalcData[preCalcData.length - 1].price;
+                              // 核心修改3：评判标准从收益率变为绝对利润
                               const netProfit = finalMarketValue + totalWithdraw - totalInvested;
                               const totalReturn = (netProfit / totalInvested) * 100;
 
-                              if (totalReturn > maxReturn) {
-                                  maxReturn = totalReturn;
+                              if (netProfit > maxProfit) {
+                                  maxProfit = netProfit;
                                   bestModel = { w_rsi, w_ma, w_bb, w_mom };
                                   bestModel._stats = {
                                       totalInvested,
                                       totalWithdraw,
-                                      finalMarketValue
+                                      finalMarketValue,
+                                      totalReturn // 顺带保存收益率供展示
                                   };
                                   bestLog = runLog;
                               }
@@ -4975,9 +4987,11 @@ updateFundCardDisplay(code) {
               }
           }
 
+          // 将新的指标 maxProfit 存入缓存
           this.data.fundsCache[code].aiModel = {
               period: period,
-              maxRet: maxReturn,
+              maxProfit: maxProfit,
+              maxRet: bestModel._stats.totalReturn,
               totalInvested: bestModel._stats.totalInvested,
               totalWithdraw: bestModel._stats.totalWithdraw,
               finalMarketValue: bestModel._stats.finalMarketValue,
@@ -4986,19 +5000,22 @@ updateFundCardDisplay(code) {
           };
           this.saveData(); 
 
-          this.showToast('✅ 模型优化完毕，包含手续费的回测收益已达最高！');
+          this.showToast('✅ 绝对利润优化完毕，模型构建成功！');
           this.renderAIPredictTab(code);
           this.showAIBacktestDetails(code); 
       }, 50);
   },
 
- // 5. 弹出回测明细表
+  // 5. 弹出回测明细表
   showAIBacktestDetails(code) {
       const f = this.data.fundsCache[code];
       const m = f?.aiModel;
       if (!m || !m.backtestLog || m.backtestLog.length === 0) return this.showToast('请先构建优化模型', 'warning');
 
-      const col = m.maxRet >= 0 ? 'red' : 'green';
+      // 兼容旧版模型
+      const profit = m.maxProfit !== undefined ? m.maxProfit : (m.maxRet || 0); 
+      const rate = m.maxRet !== undefined ? m.maxRet : 0;
+      const col = profit >= 0 ? 'red' : 'green';
 
       document.getElementById('ai-backtest-summary').innerHTML = `
           <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--text-main);">目标基金: ${f.name}</div>
@@ -5006,8 +5023,8 @@ updateFundCardDisplay(code) {
               <span>总投入: <b style="color:#1e293b;">${(m.totalInvested||0).toFixed(2)}</b></span>
               <span>落袋+市值: <b style="color:#1e293b;">${((m.totalWithdraw||0) + (m.finalMarketValue||0)).toFixed(2)}</b></span>
           </div>
-          <div style="font-size:12px; color:var(--text-sub);">
-              模拟初始建仓 1000 元，基于最优模型全自动执行加减仓。期末净收益率: <b class="${col}">${m.maxRet > 0 ? '+' : ''}${(m.maxRet||0).toFixed(2)}%</b>
+          <div style="font-size:12px; color:var(--text-sub); margin-top:8px;">
+              基于最优模型全自动加减仓。期末净利润: <b class="${col}" style="font-size:14px;">${profit > 0 ? '+' : ''}${profit.toFixed(2)} 元</b> <span style="font-size:10px;">(收益率 ${rate.toFixed(2)}%)</span>
           </div>
       `;
 
@@ -5034,7 +5051,7 @@ updateFundCardDisplay(code) {
       this.openModal('ai-backtest');
   },
 
- // 6. 获取今日纯净仓位建议
+  // 6. 获取今日纯净仓位建议
   getAITodayAdvice(code) {
       const f = this.data.fundsCache[code];
       const savedModel = f.aiModel;

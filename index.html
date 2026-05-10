@@ -4692,62 +4692,7 @@ updateFundCardDisplay(code) {
   },
   
 
-// 渲染 AI 预测模型 UI
-  renderAIPredictTab(code) {
-      const area = document.getElementById('det-analysis-area');
-      const f = this.data.fundsCache[code];
-      if (!f || !f.netWorth || f.netWorth.length < 60) {
-          area.innerHTML = `<div style="text-align:center; padding: 30px; color:#94a3b8;">历史净值数据不足 60 天，无法进行高级因子训练</div>`;
-          return;
-      }
 
-      const savedModel = f.aiModel || null;
-
-      let trainedInfoHtml = '';
-      if (savedModel) {
-          trainedInfoHtml = `
-            <div style="background:#ecfdf5; border:1px solid #10b981; padding:12px; border-radius:12px; margin-bottom:15px;">
-                <div style="font-size:12px; color:#059669; font-weight:bold; margin-bottom:6px;">✅ 已存在专属多因子优化模型</div>
-                <div style="display:flex; justify-content:space-between; font-size:13px; color:#1e293b; margin-bottom:4px;">
-                    <span>训练周期: <b>近 ${savedModel.period} 天</b></span>
-                    <span>回测收益率: <b class="${savedModel.maxRet >= 0 ? 'red' : 'green'}">${savedModel.maxRet > 0 ? '+' : ''}${savedModel.maxRet.toFixed(2)}%</b></span>
-                </div>
-                <div style="font-size:11px; color:#64748b; line-height: 1.4;">
-                    因子权重: RSI(${savedModel.params.w_rsi}), 偏离率(${savedModel.params.w_ma}), 布林(${savedModel.params.w_bb}), 动量(${savedModel.params.w_mom})
-                </div>
-                <button class="btn-primary" style="margin-top:10px; background:#fff; color:#10b981; border:1px solid #10b981; padding:6px; font-size:12px; box-shadow:none;" onclick="app.showAIBacktestDetails('${code}')">📊 查看回测交易明细记录</button>
-            </div>
-          `;
-      }
-
-      area.innerHTML = `
-        <div class="card" style="margin-bottom: 12px; border-left: 4px solid #8b5cf6;">
-            <div style="font-size: 14px; font-weight: 900; color: var(--text-main); margin-bottom: 8px;">第一步：高级多因子寻优回测</div>
-            <div style="font-size: 12px; color: var(--text-sub); margin-bottom: 12px; line-height:1.5;">
-                采用网格搜索算法，首日建仓1000，后续依据预测动态加减仓(-200~+200，步长50)，暴力求解该基金在选定周期内收益最大的因子权重组合。
-            </div>
-            
-            ${trainedInfoHtml}
-
-            <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px;">
-                <span style="font-size:12px; font-weight:bold;">回测周期(天):</span>
-                <input type="number" id="ai-period-input" value="${savedModel ? savedModel.period : 120}" style="width:80px; margin:0; padding:6px 10px; border-radius:8px;">
-            </div>
-            <button class="btn-primary" id="ai-train-btn" style="background:#8b5cf6; box-shadow:0 4px 10px rgba(139,92,246,0.3);" onclick="app.runAITraining('${code}')">⚙️ 立即开始构建优化模型</button>
-        </div>
-
-        <div class="card" style="margin-bottom: 12px; border-left: 4px solid #f59e0b; ${savedModel ? '' : 'opacity:0.5; pointer-events:none;'}">
-            <div style="font-size: 14px; font-weight: 900; color: var(--text-main); margin-bottom: 8px;">第二步：应用模型进行今日预测</div>
-            <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px;">
-                <span style="font-size:12px; font-weight:bold;">输入今日预估涨跌幅(%):</span>
-                <input type="number" id="ai-today-input" step="0.01" placeholder="如: 1.5 或 -2.0" style="flex:1; margin:0; padding:6px 10px; border-radius:8px;">
-            </div>
-            <button class="btn-primary" style="background:#f59e0b; box-shadow:0 4px 10px rgba(245,158,11,0.3);" onclick="app.getAITodayAdvice('${code}')">🔮 获取最优仓位操作建议</button>
-            
-            <div id="ai-advice-result" style="margin-top:15px; display:none; background:#f8fafc; padding:12px; border-radius:12px; border:1px solid #e2e8f0;"></div>
-        </div>
-      `;
-  },
 
   // 辅助：计算单个交易日的高级归一化因子
   _calcAdvancedIndicators(historicalData, currentIndex) {
@@ -4796,7 +4741,88 @@ updateFundCardDisplay(code) {
       return level * 50; 
   },
 
-// 执行高级量化模型暴力回测寻优 (增加 1000 ~ 3000 仓位限制)
+  // 渲染 AI 预测模型 UI
+  renderAIPredictTab(code) {
+      const area = document.getElementById('det-analysis-area');
+      const f = this.data.fundsCache[code];
+      if (!f || !f.netWorth || f.netWorth.length < 60) {
+          area.innerHTML = `<div style="text-align:center; padding: 30px; color:#94a3b8;">历史净值数据不足 60 天，无法进行高级因子训练</div>`;
+          return;
+      }
+
+      const savedModel = f.aiModel || null;
+
+      let trainedInfoHtml = '';
+      if (savedModel) {
+          trainedInfoHtml = `
+            <div style="background:#ecfdf5; border:1px solid #10b981; padding:12px; border-radius:12px; margin-bottom:15px;">
+                <div style="font-size:12px; color:#059669; font-weight:bold; margin-bottom:8px;">✅ 已存在专属多因子优化模型</div>
+                
+                <div style="display:flex; justify-content:space-between; font-size:12px; color:#475569; margin-bottom:4px;">
+                    <span>累计总投入: <b style="color:#1e293b;">${savedModel.totalInvested.toFixed(2)}</b></span>
+                    <span>落袋+市值: <b style="color:#1e293b;">${(savedModel.totalWithdraw + savedModel.finalMarketValue).toFixed(2)}</b></span>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:13px; color:#1e293b; margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid #a7f3d0;">
+                    <span>训练周期: <b>近 ${savedModel.period} 天</b></span>
+                    <span>回测收益率: <b class="${savedModel.maxRet >= 0 ? 'red' : 'green'}">${savedModel.maxRet > 0 ? '+' : ''}${savedModel.maxRet.toFixed(2)}%</b></span>
+                </div>
+                
+                <div style="font-size:10px; color:#64748b; line-height: 1.4;">
+                    因子权重: RSI(${savedModel.params.w_rsi}), 偏离率(${savedModel.params.w_ma}), 布林(${savedModel.params.w_bb}), 动量(${savedModel.params.w_mom})
+                </div>
+                <button class="btn-primary" style="margin-top:10px; background:#fff; color:#10b981; border:1px solid #10b981; padding:6px; font-size:12px; box-shadow:none;" onclick="app.showAIBacktestDetails('${code}')">📊 查看回测交易明细记录</button>
+            </div>
+          `;
+      }
+
+      area.innerHTML = `
+        <div class="card" style="margin-bottom: 12px; border-left: 4px solid #8b5cf6;">
+            <div style="font-size: 14px; font-weight: 900; color: var(--text-main); margin-bottom: 8px;">第一步：高级多因子寻优回测</div>
+            <div style="font-size: 11px; color: var(--text-sub); margin-bottom: 12px; line-height:1.5;">
+                首日建仓1000，后续模型自动加减仓(步长50, 上限3000, 允许清仓)，考虑真实赎回手续费，寻找该基金在选定周期内收益最大的因子权重组合。
+            </div>
+            
+            ${trainedInfoHtml}
+
+            <div style="background:#f8fafc; padding:10px; border-radius:8px; margin-bottom:12px; border:1px solid #e2e8f0;">
+                <div style="font-size:12px; font-weight:bold; color:#1e293b; margin-bottom:8px;">设置赎回手续费率 (%)</div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+                        <span style="font-size:10px; color:#64748b;">不满 7 天</span>
+                        <input type="number" id="fee-n1" value="1.50" step="0.01" style="margin:0; padding:4px; font-size:12px; border-radius:6px; text-align:center;">
+                    </div>
+                    <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+                        <span style="font-size:10px; color:#64748b;">7 ~ 30 天</span>
+                        <input type="number" id="fee-n2" value="0.50" step="0.01" style="margin:0; padding:4px; font-size:12px; border-radius:6px; text-align:center;">
+                    </div>
+                    <div style="flex:1; display:flex; flex-direction:column; gap:4px;">
+                        <span style="font-size:10px; color:#64748b;">满 30 天</span>
+                        <input type="number" id="fee-n3" value="0.00" step="0.01" style="margin:0; padding:4px; font-size:12px; border-radius:6px; text-align:center;">
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px;">
+                <span style="font-size:12px; font-weight:bold;">回测周期(天):</span>
+                <input type="number" id="ai-period-input" value="${savedModel ? savedModel.period : 120}" style="flex:1; margin:0; padding:6px 10px; border-radius:8px;">
+            </div>
+            <button class="btn-primary" id="ai-train-btn" style="background:#8b5cf6; box-shadow:0 4px 10px rgba(139,92,246,0.3); margin-bottom:0;" onclick="app.runAITraining('${code}')">⚙️ 立即开始构建优化模型</button>
+        </div>
+
+        <div class="card" style="margin-bottom: 12px; border-left: 4px solid #f59e0b; ${savedModel ? '' : 'opacity:0.5; pointer-events:none;'}">
+            <div style="font-size: 14px; font-weight: 900; color: var(--text-main); margin-bottom: 8px;">第二步：应用模型进行今日预测</div>
+            <div style="display:flex; gap:10px; align-items:center; margin-bottom:12px;">
+                <span style="font-size:12px; font-weight:bold;">输入预估涨跌(%):</span>
+                <input type="number" id="ai-today-input" step="0.01" placeholder="如: 1.5 或 -2.0" style="flex:1; margin:0; padding:6px 10px; border-radius:8px;">
+            </div>
+            <button class="btn-primary" style="background:#f59e0b; box-shadow:0 4px 10px rgba(245,158,11,0.3); margin-bottom:0;" onclick="app.getAITodayAdvice('${code}')">🔮 洞悉今日纯净操作建议</button>
+            
+            <div id="ai-advice-result" style="margin-top:15px; display:none; background:#f8fafc; padding:12px; border-radius:12px; border:1px solid #e2e8f0;"></div>
+        </div>
+      `;
+  },
+
+  // 执行高级量化模型暴力回测寻优 (引入真实手续费 FIFO 与 无底仓限制)
   async runAITraining(code) {
       const periodInput = document.getElementById('ai-period-input').value;
       const period = parseInt(periodInput);
@@ -4804,6 +4830,10 @@ updateFundCardDisplay(code) {
           this.showToast('回测周期至少需要 30 天', 'error'); return;
       }
       
+      const n1 = parseFloat(document.getElementById('fee-n1').value || 0) / 100;
+      const n2 = parseFloat(document.getElementById('fee-n2').value || 0) / 100;
+      const n3 = parseFloat(document.getElementById('fee-n3').value || 0) / 100;
+
       const f = this.data.fundsCache[code];
       const nw = f.netWorth;
       if (nw.length <= period) {
@@ -4811,7 +4841,7 @@ updateFundCardDisplay(code) {
       }
 
       const btn = document.getElementById('ai-train-btn');
-      btn.innerText = '🔄 高级多因子网格寻优中(约3~5秒)...';
+      btn.innerText = '🔄 包含手续费的多因子网格寻优中(约3~5秒)...';
       btn.style.pointerEvents = 'none';
 
       // 释放 UI 线程
@@ -4823,6 +4853,7 @@ updateFundCardDisplay(code) {
               const inds = this._calcAdvancedIndicators(nw, i);
               preCalcData.push({
                   date: this.formatEMDate(nw[i].x, 10),
+                  timestamp: nw[i].x, // 携带真实时间戳，用于计算自然日
                   price: nw[i].y,
                   inds: inds
               });
@@ -4839,15 +4870,16 @@ updateFundCardDisplay(code) {
                   for (let w_bb of weightSteps) {
                       for (let w_mom of weightSteps) {
                           
-                          let shares = 0; 
-                          let cash = 10000; // 模拟初始资金 10000 用于周转
+                          let totalInvested = 0; // 累计投入本金
+                          let totalWithdraw = 0; // 累计落袋现金（已扣除手续费）
+                          let totalShares = 0;   // 当前总份额
+                          let shareQueue = [];   // FIFO 队列，用于计算持有天数：[{ts, shares}]
                           let runLog = [];
 
                           for (let i = 0; i < preCalcData.length; i++) {
                               const day = preCalcData[i];
                               let actionAmt = 0;
                               
-                              // 1. 生成模型建议操作金额
                               if (i === 0) {
                                   actionAmt = 1000; // 第一天固定建仓 1000
                               } else if (day.inds) {
@@ -4858,54 +4890,86 @@ updateFundCardDisplay(code) {
                                   actionAmt = this._mapScoreToAction(-score);
                               }
 
-                              // 2. 仓位硬性边界控制限制 (基于当前持仓市值)
-                              let currentMarketValue = shares * day.price;
+                              let currentMarketValue = totalShares * day.price;
+                              let feeIncurred = 0;
                               
                               if (actionAmt > 0) {
                                   // 限制：加仓后总持仓不得超过 3000
                                   if (currentMarketValue + actionAmt > 3000) {
-                                      // 向下取整到 50 的倍数
                                       actionAmt = Math.floor((3000 - currentMarketValue) / 50) * 50;
                                   }
-                                  if (actionAmt < 0) actionAmt = 0; // 纠错防御
-                              } else if (actionAmt < 0) {
-                                  // 限制：减仓后总持仓不得低于底仓 1000
-                                  if (currentMarketValue + actionAmt < 1000) {
-                                      let maxCanSell = currentMarketValue - 1000;
-                                      // 向下取整到 50 的倍数，然后转回负数
-                                      actionAmt = -Math.floor(maxCanSell / 50) * 50;
+                                  if (actionAmt > 0) {
+                                      let s = actionAmt / day.price;
+                                      totalShares += s;
+                                      shareQueue.push({ ts: day.timestamp, shares: s });
+                                      totalInvested += actionAmt;
                                   }
-                                  if (actionAmt > 0) actionAmt = 0; // 纠错防御
-                              }
-
-                              // 3. 执行交易
-                              if (actionAmt > 0) {
-                                  shares += actionAmt / day.price;
-                                  cash -= actionAmt;
                               } else if (actionAmt < 0) {
-                                  let actualSell = Math.abs(actionAmt);
-                                  shares -= actualSell / day.price;
-                                  cash += actualSell;
+                                  // 取消底仓 1000 限制：允许卖光
+                                  let sellAmt = Math.abs(actionAmt);
+                                  if (sellAmt > currentMarketValue) {
+                                      sellAmt = Math.floor(currentMarketValue / 50) * 50;
+                                  }
+                                  
+                                  if (sellAmt > 0) {
+                                      let sharesToSell = sellAmt / day.price;
+                                      let actualCashGet = 0;
+                                      
+                                      // FIFO 算法出列并计算对应批次的手续费
+                                      while (sharesToSell > 0 && shareQueue.length > 0) {
+                                          let batch = shareQueue[0];
+                                          let sToProc = Math.min(batch.shares, sharesToSell);
+                                          
+                                          // 计算自然日
+                                          let holdDays = (day.timestamp - batch.ts) / 86400000;
+                                          let feeRate = holdDays < 7 ? n1 : (holdDays < 30 ? n2 : n3);
+                                          
+                                          let grossCash = sToProc * day.price;
+                                          let batchFee = grossCash * feeRate;
+                                          
+                                          actualCashGet += (grossCash - batchFee);
+                                          feeIncurred += batchFee;
+                                          
+                                          batch.shares -= sToProc;
+                                          sharesToSell -= sToProc;
+                                          
+                                          if (batch.shares <= 0.000001) shareQueue.shift();
+                                      }
+                                      
+                                      totalShares -= (sellAmt / day.price);
+                                      totalWithdraw += actualCashGet;
+                                      actionAmt = -sellAmt; // 修正回负数计入日志
+                                  } else {
+                                      actionAmt = 0; 
+                                  }
                               }
 
                               runLog.push({
                                   date: day.date,
                                   price: day.price,
                                   actionAmt: actionAmt,
-                                  shares: shares,
-                                  value: shares * day.price
+                                  fee: feeIncurred,
+                                  value: totalShares * day.price
                               });
                           }
                           
-                          // 统一按初始建仓基准金(1000)计算收益率，最能体现波段效果
-                          const finalAssets = cash + (shares * preCalcData[preCalcData.length - 1].price);
-                          const profit = finalAssets - 10000;
-                          const totalReturn = (profit / 1000) * 100;
+                          // 严谨收益率算法：(期末持仓市值 + 累计提款 - 累计投入) / 累计投入
+                          if (totalInvested > 0) {
+                              const finalMarketValue = totalShares * preCalcData[preCalcData.length - 1].price;
+                              const netProfit = finalMarketValue + totalWithdraw - totalInvested;
+                              const totalReturn = (netProfit / totalInvested) * 100;
 
-                          if (totalReturn > maxReturn) {
-                              maxReturn = totalReturn;
-                              bestModel = { w_rsi, w_ma, w_bb, w_mom };
-                              bestLog = runLog;
+                              if (totalReturn > maxReturn) {
+                                  maxReturn = totalReturn;
+                                  bestModel = { w_rsi, w_ma, w_bb, w_mom };
+                                  // 给 bestModel 挂载资金统计数据供 UI 显示
+                                  bestModel._stats = {
+                                      totalInvested,
+                                      totalWithdraw,
+                                      finalMarketValue
+                                  };
+                                  bestLog = runLog;
+                              }
                           }
                       }
                   }
@@ -4915,18 +4979,63 @@ updateFundCardDisplay(code) {
           this.data.fundsCache[code].aiModel = {
               period: period,
               maxRet: maxReturn,
+              totalInvested: bestModel._stats.totalInvested,
+              totalWithdraw: bestModel._stats.totalWithdraw,
+              finalMarketValue: bestModel._stats.finalMarketValue,
               params: bestModel,
               backtestLog: bestLog
           };
           this.saveData(); 
 
-          this.showToast('✅ 模型优化完毕，回测收益已达最高！');
+          this.showToast('✅ 模型优化完毕，包含手续费的回测收益已达最高！');
           this.renderAIPredictTab(code);
           this.showAIBacktestDetails(code); 
       }, 50);
   },
 
-  // 获取今日的定制仓位建议 (同步增加仓位限制)
+  // 弹出回测明细表
+  showAIBacktestDetails(code) {
+      const f = this.data.fundsCache[code];
+      const m = f?.aiModel;
+      if (!m || !m.backtestLog || m.backtestLog.length === 0) return this.showToast('无回测数据', 'error');
+
+      const col = m.maxRet >= 0 ? 'red' : 'green';
+
+      document.getElementById('ai-backtest-summary').innerHTML = `
+          <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--text-main);">目标基金: ${f.name}</div>
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-sub); margin-bottom:4px;">
+              <span>总投入: <b>${m.totalInvested.toFixed(2)}</b></span>
+              <span>落袋+市值: <b>${(m.totalWithdraw + m.finalMarketValue).toFixed(2)}</b></span>
+          </div>
+          <div style="font-size:12px; color:var(--text-sub);">
+              模拟初始建仓 1000 元，基于最优模型全自动执行加减仓。期末净收益率: <b class="${col}">${m.maxRet > 0 ? '+' : ''}${m.maxRet.toFixed(2)}%</b>
+          </div>
+      `;
+
+      let html = m.backtestLog.map(row => {
+          let actText = '<span style="color:#94a3b8; font-weight:bold;">持仓不动</span>';
+          if (row.actionAmt > 0) {
+              actText = `<span style="color:#f43f5e; font-weight:bold;">加仓 ${row.actionAmt}</span>`;
+          } else if (row.actionAmt < 0) {
+              let feeTxt = row.fee > 0 ? `<br><span style="font-size:10px; color:#64748b; font-weight:normal;">手续费 -${row.fee.toFixed(2)}</span>` : '';
+              actText = `<span style="color:#10b981; font-weight:bold;">减仓 ${Math.abs(row.actionAmt)}</span>${feeTxt}`;
+          }
+          
+          return `
+          <div class="l-row" style="padding:10px; font-size:13px; align-items:flex-start;">
+              <div style="flex:1.5; color:#64748b; line-height:1.5;">${row.date}</div>
+              <div style="flex:1; text-align:right; font-weight:bold; line-height:1.5;">${row.price.toFixed(4)}</div>
+              <div style="flex:1.5; text-align:right; line-height:1.5;">${actText}</div>
+              <div style="flex:1.5; text-align:right; font-weight:900; color:var(--text-main); line-height:1.5;">${row.value.toFixed(2)}</div>
+          </div>
+          `;
+      }).join('');
+
+      document.getElementById('ai-backtest-list').innerHTML = html;
+      this.openModal('ai-backtest');
+  },
+
+  // 获取今日纯净仓位建议 (无任何上下限干预)
   getAITodayAdvice(code) {
       const f = this.data.fundsCache[code];
       const savedModel = f.aiModel;
@@ -4949,85 +5058,32 @@ updateFundCardDisplay(code) {
 
       const w = savedModel.params;
       let score = (w.w_rsi * inds.rsiN) + (w.w_ma * inds.maN) + (w.w_bb * inds.bbN) + (w.w_mom * inds.momN);
+      
+      // 直接输出映射结果，不考虑任何现有市值约束
       let actionAmt = this._mapScoreToAction(-score);
-
-      // --- 关键：应用 1000~3000 的规则限制 ---
-      // 从模型的历史最后一天获取当前的虚拟持仓市值
-      const logData = savedModel.backtestLog;
-      const currentVirtualShares = logData.length > 0 ? logData[logData.length - 1].shares : (1000 / fakeTodayPrice);
-      const currentMarketValue = currentVirtualShares * fakeTodayPrice;
-
-      if (actionAmt > 0) {
-          if (currentMarketValue + actionAmt > 3000) {
-              actionAmt = Math.floor((3000 - currentMarketValue) / 50) * 50;
-          }
-          if (actionAmt < 0) actionAmt = 0;
-      } else if (actionAmt < 0) {
-          if (currentMarketValue + actionAmt < 1000) {
-              let maxCanSell = currentMarketValue - 1000;
-              actionAmt = -Math.floor(maxCanSell / 50) * 50;
-          }
-          if (actionAmt > 0) actionAmt = 0;
-      }
 
       let advice = '';
       let color = '';
       
       if (actionAmt > 0) {
-          advice = `🔥 模型指令：加仓 ${actionAmt} 元`;
+          advice = `🔥 纯净指令：加仓 ${actionAmt} 元`;
           color = '#f43f5e';
       } else if (actionAmt < 0) {
-          advice = `📉 模型指令：减仓 ${Math.abs(actionAmt)} 元`;
+          advice = `📉 纯净指令：减仓 ${Math.abs(actionAmt)} 元`;
           color = '#10b981';
       } else {
-          advice = '👀 模型指令：持仓不动 (达到边界限制或处于震荡区)';
+          advice = '👀 纯净指令：持仓不动 (信号处于弱势震荡区)';
           color = '#64748b';
       }
 
       const resBox = document.getElementById('ai-advice-result');
       resBox.innerHTML = `
           <div style="font-size:12px; color:#94a3b8; margin-bottom:6px;">
-            基于回测模型，当前模拟持仓市值约 <b style="color:#1e293b;">${currentMarketValue.toFixed(2)}</b> 元 (上限3000, 下限1000)
+            基于因子模型原始输出，该建议不含持仓风控限制：
           </div>
           <div style="font-size:16px; font-weight:900; color:${color};">${advice}</div>
       `;
       resBox.style.display = 'block';
-  },
-
-  // 弹出回测明细表
-  showAIBacktestDetails(code) {
-      const f = this.data.fundsCache[code];
-      const logData = f?.aiModel?.backtestLog;
-      if (!logData || logData.length === 0) return this.showToast('无回测数据', 'error');
-
-      const finalVal = logData[logData.length - 1].value;
-      const finalRet = f.aiModel.maxRet;
-      const col = finalRet >= 0 ? 'red' : 'green';
-
-      document.getElementById('ai-backtest-summary').innerHTML = `
-          <div style="font-size:13px; font-weight:bold; margin-bottom:4px; color:var(--text-main);">目标基金: ${f.name}</div>
-          <div style="font-size:12px; color:var(--text-sub);">
-              模拟初始建仓 1000 元，基于最优模型全自动执行加减仓。期末总收益率: <b class="${col}">${finalRet > 0 ? '+' : ''}${finalRet.toFixed(2)}%</b>
-          </div>
-      `;
-
-      let html = logData.map(row => {
-          let actText = '<span style="color:#94a3b8; font-weight:bold;">持仓不动</span>';
-          if (row.actionAmt > 0) actText = `<span style="color:#f43f5e; font-weight:bold;">加仓 ${row.actionAmt}</span>`;
-          else if (row.actionAmt < 0) actText = `<span style="color:#10b981; font-weight:bold;">减仓 ${Math.abs(row.actionAmt)}</span>`;
-          
-          return `
-          <div class="l-row" style="padding:10px; font-size:13px;">
-              <div style="flex:1.5; color:#64748b;">${row.date}</div>
-              <div style="flex:1; text-align:right; font-weight:bold;">${row.price.toFixed(4)}</div>
-              <div style="flex:1.5; text-align:right;">${actText}</div>
-              <div style="flex:1.5; text-align:right; font-weight:900; color:var(--text-main);">${row.value.toFixed(2)}</div>
-          </div>
-          `;
-      }).join('');
-
-      document.getElementById('ai-backtest-list').innerHTML = html;
-      this.openModal('ai-backtest');
   },
 
 

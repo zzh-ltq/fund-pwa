@@ -3683,58 +3683,31 @@ drawIntradayFlowCanvas(data) {
       }
   },
 
-  // 5. 执行技术面综合诊断
+// 5. 执行技术面综合深度诊断 (结合K线形态、量价、分时、均线)
   async runMarketTechnicalAnalysis(secid, name) {
       const btn = document.getElementById('m-tech-run-btn');
-      btn.innerText = '📡 全维扫描中...';
+      btn.innerText = '📡 全维数据提取与扫描中...';
       btn.style.pointerEvents = 'none';
+      
       const resultBox = document.getElementById('m-tech-result');
+      // 【修复】：点击立即清空旧数据并隐藏
       resultBox.style.display = 'none';
+      resultBox.innerHTML = ''; 
 
       try {
-          // 1. 获取近 100 天 K 线数据用于计算均线和指标
+          // 1. 获取近 100 天 K 线数据 (用于均线、形态、量能)
           const klines = await this._fetchMarketHistoryKlines(secid, 100);
           if (!klines || klines.length < 60) throw new Error("K线数据不足，无法生成报告");
 
-          const prices = klines.map(k => k.close);
-          const vols = klines.map(k => k.vol);
-          const currentPrice = prices[prices.length - 1];
+          // 2. 额外拉取今日【分时走势】(用于判断日内均价线和尾盘承接)
+          let intradayTrend = null;
+          try {
+              const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53&_=${Date.now()}`;
+              const trendRes = await fetchJSONP(trendUrl, 'cb');
+              intradayTrend = trendRes?.data?.trends || [];
+          } catch(e) {}
 
-          // 2. 计算各项技术指标
-          // MA
-          const calcMA = (data, d) => data.slice(-d).reduce((a,b)=>a+b,0) / d;
-          const ma5 = calcMA(prices, 5), ma10 = calcMA(prices, 10), ma20 = calcMA(prices, 20), ma60 = calcMA(prices, 60);
-
-          // BOLL
-          let sumSq = 0;
-          for (let i = prices.length - 20; i < prices.length; i++) sumSq += Math.pow(prices[i] - ma20, 2);
-          const stdDev = Math.sqrt(sumSq / 20);
-          const upperBB = ma20 + 2 * stdDev;
-          const lowerBB = ma20 - 2 * stdDev;
-
-          // RSI (14)
-          let gains = 0, losses = 0;
-          for (let i = prices.length - 13; i < prices.length; i++) {
-              let diff = prices[i] - prices[i-1];
-              if (diff >= 0) gains += diff; else losses -= diff;
-          }
-          let rs = (gains / 14) / (losses / 14 || 0.0001);
-          const rsi14 = 100 - (100 / (1 + rs));
-
-          // MACD (12,26,9) 极简版估算 (用均线代入)
-          const ema12 = calcMA(prices, 12);
-          const ema26 = calcMA(prices, 26);
-          const dif = ema12 - ema26;
-          // 假设 DEA 为上一周期的 DIF 均值简化
-          const dea = dif * 0.8; 
-          const macd = (dif - dea) * 2;
-
-          // 量能对比 (今日 vs 前5日均量)
-          const todayVol = vols[vols.length - 1];
-          const avgVol5 = vols.slice(-6, -1).reduce((a,b)=>a+b,0) / 5;
-          const volRatio = todayVol / (avgVol5 || 1);
-
-          // 3. 尝试拉取今日实时资金流入 (f62)
+          // 3. 拉取今日实时资金流入 (f62)
           let netFlowStr = '--';
           let netFlowVal = 0;
           try {
@@ -3745,59 +3718,147 @@ drawIntradayFlowCanvas(data) {
               }
           } catch(e) {}
 
-          // 4. 生成诊断评语
-          let score = 50; // 基准分
-          let trendAdv = '', bollAdv = '', rsiAdv = '', volAdv = '', flowAdv = '';
+          const prices = klines.map(k => k.close);
+          const vols = klines.map(k => k.vol);
+          
+          const todayK = klines[klines.length - 1];
+          const yestK = klines[klines.length - 2];
+          const currentPrice = todayK.close;
 
-          // 趋势诊断
-          if (currentPrice > ma20 && ma5 > ma10) { score += 15; trendAdv = `<span style="color:#f43f5e;">多头排列，强势运行于20日线上方。</span>`; }
-          else if (currentPrice < ma20 && ma5 < ma10) { score -= 15; trendAdv = `<span style="color:#10b981;">空头排列，弱势运行于20日线下方。</span>`; }
-          else { trendAdv = `<span style="color:#f59e0b;">震荡洗盘，短中期均线交织。</span>`; }
+          // ================= 技术指标计算 =================
+          const calcMA = (data, d) => data.slice(-d).reduce((a,b)=>a+b,0) / d;
+          const ma5 = calcMA(prices, 5), ma10 = calcMA(prices, 10), ma20 = calcMA(prices, 20);
 
-          // 空间诊断
-          if (currentPrice > upperBB) { score -= 10; bollAdv = `突破布林上轨，<b style="color:#10b981;">面临技术性回调压力</b>。`; }
-          else if (currentPrice < lowerBB) { score += 10; bollAdv = `跌破布林下轨，<b style="color:#f43f5e;">存在超跌反弹动能</b>。`; }
-          else { bollAdv = `运行在布林通道内部，空间常态。`; }
+          // RSI (14)
+          let gains = 0, losses = 0;
+          for (let i = prices.length - 13; i < prices.length; i++) {
+              let diff = prices[i] - prices[i-1];
+              if (diff >= 0) gains += diff; else losses -= diff;
+          }
+          let rs = (gains / 14) / (losses / 14 || 0.0001);
+          const rsi14 = 100 - (100 / (1 + rs));
 
-          // 情绪诊断
-          if (rsi14 > 75) { score -= 10; rsiAdv = `RSI=${rsi14.toFixed(1)}，市场极度超买，<b style="color:#10b981;">警惕风险</b>。`; }
-          else if (rsi14 < 25) { score += 10; rsiAdv = `RSI=${rsi14.toFixed(1)}，市场极度超卖，<b style="color:#f43f5e;">随时可能反弹</b>。`; }
-          else { rsiAdv = `RSI=${rsi14.toFixed(1)}，情绪指标处于中性区域。`; }
+          // ================= 深度打分系统 (基准50分，动态加减) =================
+          let score = 50; 
+          let trendAdv = '', shapeAdv = '', volAdv = '', intraAdv = '';
 
-          // 量能诊断
-          if (volRatio > 1.5 && currentPrice > prices[prices.length - 2]) { score += 10; volAdv = `放量上涨 (量比${volRatio.toFixed(1)})，做多意愿坚决。`; }
-          else if (volRatio > 1.5 && currentPrice < prices[prices.length - 2]) { score -= 10; volAdv = `放量下跌 (量比${volRatio.toFixed(1)})，资金出逃明显。`; }
-          else { volAdv = `缩量或平量运行，观望情绪浓厚。`; }
+          // A. K线形态学分析 (Morphology)
+          const body = todayK.close - todayK.open;
+          const upperShadow = todayK.high - Math.max(todayK.open, todayK.close);
+          const lowerShadow = Math.min(todayK.open, todayK.close) - todayK.low;
+          const priceRange = todayK.high - todayK.low || 0.001;
+          const bodyPercent = (Math.abs(body) / yestK.close) * 100;
 
-          // 资金诊断
-          if (netFlowVal > 0) { score += 10; flowAdv = `主力呈现净流入 (<b style="color:#f43f5e;">+${netFlowStr}</b>)，资金护盘。`; }
-          else if (netFlowVal < 0) { score -= 10; flowAdv = `主力呈现净流出 (<b style="color:#10b981;">${netFlowStr}</b>)，资金抛压。`; }
-          else { flowAdv = `主力资金博弈不明显。`; }
+          if (lowerShadow > Math.abs(body) * 2 && lowerShadow > upperShadow) {
+              score += 12;
+              shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">长下影线探底：</span>下方承接盘极强，俗称“定海神针”，短期见底反弹概率极大。`;
+          } else if (upperShadow > Math.abs(body) * 2 && upperShadow > lowerShadow) {
+              score -= 12;
+              shapeAdv = `<span style="color:#10b981; font-weight:bold;">长上影线承压：</span>上方抛压极重，冲高回落，短期面临调整风险。`;
+          } else if (bodyPercent > 2.0 && body > 0) {
+              score += 10;
+              shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">实体大阳线：</span>多头占据绝对主导，上攻意愿强烈。`;
+          } else if (bodyPercent > 2.0 && body < 0) {
+              score -= 10;
+              shapeAdv = `<span style="color:#10b981; font-weight:bold;">实体大阴线：</span>空头肆虐，破位下杀迹象明显。`;
+          } else {
+              shapeAdv = `K线实体较小，多空双方处于焦灼试探期。`;
+          }
 
-          // 最终定论
+          // B. 量价配合分析 (Volume)
+          const avgVol5 = vols.slice(-6, -1).reduce((a,b)=>a+b,0) / 5;
+          const volRatio = todayK.vol / (avgVol5 || 1);
+
+          if (volRatio > 1.3 && body > 0) {
+              score += 15;
+              volAdv = `<span style="color:#f43f5e; font-weight:bold;">放量上涨：</span>量比高达 ${volRatio.toFixed(2)}，增量资金进场抢筹，良性多头格局。`;
+          } else if (volRatio > 1.3 && body <= 0) {
+              score -= 15;
+              volAdv = `<span style="color:#10b981; font-weight:bold;">放量滞涨/下跌：</span>量比 ${volRatio.toFixed(2)}，资金放量出逃或高位滞涨，极其危险。`;
+          } else if (volRatio < 0.7 && body < 0) {
+              score += 5;
+              volAdv = `<span style="color:#f59e0b; font-weight:bold;">缩量回调：</span>量比仅 ${volRatio.toFixed(2)}，下跌无量，主力洗盘概率大于出货。`;
+          } else {
+              volAdv = `成交量表现平稳 (量比 ${volRatio.toFixed(2)})，未见异常异动。`;
+          }
+
+          // C. 均线与均值回归 (Trend & RSI)
+          if (currentPrice > ma5 && ma5 > ma10 && ma10 > ma20) {
+              score += 10;
+              trendAdv = `均线呈<b style="color:#f43f5e;">标准多头排列</b>，趋势向上。`;
+          } else if (currentPrice < ma5 && ma5 < ma10 && ma10 < ma20) {
+              score -= 10;
+              trendAdv = `均线呈<b style="color:#10b981;">典型空头排列</b>，犹如泰山压顶。`;
+          } else if (currentPrice > ma20) {
+              score += 5; trendAdv = `站稳 20 日生命线，结构偏暖。`;
+          } else {
+              score -= 5; trendAdv = `跌破 20 日生命线，趋势走弱。`;
+          }
+
+          if (rsi14 < 30) { score += 8; trendAdv += ` 且 RSI 处于极度超卖区，存在报复性反弹需求。`; }
+          else if (rsi14 > 70) { score -= 8; trendAdv += ` 且 RSI 极度超买，面临技术性修正。`; }
+
+          // D. 日内分时均价线分析 (Intraday VWAP)
+          if (intradayTrend && intradayTrend.length > 0) {
+              // 取最后一分钟的分时数据: "时间,价格,均价,成交量..."
+              const lastMinParams = intradayTrend[intradayTrend.length - 1].split(',');
+              const closePrice = parseFloat(lastMinParams[1]);
+              const vwapPrice = parseFloat(lastMinParams[2]); // 分时黄线(均价线)
+              
+              if (closePrice > vwapPrice * 1.005) {
+                  score += 8;
+                  intraAdv = `日内收盘价高出均价线，<span style="color:#f43f5e;">尾盘存在抢筹或强势维持</span>。`;
+              } else if (closePrice < vwapPrice * 0.995) {
+                  score -= 8;
+                  intraAdv = `日内收盘价低于均价线，<span style="color:#10b981;">走势重心下移，尾盘承接乏力</span>。`;
+              } else {
+                  intraAdv = `日内价格紧贴均价线，走势平稳无大幅偏离。`;
+              }
+          } else {
+              intraAdv = `因处于盘前或接口限制，暂无当日分时微观数据。`;
+          }
+
+          // E. 主力资金补充加分
+          if (netFlowVal > 0) score += 5;
+          else if (netFlowVal < 0) score -= 5;
+
+          // 边界约束
+          score = Math.max(0, Math.min(100, score));
+
+          // ================= 最终定论 =================
           let finalConclusion = '';
           let finalColor = '';
-          if (score >= 80) { finalConclusion = '🚀 强力看多 (逢低做多)'; finalColor = '#f43f5e'; }
-          else if (score >= 60) { finalConclusion = '📈 偏向多头 (谨慎持有)'; finalColor = '#f59e0b'; }
-          else if (score >= 40) { finalConclusion = '👀 多空平衡 (观望为主)'; finalColor = '#64748b'; }
+          if (score >= 80) { finalConclusion = '🚀 强力看多 (闭眼上车)'; finalColor = '#f43f5e'; }
+          else if (score >= 60) { finalConclusion = '📈 偏向多头 (持仓待涨)'; finalColor = '#f59e0b'; }
+          else if (score >= 40) { finalConclusion = '👀 多空平衡 (横盘震荡)'; finalColor = '#64748b'; }
           else if (score >= 20) { finalConclusion = '📉 偏向空头 (逢高减仓)'; finalColor = '#059669'; }
-          else { finalConclusion = '⚠️ 强力看空 (规避风险)'; finalColor = '#10b981'; }
+          else { finalConclusion = '⚠️ 强力看空 (清仓规避)'; finalColor = '#10b981'; }
 
-          // 5. 渲染报告 UI
+          // ================= 渲染报告 UI =================
           resultBox.innerHTML = `
             <div class="card" style="border: 1px solid #e2e8f0; background: #fff;">
-                <div style="text-align:center; padding-bottom: 10px; border-bottom: 1px dashed #cbd5e1; margin-bottom: 12px;">
+                <div style="text-align:center; padding-bottom: 12px; border-bottom: 1px dashed #cbd5e1; margin-bottom: 15px;">
                     <div style="font-size:12px; color:var(--text-sub); margin-bottom:4px;">技术面综合得分</div>
-                    <div style="font-size:28px; font-weight:900; color:${finalColor};">${score} <span style="font-size:12px; font-weight:bold;">分</span></div>
-                    <div style="font-size:14px; font-weight:900; color:${finalColor}; margin-top:4px;">${finalConclusion}</div>
+                    <div style="font-size:32px; font-weight:900; color:${finalColor};">${score} <span style="font-size:14px; font-weight:bold;">分</span></div>
+                    <div style="font-size:15px; font-weight:900; color:${finalColor}; margin-top:4px;">${finalConclusion}</div>
                 </div>
 
-                <div style="display:flex; flex-direction:column; gap:8px; font-size:12px; color:#1e293b; line-height:1.5;">
-                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>📊 趋势形态：</b>${trendAdv} 当前价与20日生命线乖离率为 ${((currentPrice-ma20)/ma20*100).toFixed(2)}%。</div>
-                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>📏 空间位置：</b>${bollAdv}</div>
-                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>🌡️ 市场情绪：</b>${rsiAdv} MACD处于 ${macd > 0 ? '强势红柱' : '弱势绿柱'} 阶段。</div>
-                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>💰 量价配合：</b>${volAdv}</div>
-                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>🌊 主力资金：</b>${flowAdv}</div>
+                <div style="display:flex; flex-direction:column; gap:10px; font-size:12px; color:#1e293b; line-height:1.6;">
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #64748b;">
+                        <b>🕯️ K线形态：</b>${shapeAdv}
+                    </div>
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #3b82f6;">
+                        <b>📊 量价配合：</b>${volAdv}
+                    </div>
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #8b5cf6;">
+                        <b>📈 趋势支撑：</b>${trendAdv}
+                    </div>
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #f59e0b;">
+                        <b>⏱️ 分时微观：</b>${intraAdv}
+                    </div>
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #ec4899;">
+                        <b>🌊 主力资金：</b>今日主力呈现 ${netFlowVal >= 0 ? '<span style="color:#f43f5e; font-weight:bold;">净流入</span>' : '<span style="color:#10b981; font-weight:bold;">净流出</span>'} (${netFlowStr})。
+                    </div>
                 </div>
             </div>
           `;

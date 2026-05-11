@@ -4719,10 +4719,13 @@ updateFundCardDisplay(code) {
                 </div>
                 
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-size:13px; font-weight:bold; color:#1e293b;">今日预估涨跌 (%):</span>
+                    <label style="font-size:13px; font-weight:bold; color:#1e293b; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                        <input type="checkbox" id="ai-use-today" checked style="width:16px; height:16px; accent-color: #3b82f6;">
+                        加入今日预估涨跌 (%):
+                    </label>
                     <input type="number" id="ai-pred-today" step="0.01" placeholder="选填,如: 1.5" style="width:100px; margin:0; padding:6px; border-radius:6px; text-align:center;">
                 </div>
-                <div style="font-size:10px; color:#94a3b8; margin-top:4px;">* 若今日尚未收盘，强烈建议输入盘中估算涨跌幅以提高拟合精度。</div>
+                <div style="font-size:10px; color:#94a3b8; margin-top:4px;">* 勾选并输入盘中估算涨跌幅，可提高拟合精度。</div>
             </div>
 
             <div style="margin-bottom:15px;">
@@ -4744,6 +4747,7 @@ updateFundCardDisplay(code) {
   // 2. 触发预测主逻辑
   async runNextDayPrediction(code) {
       const period = parseInt(document.getElementById('ai-pred-period').value);
+      const useToday = document.getElementById('ai-use-today').checked;
       const todayInput = document.getElementById('ai-pred-today').value;
       const engine = document.getElementById('ai-engine-select').value;
       const btn = document.getElementById('ai-run-btn');
@@ -4753,8 +4757,8 @@ updateFundCardDisplay(code) {
       const f = this.data.fundsCache[code];
       let historyData = f.netWorth.slice(-period).map(d => d.y);
 
-      // 如果用户输入了今天的估值，将其拼接到历史数据末尾
-      if (todayInput !== '') {
+      // 如果勾选了复选框，并且输入了今天的估值，将其拼接到历史数据末尾
+      if (useToday && todayInput !== '') {
           const todayChange = parseFloat(todayInput);
           const lastPrice = historyData[historyData.length - 1];
           const fakeTodayPrice = lastPrice * (1 + todayChange / 100);
@@ -4841,7 +4845,7 @@ updateFundCardDisplay(code) {
       let rs = (gains / 14) / (losses / 14 || 0.00001);
       let rsi = 100 - (100 / (1 + rs));
 
-      // 若极度超卖/超买，给予概率与幅度的微调补偿
+      // 若极度超卖/超买，给予预期幅度和胜率的微调补偿
       if (rsi < 30) {
           probUp += 10; 
           expectedReturn += 0.5;
@@ -4850,18 +4854,27 @@ updateFundCardDisplay(code) {
           expectedReturn -= 0.5;
       }
 
+      // 【核心修复】：以期望涨跌幅的正负来强制决定最终的看涨或看跌
+      const isUp = expectedReturn >= 0;
+      
+      // 修正胜率置信度：如果看涨，取上涨概率；如果看跌，取下跌概率
+      let finalProb = isUp ? probUp : (100 - probUp);
+      
+      // 避免出现胜率不足50%却给出预测方向的矛盾情况
+      if (finalProb < 50) finalProb = 50.5; 
+      
       // 边界约束
-      probUp = Math.max(5, Math.min(95, probUp));
+      finalProb = Math.max(50.1, Math.min(95.0, finalProb));
 
       return {
-          trend: probUp >= 50 ? 'UP' : 'DOWN',
-          probability: probUp >= 50 ? probUp : (100 - probUp), // 总是显示主要方向的胜率
+          trend: isUp ? 'UP' : 'DOWN',
+          probability: finalProb,
           expectedChange: expectedReturn,
           details: `内置引擎通过KNN提取了最近 ${windowSize} 天的走势，在历史序列中找到了 ${K} 个高度相似的形态。其中有 ${upCount} 次在次日实现了上涨。当前 RSI 为 ${rsi.toFixed(1)}，已叠加均值回归平滑计算。`
       };
   },
 
-  // 4. 调用本地部署的深度学习 API (供高阶玩家自行部署 Python 后端使用)
+  // 4. 调用本地部署的深度学习 API
   async _fetchLocalPythonAPI(historyData, code) {
       // 假设您的本地 Python 服务跑在 5000 端口，接收 JSON 格式的股价数组
       const apiUrl = 'http://127.0.0.1:5000/predict';
@@ -4914,7 +4927,7 @@ updateFundCardDisplay(code) {
                   </div>
                   <div style="width:1px; height:30px; background:#cbd5e1;"></div>
                   <div style="text-align:center;">
-                      <div style="font-size:11px; color:#64748b; margin-bottom:4px;">次日涨跌幅极值估算</div>
+                      <div style="font-size:11px; color:#64748b; margin-bottom:4px;">次日涨跌幅估算</div>
                       <div style="font-size:20px; font-weight:900; color:${color};">${res.expectedChange > 0 ? '+' : ''}${res.expectedChange.toFixed(2)}%</div>
                   </div>
               </div>

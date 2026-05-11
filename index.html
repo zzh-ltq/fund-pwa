@@ -4692,7 +4692,7 @@ updateFundCardDisplay(code) {
   },
 
 // ===================================================================
-  // AI 预测模型：明日涨跌推演引擎 (浅层机器学习形态匹配 + 本地大模型接口)
+  // AI 预测模型：明日涨跌推演引擎 (单引擎 / 双引擎动态展示)
   // ===================================================================
 
   // 1. 渲染 AI 预测 UI
@@ -4709,7 +4709,7 @@ updateFundCardDisplay(code) {
         <div class="card" style="margin-bottom: 12px; border-left: 4px solid #3b82f6;">
             <div style="font-size: 14px; font-weight: 900; color: var(--text-main); margin-bottom: 8px;">📊 设定训练参数与今日估值</div>
             <div style="font-size: 11px; color: var(--text-sub); margin-bottom: 15px; line-height:1.5;">
-                利用历史形态序列与动量指标，寻找最相似的走势特征，推演下一个交易日（明日）的涨跌概率与预估幅度。
+                利用历史时序规律，寻找隐性特征，推演下一个交易日（明日）的涨跌概率与预估幅度。
             </div>
             
             <div style="background:#f8fafc; padding:12px; border-radius:12px; margin-bottom:15px; border:1px solid #e2e8f0;">
@@ -4725,14 +4725,13 @@ updateFundCardDisplay(code) {
                     </label>
                     <input type="number" id="ai-pred-today" step="0.01" placeholder="选填,如: 1.5" style="width:100px; margin:0; padding:6px; border-radius:6px; text-align:center;">
                 </div>
-                <div style="font-size:10px; color:#94a3b8; margin-top:4px;">* 勾选并输入盘中估算涨跌幅，可提高拟合精度。</div>
             </div>
 
             <div style="margin-bottom:15px;">
                 <span style="font-size:13px; font-weight:bold; color:#1e293b; display:block; margin-bottom:6px;">选择推演算力引擎:</span>
-                <select id="ai-engine-select" style="width:100%; padding:8px; border-radius:8px; border:1px solid #cbd5e1; background:#fff; font-size:13px; outline:none;">
-                    <option value="js_knn">⚡ 内置引擎 (KNN形态匹配+均值回归)</option>
-                    <option value="local_api">🤖 本地部署大模型 (http://127.0.0.1:5000)</option>
+                <select id="ai-engine-select" style="width:100%; padding:8px; border-radius:8px; border:1px solid #cbd5e1; background:#fff; font-size:13px; outline:none; font-weight:bold; color:var(--blue);">
+                    <option value="js_knn">⚡ 内置引擎 (KNN特征匹配+RSI均值回归)</option>
+                    <option value="local_api">🤖 本地联合大模型 (LSTM 深度网络 + 随机森林)</option>
                 </select>
             </div>
 
@@ -4757,7 +4756,6 @@ updateFundCardDisplay(code) {
       const f = this.data.fundsCache[code];
       let historyData = f.netWorth.slice(-period).map(d => d.y);
 
-      // 如果勾选了复选框，并且输入了今天的估值，将其拼接到历史数据末尾
       if (useToday && todayInput !== '') {
           const todayChange = parseFloat(todayInput);
           const lastPrice = historyData[historyData.length - 1];
@@ -4765,22 +4763,22 @@ updateFundCardDisplay(code) {
           historyData.push(fakeTodayPrice);
       }
 
-      btn.innerText = '⚙️ 算力引擎运转中...';
+      btn.innerText = '⚙️ 算力引擎强力运转中...';
       btn.style.pointerEvents = 'none';
       document.getElementById('ai-pred-result').style.display = 'none';
 
       try {
-          let result = null;
+          let payload = null;
           if (engine === 'js_knn') {
-              // 延迟一下以渲染 UI
               await new Promise(r => setTimeout(r, 600));
-              result = this._runLocalJSEnsemble(historyData);
+              const res = this._runLocalJSEnsemble(historyData);
+              payload = { models: [{ title: '⚡ 内置 KNN 相似度推演', res: res }] };
           } else if (engine === 'local_api') {
-              result = await this._fetchLocalPythonAPI(historyData, code);
+              payload = await this._fetchLocalPythonAPI(historyData, code);
           }
 
-          if (result) {
-              this._renderPredictionResult(result);
+          if (payload) {
+              this._renderPredictionResult(payload);
           }
       } catch (err) {
           this.showToast(err.message || '预测执行失败', 'error');
@@ -4790,54 +4788,38 @@ updateFundCardDisplay(code) {
       }
   },
 
-  // 3. 内置浅层机器学习 (KNN 时间序列形态匹配算法)
+  // 3. 内置浅层机器学习
   _runLocalJSEnsemble(data) {
       const len = data.length;
       if (len < 30) throw new Error("有效数据不足");
 
-      // 1. 将价格转换为每日涨跌幅序列
       let returns = [];
-      for (let i = 1; i < len; i++) {
-          returns.push((data[i] - data[i-1]) / data[i-1]);
-      }
+      for (let i = 1; i < len; i++) returns.push((data[i] - data[i-1]) / data[i-1]);
 
-      // 形态观测窗口大小 (提取最后 5 天的涨跌走势作为目标特征)
       const windowSize = 5; 
       const targetPattern = returns.slice(-windowSize);
 
       let matches = [];
-      // 遍历历史寻找相似的 5 天走势片段
       for (let i = 0; i < returns.length - windowSize - 1; i++) {
           const histPattern = returns.slice(i, i + windowSize);
-          
-          // 计算欧氏距离 (距离越小，形态越相似)
           let distance = 0;
-          for (let j = 0; j < windowSize; j++) {
-              distance += Math.pow(histPattern[j] - targetPattern[j], 2);
-          }
-          
-          // 获取这相似的5天走势之后，第 6 天的真实涨跌幅
-          const nextDayReturn = returns[i + windowSize];
-          matches.push({ distance: Math.sqrt(distance), nextReturn: nextDayReturn, index: i });
+          for (let j = 0; j < windowSize; j++) distance += Math.pow(histPattern[j] - targetPattern[j], 2);
+          matches.push({ distance: Math.sqrt(distance), nextReturn: returns[i + windowSize], index: i });
       }
 
-      // 取最相似的 Top K 个历史片段
       const K = Math.min(8, matches.length);
       matches.sort((a, b) => a.distance - b.distance);
       const topMatches = matches.slice(0, K);
 
-      // 统计概率与平均预期
-      let upCount = 0;
-      let sumReturns = 0;
+      let upCount = 0, sumReturns = 0;
       topMatches.forEach(m => {
           if (m.nextReturn > 0) upCount++;
           sumReturns += m.nextReturn;
       });
 
       let probUp = (upCount / K) * 100;
-      let expectedReturn = (sumReturns / K) * 100; // 转换为百分比
+      let expectedReturn = (sumReturns / K) * 100;
 
-      // 2. 动量回归修正 (RSI修正)
       let gains = 0, losses = 0;
       for (let i = returns.length - 14; i < returns.length; i++) {
           if (returns[i] >= 0) gains += returns[i]; else losses -= returns[i];
@@ -4845,42 +4827,25 @@ updateFundCardDisplay(code) {
       let rs = (gains / 14) / (losses / 14 || 0.00001);
       let rsi = 100 - (100 / (1 + rs));
 
-      // 若极度超卖/超买，给予预期幅度和胜率的微调补偿
-      if (rsi < 30) {
-          probUp += 10; 
-          expectedReturn += 0.5;
-      } else if (rsi > 70) {
-          probUp -= 10;
-          expectedReturn -= 0.5;
-      }
+      if (rsi < 30) { probUp += 10; expectedReturn += 0.5; } 
+      else if (rsi > 70) { probUp -= 10; expectedReturn -= 0.5; }
 
-      // 【核心修复】：以期望涨跌幅的正负来强制决定最终的看涨或看跌
       const isUp = expectedReturn >= 0;
-      
-      // 修正胜率置信度：如果看涨，取上涨概率；如果看跌，取下跌概率
       let finalProb = isUp ? probUp : (100 - probUp);
-      
-      // 避免出现胜率不足50%却给出预测方向的矛盾情况
       if (finalProb < 50) finalProb = 50.5; 
-      
-      // 边界约束
       finalProb = Math.max(50.1, Math.min(95.0, finalProb));
 
       return {
-          trend: isUp ? 'UP' : 'DOWN',
-          probability: finalProb,
-          expectedChange: expectedReturn,
-          details: `内置引擎通过KNN提取了最近 ${windowSize} 天的走势，在历史序列中找到了 ${K} 个高度相似的形态。其中有 ${upCount} 次在次日实现了上涨。当前 RSI 为 ${rsi.toFixed(1)}，已叠加均值回归平滑计算。`
+          trend: isUp ? 'UP' : 'DOWN', probability: finalProb, expectedChange: expectedReturn,
+          details: `在历史中找到 ${K} 个高度相似走势，其中 ${upCount} 次次日上涨。当前 RSI为 ${rsi.toFixed(1)}，已应用均值回归平滑计算。`
       };
   },
 
-  // 4. 调用本地部署的深度学习 API
+  // 4. 调用本地部署的双引擎深度学习 API
   async _fetchLocalPythonAPI(historyData, code) {
-      // 假设您的本地 Python 服务跑在 5000 端口，接收 JSON 格式的股价数组
       const apiUrl = 'http://127.0.0.1:5000/predict';
-      
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000); // 深度学习耗时稍长，放宽到6秒
 
       try {
           const response = await fetch(apiUrl, {
@@ -4890,53 +4855,64 @@ updateFundCardDisplay(code) {
               signal: controller.signal
           });
           
-          if (!response.ok) throw new Error('本地模型接口返回异常');
+          if (!response.ok) throw new Error('本地模型接口异常');
           
           const data = await response.json();
-          // 要求 Python 返回格式: { "trend": "UP", "probability": 75.5, "expectedChange": 1.25, "details": "LSTM模型推理完毕..." }
-          return data;
+          // 将 Python 返回的数据组装为通用数组格式
+          return {
+              models: [
+                  { title: '🌲 随机森林 (集成机器学习)', res: data.rf },
+                  { title: '🧠 LSTM (深度循环神经网络)', res: data.lstm }
+              ]
+          };
       } catch (err) {
-          if (err.name === 'AbortError') throw new Error('连接本地大模型超时，请确认 127.0.0.1:5000 是否开启');
+          if (err.name === 'AbortError') throw new Error('连接本地大模型超时，请确认 127.0.0.1:5000 是否启动');
           throw new Error('无法连接到本地算力：' + err.message);
       } finally {
           clearTimeout(timeoutId);
       }
   },
 
-  // 5. 将预测结果渲染输出到 UI
-  _renderPredictionResult(res) {
+  // 5. 动态渲染结果 (支持单模型和多模型卡片展示)
+  _renderPredictionResult(payload) {
       const box = document.getElementById('ai-pred-result');
-      
-      const isUp = res.trend === 'UP';
-      const color = isUp ? '#f43f5e' : '#10b981';
-      const bgColor = isUp ? '#fff1f2' : '#ecfdf5';
-      const borderColor = isUp ? '#ffe4e6' : '#d1fae5';
-      const icon = isUp ? '📈 预期看涨' : '📉 预期看跌';
+      let html = '';
 
-      box.innerHTML = `
-          <div class="card" style="border: 2px solid ${color}; background: ${bgColor}; box-shadow: 0 8px 20px ${color}20;">
-              <div style="text-align:center; padding-bottom: 12px; border-bottom: 1px dashed ${borderColor}; margin-bottom: 12px;">
-                  <div style="font-size:13px; color:var(--text-sub); font-weight:bold; margin-bottom:6px;">明日走势推演结果</div>
-                  <div style="font-size:24px; font-weight:900; color:${color};">${icon}</div>
-              </div>
-              
-              <div style="display:flex; justify-content:space-around; align-items:center; margin-bottom: 15px;">
-                  <div style="text-align:center;">
-                      <div style="font-size:11px; color:#64748b; margin-bottom:4px;">方向置信度</div>
-                      <div style="font-size:20px; font-weight:900; color:var(--text-main);">${res.probability.toFixed(1)}%</div>
-                  </div>
-                  <div style="width:1px; height:30px; background:#cbd5e1;"></div>
-                  <div style="text-align:center;">
-                      <div style="font-size:11px; color:#64748b; margin-bottom:4px;">次日涨跌幅估算</div>
-                      <div style="font-size:20px; font-weight:900; color:${color};">${res.expectedChange > 0 ? '+' : ''}${res.expectedChange.toFixed(2)}%</div>
-                  </div>
-              </div>
+      payload.models.forEach(m => {
+          const res = m.res;
+          const isUp = res.trend === 'UP';
+          const color = isUp ? '#f43f5e' : '#10b981';
+          const bgColor = isUp ? '#fff1f2' : '#ecfdf5';
+          const borderColor = isUp ? '#ffe4e6' : '#d1fae5';
+          const icon = isUp ? '📈 预期看涨' : '📉 预期看跌';
 
-              <div style="background: rgba(255,255,255,0.7); padding:10px; border-radius:8px; font-size:11px; color:#475569; line-height:1.5;">
-                  <b>模型诊断说明：</b>${res.details}
+          html += `
+              <div class="card" style="border: 2px solid ${color}; background: ${bgColor}; box-shadow: 0 8px 20px ${color}20; margin-bottom: 12px; padding-bottom:12px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom: 10px; border-bottom: 1px dashed ${borderColor}; margin-bottom: 12px;">
+                      <div style="font-size:14px; font-weight:900; color:var(--text-main);">${m.title}</div>
+                      <div style="font-size:18px; font-weight:900; color:${color};">${icon}</div>
+                  </div>
+                  
+                  <div style="display:flex; justify-content:space-around; align-items:center; margin-bottom: 12px;">
+                      <div style="text-align:center;">
+                          <div style="font-size:11px; color:#64748b; margin-bottom:4px;">方向置信度</div>
+                          <div style="font-size:22px; font-weight:900; color:var(--text-main);">${res.probability.toFixed(1)}%</div>
+                      </div>
+                      <div style="width:1px; height:35px; background:#cbd5e1;"></div>
+                      <div style="text-align:center;">
+                          <div style="font-size:11px; color:#64748b; margin-bottom:4px;">次日涨跌幅极值估算</div>
+                          <div style="font-size:22px; font-weight:900; color:${color};">${res.expectedChange > 0 ? '+' : ''}${res.expectedChange.toFixed(2)}%</div>
+                      </div>
+                  </div>
+
+                  <div style="background: rgba(255,255,255,0.6); padding:10px; border-radius:8px; font-size:11px; color:#475569; line-height:1.5;">
+                      <b>诊断说明：</b>${res.details}
+                  </div>
               </div>
-          </div>
-      `;
+          `;
+      });
+
+      box.innerHTML = html;
       box.style.display = 'block';
   },
 

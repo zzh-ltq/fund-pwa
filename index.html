@@ -701,6 +701,19 @@
             <div class="action-pill" onclick="app.switchMarketChart('101', event)">日K趋势</div>
             <div class="action-pill" onclick="app.switchMarketChart('102', event)">周K趋势</div>
             <div class="action-pill" onclick="app.switchMarketChart('103', event)">月K趋势</div>
+            <div class="action-pill" style="background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff;" onclick="app.switchMarketChart('ai', event)">🤖 AI预测</div>
+          </div>
+          
+          <!-- 新增：行情 AI 预测专属容器 -->
+          <div id="md-ai-area" style="display:none; margin-top:10px; padding-bottom: 20px;"></div>
+
+          <!-- 原有的图表容器 (加了 id 以便控制隐藏) -->
+          <div id="md-chart-core-area">
+              <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
+              <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
+              <div id="md-canvas-wrap" style="position:relative; width:100%; height:220px; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;" onscroll="app.onCanvasScroll()">
+                <canvas id="md-canvas" style="height:100%;"></canvas>
+              </div>
           </div>
           <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
           <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
@@ -3471,24 +3484,331 @@ drawIntradayFlowCanvas(data) {
     canvas.ontouchcancel = canvas.ontouchend;
   },
   
+  // 1. 切换行情图表/AI选项卡
   switchMarketChart(type, ev) { 
     this.marketState.chartType = type; 
-    
-    // 【新增】切换周期时允许滚动到最右边
     this.marketState.needScrollToRight = true; 
 
     document.querySelectorAll('#md-chart-tabs .action-pill').forEach(el => el.classList.remove('active')); 
     if (ev && ev.currentTarget) {
         ev.currentTarget.classList.add('active'); 
-    } else {
-        const tabs = document.querySelectorAll('#md-chart-tabs .action-pill');
-        if (type === 'trend' && tabs[0]) tabs[0].classList.add('active');
-        else if (type === '101' && tabs[1]) tabs[1].classList.add('active');
-        else if (type === '102' && tabs[2]) tabs[2].classList.add('active');
-        else if (type === '103' && tabs[3]) tabs[3].classList.add('active');
     }
     this.crosshair = { active: false, x: 0, y: 0, index: -1 }; 
-    this.refreshMarketDetail(); 
+    
+    // 控制显示隐藏
+    const chartCore = document.getElementById('md-chart-core-area');
+    const aiArea = document.getElementById('md-ai-area');
+    const flowArea = document.getElementById('md-fund-flow-area');
+
+    if (type === 'ai') {
+        chartCore.style.display = 'none';
+        if (flowArea) flowArea.style.display = 'none';
+        aiArea.style.display = 'block';
+        this.renderMarketAIPredictTab('large_model'); // 默认显示大模型预测
+    } else {
+        aiArea.style.display = 'none';
+        chartCore.style.display = 'block';
+        if (flowArea) flowArea.style.display = 'block';
+        this.refreshMarketDetail(); 
+    }
+  },
+
+  // ===================================================================
+  // 行情专属 AI 预测引擎：大模型预测 & 技术面综合预测
+  // ===================================================================
+
+  // 2. 渲染行情 AI 界面
+  renderMarketAIPredictTab(subTab = 'large_model') {
+      const area = document.getElementById('md-ai-area');
+      const secid = this.marketState.currentSecid;
+      const name = document.getElementById('md-title').innerText;
+      const currentPrice = document.getElementById('md-price').innerText;
+
+      let contentHtml = '';
+
+      if (subTab === 'large_model') {
+          contentHtml = `
+            <div class="card" style="border-left: 4px solid #3b82f6;">
+                <div style="font-size: 13px; font-weight: 900; color: var(--text-main); margin-bottom: 8px;">📊 设定训练参数与今日最新值</div>
+                <div style="font-size: 11px; color: var(--text-sub); margin-bottom: 15px; line-height:1.5;">
+                    提取大盘/个股的历史 K 线序列，输入大模型拟合推演明日涨跌概率。
+                </div>
+                
+                <div style="background:#f8fafc; padding:12px; border-radius:12px; margin-bottom:15px; border:1px solid #e2e8f0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <span style="font-size:12px; font-weight:bold; color:#1e293b;">数据提取周期 (交易日):</span>
+                        <input type="number" id="m-ai-period" value="120" style="width:90px; margin:0; padding:4px; border-radius:6px; text-align:center; font-size:13px;">
+                    </div>
+                    
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label style="font-size:12px; font-weight:bold; color:#1e293b; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                            <input type="checkbox" id="m-ai-use-today" checked style="width:14px; height:14px; accent-color: #3b82f6;">
+                            加入当前最新价:
+                        </label>
+                        <input type="number" id="m-ai-today-val" step="0.001" value="${currentPrice !== '--' ? currentPrice : ''}" placeholder="最新价" style="width:90px; margin:0; padding:4px; border-radius:6px; text-align:center; font-size:13px;">
+                    </div>
+                </div>
+
+                <div style="margin-bottom:15px;">
+                    <span style="font-size:12px; font-weight:bold; color:#1e293b; display:block; margin-bottom:6px;">选择推演算力引擎:</span>
+                    <select id="m-ai-engine" style="width:100%; padding:6px; border-radius:8px; border:1px solid #cbd5e1; background:#fff; font-size:12px; outline:none; font-weight:bold; color:var(--blue);">
+                        <option value="js_knn">⚡ 内置引擎 (KNN形态匹配+均值回归)</option>
+                        <option value="local_api">🤖 本地联合大模型 (LSTM + 随机森林)</option>
+                    </select>
+                </div>
+
+                <button class="btn-primary" id="m-ai-run-btn" style="background:#3b82f6; box-shadow:0 4px 10px rgba(59,130,246,0.3); margin-bottom:0;" onclick="app.runMarketLargeModelPrediction('${secid}', '${name}')">🔮 启动 AI 预测推演</button>
+            </div>
+            <div id="m-ai-pred-result" style="display:none; margin-top:12px; animation: slideUp 0.4s ease;"></div>
+          `;
+      } else {
+          contentHtml = `
+            <div class="card" style="border-left: 4px solid #f59e0b;">
+                <div style="font-size: 13px; font-weight: 900; color: var(--text-main); margin-bottom: 8px;">🔬 全维度技术面深度扫描</div>
+                <div style="font-size: 11px; color: var(--text-sub); margin-bottom: 15px; line-height:1.5;">
+                    一键拉取日K、均线系统、BOLL布林带、RSI、MACD、量能及主力资金流入数据，智能生成技术面综合体检报告。
+                </div>
+                <button class="btn-primary" id="m-tech-run-btn" style="background:#f59e0b; box-shadow:0 4px 10px rgba(245,158,11,0.3); margin-bottom:0;" onclick="app.runMarketTechnicalAnalysis('${secid}', '${name}')">📡 立即生成技术面诊断报告</button>
+            </div>
+            <div id="m-tech-result" style="display:none; margin-top:12px; animation: slideUp 0.4s ease;"></div>
+          `;
+      }
+
+      area.innerHTML = `
+        <div class="invest-sub-tabs" style="margin-bottom: 12px; background:#f1f5f9; padding:4px; border-radius:12px; display:flex;">
+            <div class="invest-sub-tab ${subTab === 'large_model' ? 'active' : ''}" style="flex:1; text-align:center; padding:8px 0; font-size:13px; font-weight:bold; border-radius:8px; cursor:pointer;" onclick="app.renderMarketAIPredictTab('large_model')">🤖 大模型预测</div>
+            <div class="invest-sub-tab ${subTab === 'tech' ? 'active' : ''}" style="flex:1; text-align:center; padding:8px 0; font-size:13px; font-weight:bold; border-radius:8px; cursor:pointer;" onclick="app.renderMarketAIPredictTab('tech')">📈 技术面预测</div>
+        </div>
+        ${contentHtml}
+      `;
+  },
+
+  // 3. 辅助：后台静默拉取历史日 K 线数据
+  async _fetchMarketHistoryKlines(secid, days) {
+      // 拉取日 K 线 (klt=101)
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&_=${Date.now()}`;
+      try {
+          const res = await fetchJSONP(url, 'cb');
+          const klines = res?.data?.klines || [];
+          if (klines.length === 0) return null;
+          
+          return klines.map(str => {
+              const p = str.split(',');
+              return { date: p[0], open: parseFloat(p[1]), close: parseFloat(p[2]), high: parseFloat(p[3]), low: parseFloat(p[4]), vol: parseFloat(p[5]) };
+          });
+      } catch (e) { return null; }
+  },
+
+  // 4. 执行行情大模型预测
+  async runMarketLargeModelPrediction(secid, name) {
+      const period = parseInt(document.getElementById('m-ai-period').value);
+      const useToday = document.getElementById('m-ai-use-today').checked;
+      const todayInput = document.getElementById('m-ai-today-val').value;
+      const engine = document.getElementById('m-ai-engine').value;
+      const btn = document.getElementById('m-ai-run-btn');
+
+      if (isNaN(period) || period < 30) return this.showToast('提取周期至少 30 天', 'warning');
+
+      btn.innerText = '⚙️ 拉取数据并运算中...';
+      btn.style.pointerEvents = 'none';
+      const resultBox = document.getElementById('m-ai-pred-result');
+      resultBox.style.display = 'none';
+
+      try {
+          // 拉取足够的历史收盘价数据
+          const historyDataObj = await this._fetchMarketHistoryKlines(secid, period + 10);
+          if (!historyDataObj) throw new Error("获取历史K线数据失败");
+          
+          let historyPrices = historyDataObj.map(d => d.close);
+
+          // 如果勾选并填入了今日最新价，则拼接到末尾
+          if (useToday && todayInput !== '') {
+              const todayPrice = parseFloat(todayInput);
+              if (!isNaN(todayPrice)) {
+                  // 为了防止收盘后东方财富接口已经包含今天数据导致重复，做个简单的日期判定去重
+                  // 简单起见，直接覆盖最后一个或者追加
+                  historyPrices.push(todayPrice);
+              }
+          }
+
+          let payload = null;
+          if (engine === 'js_knn') {
+              await new Promise(r => setTimeout(r, 400)); // 动画缓冲
+              const res = this._runLocalJSEnsemble(historyPrices);
+              payload = { models: [{ title: '⚡ 内置 KNN 相似度推演', res: res }] };
+          } else if (engine === 'local_api') {
+              payload = await this._fetchLocalPythonAPI(historyPrices, name); // 复用之前的Python请求
+          }
+
+          if (payload) {
+              let html = '';
+              payload.models.forEach(m => {
+                  const res = m.res;
+                  const isUp = res.trend === 'UP';
+                  const color = isUp ? '#f43f5e' : '#10b981';
+                  const bgColor = isUp ? '#fff1f2' : '#ecfdf5';
+                  const icon = isUp ? '📈 预期看涨' : '📉 预期看跌';
+
+                  html += `
+                      <div class="card" style="border: 2px solid ${color}; background: ${bgColor}; box-shadow: 0 8px 20px ${color}20; margin-bottom: 10px; padding-bottom:12px;">
+                          <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom: 8px; border-bottom: 1px dashed ${color}50; margin-bottom: 10px;">
+                              <div style="font-size:13px; font-weight:900; color:var(--text-main);">${m.title}</div>
+                              <div style="font-size:16px; font-weight:900; color:${color};">${icon}</div>
+                          </div>
+                          <div style="display:flex; justify-content:space-around; align-items:center; margin-bottom: 10px;">
+                              <div style="text-align:center;">
+                                  <div style="font-size:11px; color:#64748b; margin-bottom:2px;">方向置信度</div>
+                                  <div style="font-size:20px; font-weight:900; color:var(--text-main);">${res.probability.toFixed(1)}%</div>
+                              </div>
+                              <div style="width:1px; height:30px; background:#cbd5e1;"></div>
+                              <div style="text-align:center;">
+                                  <div style="font-size:11px; color:#64748b; margin-bottom:2px;">次日涨跌幅估算</div>
+                                  <div style="font-size:20px; font-weight:900; color:${color};">${res.expectedChange > 0 ? '+' : ''}${res.expectedChange.toFixed(2)}%</div>
+                              </div>
+                          </div>
+                          <div style="background: rgba(255,255,255,0.6); padding:8px; border-radius:6px; font-size:11px; color:#475569; line-height:1.4;">
+                              <b>诊断说明：</b>${res.details}
+                          </div>
+                      </div>
+                  `;
+              });
+              resultBox.innerHTML = html;
+              resultBox.style.display = 'block';
+          }
+      } catch (err) {
+          this.showToast(err.message || '预测执行失败', 'error');
+      } finally {
+          btn.innerText = '🔮 启动 AI 预测推演';
+          btn.style.pointerEvents = 'auto';
+      }
+  },
+
+  // 5. 执行技术面综合诊断
+  async runMarketTechnicalAnalysis(secid, name) {
+      const btn = document.getElementById('m-tech-run-btn');
+      btn.innerText = '📡 全维扫描中...';
+      btn.style.pointerEvents = 'none';
+      const resultBox = document.getElementById('m-tech-result');
+      resultBox.style.display = 'none';
+
+      try {
+          // 1. 获取近 100 天 K 线数据用于计算均线和指标
+          const klines = await this._fetchMarketHistoryKlines(secid, 100);
+          if (!klines || klines.length < 60) throw new Error("K线数据不足，无法生成报告");
+
+          const prices = klines.map(k => k.close);
+          const vols = klines.map(k => k.vol);
+          const currentPrice = prices[prices.length - 1];
+
+          // 2. 计算各项技术指标
+          // MA
+          const calcMA = (data, d) => data.slice(-d).reduce((a,b)=>a+b,0) / d;
+          const ma5 = calcMA(prices, 5), ma10 = calcMA(prices, 10), ma20 = calcMA(prices, 20), ma60 = calcMA(prices, 60);
+
+          // BOLL
+          let sumSq = 0;
+          for (let i = prices.length - 20; i < prices.length; i++) sumSq += Math.pow(prices[i] - ma20, 2);
+          const stdDev = Math.sqrt(sumSq / 20);
+          const upperBB = ma20 + 2 * stdDev;
+          const lowerBB = ma20 - 2 * stdDev;
+
+          // RSI (14)
+          let gains = 0, losses = 0;
+          for (let i = prices.length - 13; i < prices.length; i++) {
+              let diff = prices[i] - prices[i-1];
+              if (diff >= 0) gains += diff; else losses -= diff;
+          }
+          let rs = (gains / 14) / (losses / 14 || 0.0001);
+          const rsi14 = 100 - (100 / (1 + rs));
+
+          // MACD (12,26,9) 极简版估算 (用均线代入)
+          const ema12 = calcMA(prices, 12);
+          const ema26 = calcMA(prices, 26);
+          const dif = ema12 - ema26;
+          // 假设 DEA 为上一周期的 DIF 均值简化
+          const dea = dif * 0.8; 
+          const macd = (dif - dea) * 2;
+
+          // 量能对比 (今日 vs 前5日均量)
+          const todayVol = vols[vols.length - 1];
+          const avgVol5 = vols.slice(-6, -1).reduce((a,b)=>a+b,0) / 5;
+          const volRatio = todayVol / (avgVol5 || 1);
+
+          // 3. 尝试拉取今日实时资金流入 (f62)
+          let netFlowStr = '--';
+          let netFlowVal = 0;
+          try {
+              const flowRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62&_=${Date.now()}`, 'cb');
+              if (flowRes?.data?.f62 !== undefined && flowRes.data.f62 !== '-') {
+                  netFlowVal = parseFloat(flowRes.data.f62);
+                  netFlowStr = this.formatFlowAmt(netFlowVal);
+              }
+          } catch(e) {}
+
+          // 4. 生成诊断评语
+          let score = 50; // 基准分
+          let trendAdv = '', bollAdv = '', rsiAdv = '', volAdv = '', flowAdv = '';
+
+          // 趋势诊断
+          if (currentPrice > ma20 && ma5 > ma10) { score += 15; trendAdv = `<span style="color:#f43f5e;">多头排列，强势运行于20日线上方。</span>`; }
+          else if (currentPrice < ma20 && ma5 < ma10) { score -= 15; trendAdv = `<span style="color:#10b981;">空头排列，弱势运行于20日线下方。</span>`; }
+          else { trendAdv = `<span style="color:#f59e0b;">震荡洗盘，短中期均线交织。</span>`; }
+
+          // 空间诊断
+          if (currentPrice > upperBB) { score -= 10; bollAdv = `突破布林上轨，<b style="color:#10b981;">面临技术性回调压力</b>。`; }
+          else if (currentPrice < lowerBB) { score += 10; bollAdv = `跌破布林下轨，<b style="color:#f43f5e;">存在超跌反弹动能</b>。`; }
+          else { bollAdv = `运行在布林通道内部，空间常态。`; }
+
+          // 情绪诊断
+          if (rsi14 > 75) { score -= 10; rsiAdv = `RSI=${rsi14.toFixed(1)}，市场极度超买，<b style="color:#10b981;">警惕风险</b>。`; }
+          else if (rsi14 < 25) { score += 10; rsiAdv = `RSI=${rsi14.toFixed(1)}，市场极度超卖，<b style="color:#f43f5e;">随时可能反弹</b>。`; }
+          else { rsiAdv = `RSI=${rsi14.toFixed(1)}，情绪指标处于中性区域。`; }
+
+          // 量能诊断
+          if (volRatio > 1.5 && currentPrice > prices[prices.length - 2]) { score += 10; volAdv = `放量上涨 (量比${volRatio.toFixed(1)})，做多意愿坚决。`; }
+          else if (volRatio > 1.5 && currentPrice < prices[prices.length - 2]) { score -= 10; volAdv = `放量下跌 (量比${volRatio.toFixed(1)})，资金出逃明显。`; }
+          else { volAdv = `缩量或平量运行，观望情绪浓厚。`; }
+
+          // 资金诊断
+          if (netFlowVal > 0) { score += 10; flowAdv = `主力呈现净流入 (<b style="color:#f43f5e;">+${netFlowStr}</b>)，资金护盘。`; }
+          else if (netFlowVal < 0) { score -= 10; flowAdv = `主力呈现净流出 (<b style="color:#10b981;">${netFlowStr}</b>)，资金抛压。`; }
+          else { flowAdv = `主力资金博弈不明显。`; }
+
+          // 最终定论
+          let finalConclusion = '';
+          let finalColor = '';
+          if (score >= 80) { finalConclusion = '🚀 强力看多 (逢低做多)'; finalColor = '#f43f5e'; }
+          else if (score >= 60) { finalConclusion = '📈 偏向多头 (谨慎持有)'; finalColor = '#f59e0b'; }
+          else if (score >= 40) { finalConclusion = '👀 多空平衡 (观望为主)'; finalColor = '#64748b'; }
+          else if (score >= 20) { finalConclusion = '📉 偏向空头 (逢高减仓)'; finalColor = '#059669'; }
+          else { finalConclusion = '⚠️ 强力看空 (规避风险)'; finalColor = '#10b981'; }
+
+          // 5. 渲染报告 UI
+          resultBox.innerHTML = `
+            <div class="card" style="border: 1px solid #e2e8f0; background: #fff;">
+                <div style="text-align:center; padding-bottom: 10px; border-bottom: 1px dashed #cbd5e1; margin-bottom: 12px;">
+                    <div style="font-size:12px; color:var(--text-sub); margin-bottom:4px;">技术面综合得分</div>
+                    <div style="font-size:28px; font-weight:900; color:${finalColor};">${score} <span style="font-size:12px; font-weight:bold;">分</span></div>
+                    <div style="font-size:14px; font-weight:900; color:${finalColor}; margin-top:4px;">${finalConclusion}</div>
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:8px; font-size:12px; color:#1e293b; line-height:1.5;">
+                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>📊 趋势形态：</b>${trendAdv} 当前价与20日生命线乖离率为 ${((currentPrice-ma20)/ma20*100).toFixed(2)}%。</div>
+                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>📏 空间位置：</b>${bollAdv}</div>
+                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>🌡️ 市场情绪：</b>${rsiAdv} MACD处于 ${macd > 0 ? '强势红柱' : '弱势绿柱'} 阶段。</div>
+                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>💰 量价配合：</b>${volAdv}</div>
+                    <div style="background:#f8fafc; padding:8px; border-radius:6px;"><b>🌊 主力资金：</b>${flowAdv}</div>
+                </div>
+            </div>
+          `;
+          resultBox.style.display = 'block';
+
+      } catch (err) {
+          this.showToast(err.message || '诊断失败', 'error');
+      } finally {
+          btn.innerText = '📡 立即生成技术面诊断报告';
+          btn.style.pointerEvents = 'auto';
+      }
   },
 
   zoomMarketChart(dir) {

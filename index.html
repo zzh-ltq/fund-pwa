@@ -597,11 +597,13 @@
                     <div style="font-size: 12px; font-weight: 800; color: var(--text-main);">📊 累计收益率走势对比</div>
                     <div style="display: flex; gap: 8px;">
                         <select id="compare-period" onchange="app.updateComparePeriod()" class="sort-rule" style="font-size: 11px; padding: 4px 8px;">
-                            <option value="60">近60日</option>
-                            <option value="90" selected>近90日</option>
-                            <option value="120">近120日</option>
-                            <option value="180">近半年</option>
-                            <option value="250">近1年</option>
+                        <option value="15" selected>近15日</option>
+                        <option value="30">近30日</option>
+                        <option value="60">近60日</option>
+                        <option value="90">近90日</option>
+                        <option value="120">近120日</option>
+                        <option value="180">近半年</option>
+                        <option value="250">近1年</option>
                         </select>
                     </div>
                 </div>
@@ -610,6 +612,11 @@
                 </div>
                 <div id="compare-hover-info" style="margin-top: 8px; font-size: 11px; color: var(--text-sub); text-align: center; min-height: 32px; background: #f8fafc; border-radius: 8px; padding: 4px 8px;"></div>
             </div>
+          <!-- 基金详细信息对比区域 -->
+          <div id="compare-details-area" style="margin-top: 16px; display: none;">
+              <div style="font-size: 14px; font-weight: 800; color: var(--text-main); margin-bottom: 10px;">📋 基金详情对比</div>
+              <div id="compare-details-content" style="display: flex; flex-direction: column; gap: 16px;"></div>
+          </div>
         </div>
     </div>
 </div>
@@ -1118,6 +1125,8 @@ async batchUpdateSellConfirmInfo() {
     if (id === 'compare') {
         this.compareState.hoverIndex = -1;
         this.compareState.selectedCodes.clear();
+        const detailsArea = document.getElementById('compare-details-area');
+        if (detailsArea) detailsArea.style.display = 'none';
     }
 },
   closeOutside(e, modalId) { if (e.target === e.currentTarget) { this.closeModal(modalId); } },
@@ -4332,31 +4341,47 @@ openCompareModal() {
         return;
     }
     
-    // 初始化对比数据
-    this.compareState.selectedCodes.clear();
-    this.compareState.period = 90;
-    document.getElementById('compare-period').value = '90';
-    
-    // 收集分组内所有有效基金
-    const funds = [];
+    // 收集分组内所有有效基金并计算得分
+    const validFunds = [];
     for (const code of currentGroup.fundCodes) {
         const f = this.data.fundsCache[code];
         if (f && f.netWorth && f.netWorth.length >= 30) {
-            funds.push({
-                code: code,
-                name: f.name || code,
-                netWorth: f.netWorth
-            });
-            this.compareState.selectedCodes.add(code);
+            const formatted = this.formatFund(code);
+            if (formatted.isLoad) {
+                validFunds.push({
+                    code: code,
+                    name: f.name || code,
+                    netWorth: f.netWorth,
+                    superScore: formatted.superScore || 0,
+                    medalScore: formatted.medalScore || 0
+                });
+            }
         }
     }
     
-    if (funds.length === 0) {
+    if (validFunds.length === 0) {
         this.showToast('当前分组没有足够历史数据的基金（需≥30天）', 'error');
         return;
     }
     
-    this.compareState.funds = funds;
+    // 按综合得分排序（优先 superScore，其次 medalScore）
+    validFunds.sort((a, b) => {
+        const aScore = a.superScore || a.medalScore || 0;
+        const bScore = b.superScore || b.medalScore || 0;
+        return bScore - aScore;
+    });
+    
+    // 默认选中前三名
+    this.compareState.selectedCodes.clear();
+    const topCount = Math.min(3, validFunds.length);
+    for (let i = 0; i < topCount; i++) {
+        this.compareState.selectedCodes.add(validFunds[i].code);
+    }
+    
+    this.compareState.funds = validFunds;
+    this.compareState.period = 15;  // 默认15天
+    document.getElementById('compare-period').value = '15';
+    
     this.openModal('compare');
     
     // 渲染基金选择列表
@@ -4364,6 +4389,8 @@ openCompareModal() {
     // 构建并绘制图表
     this.buildCompareChartData();
     this.drawCompareChart();
+    // 渲染详细信息
+    this.renderCompareDetails();
     
     // 绑定 canvas 事件
     setTimeout(() => this.bindCompareChartEvents(), 100);
@@ -4413,9 +4440,149 @@ toggleCompareFund(code, event) {
     const checkSpan = targetDiv.querySelector('span:last-child');
     if (checkSpan) checkSpan.innerText = isSelected ? '✓' : '○';
     
-    // 重新绘制图表
+    // 重新绘制图表和详情
     this.buildCompareChartData();
     this.drawCompareChart();
+    this.renderCompareDetails();
+},
+
+  // 渲染对比详情（基本信息 + 十大重仓股 + 经理信息）
+async renderCompareDetails() {
+    const detailsArea = document.getElementById('compare-details-area');
+    const contentDiv = document.getElementById('compare-details-content');
+    if (!detailsArea || !contentDiv) return;
+    
+    const selectedFunds = this.compareState.funds.filter(f => this.compareState.selectedCodes.has(f.code));
+    if (selectedFunds.length === 0) {
+        detailsArea.style.display = 'none';
+        return;
+    }
+    
+    detailsArea.style.display = 'block';
+    contentDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载详细信息中...</div>';
+    
+    // 并行获取所有选中基金的详细信息（基本信息 + 基金经理 + 持仓）
+    const fundsDetail = await Promise.all(selectedFunds.map(async (fund) => {
+        // 获取基本信息与经理（复用已有的 fetcher）
+        const fullInfo = await this.fetchFundFullInfo(fund.code);
+        const rateHtml = await this.fetchFundRateHtml(fund.code);
+        const trade = rateHtml ? this.parseFundRateHtml(rateHtml, fund.code) : {};
+        
+        // 获取持仓（十大重仓股）
+        let holdings = [];
+        try {
+            const stocks = await this.fetchEastMoneyTable(fund.code, 'jjcc');
+            if (stocks && stocks.length > 0) {
+                holdings = stocks.slice(0, 10).map(s => ({ name: s.name, ratio: s.ratio }));
+            } else {
+                // 尝试获取 ETF 底层持仓（如果有绑定）
+                const boundCode = this.data.fundsCache[fund.code]?.boundEtfCode;
+                if (boundCode) {
+                    const etfStocks = await this.fetchEastMoneyTable(boundCode, 'jjcc');
+                    if (etfStocks && etfStocks.length > 0) {
+                        const ratioMultiplier = 0.945; // 联接基金常见仓位
+                        holdings = etfStocks.slice(0, 10).map(s => ({ 
+                            name: s.name, 
+                            ratio: (s.ratio * ratioMultiplier).toFixed(2) 
+                        }));
+                    }
+                }
+            }
+        } catch(e) { /* 忽略 */ }
+        
+        const fundData = this.data.fundsCache[fund.code] || {};
+        const fundInfo = fullInfo.fundInfo || {};
+        const manager = fullInfo.manager || {};
+        
+        return {
+            code: fund.code,
+            name: fund.name,
+            size: fundInfo.fundscale || fundData.size || '--',
+            establishDate: fundInfo.establishDate || '--',
+            riskLevel: fundInfo.riskLevel || '中高风险',
+            managerName: manager.name || '--',
+            managerYears: manager.workTime || '--',
+            managerAvgReturn: manager.power?.avr || '--',
+            managerTenureReturn: manager.tenureReturn || '--',
+            managerMaxDrawdown: manager.maxDrawdown || '--',
+            holdings: holdings
+        };
+    }));
+    
+    // 构建基金基本信息卡片（并排显示）
+    let basicHtml = '<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">';
+    for (const fund of fundsDetail) {
+        basicHtml += `
+            <div class="card" style="flex: 1; min-width: 240px; padding: 12px;">
+                <div style="font-weight: 800; font-size: 14px; margin-bottom: 8px; color: var(--blue);">${fund.name}</div>
+                <div style="font-size: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                    <div><span style="color: var(--text-sub);">代码</span><br><b>${fund.code}</b></div>
+                    <div><span style="color: var(--text-sub);">规模</span><br><b>${fund.size}</b></div>
+                    <div><span style="color: var(--text-sub);">成立日期</span><br><b>${fund.establishDate}</b></div>
+                    <div><span style="color: var(--text-sub);">风险等级</span><br><b>${fund.riskLevel}</b></div>
+                </div>
+            </div>
+        `;
+    }
+    basicHtml += '</div>';
+    
+    // 构建基金经理对比表
+    let managerHtml = '<div class="card" style="padding: 12px; margin-bottom: 16px;"><div style="font-weight: 800; font-size: 14px; margin-bottom: 12px;">👨‍💼 基金经理对比</div>';
+    managerHtml += '<div style="overflow-x: auto;"><table class="data-table perf-table" style="min-width: 600px;">';
+    managerHtml += '<thead><tr><th>基金名称</th><th>经理姓名</th><th>从业年限</th><th>年均回报</th><th>任期回报</th><th>最大回撤</th></tr></thead><tbody>';
+    for (const fund of fundsDetail) {
+        managerHtml += `
+            <tr>
+                <td class="indicator-cell">${fund.name}</td>
+                <td>${fund.managerName}</td>
+                <td>${fund.managerYears}</td>
+                <td class="${parseFloat(fund.managerAvgReturn) >= 0 ? 'red' : 'green'}">${fund.managerAvgReturn}%</td>
+                <td class="${parseFloat(fund.managerTenureReturn) >= 0 ? 'red' : 'green'}">${fund.managerTenureReturn}%</td>
+                <td class="green">${fund.managerMaxDrawdown}%</td>
+            </tr>
+        `;
+    }
+    managerHtml += '</tbody></table></div></div>';
+    
+    // 构建十大重仓股合并表（相同股票合并显示各基金的仓位）
+    let allStocks = new Map(); // key: 股票名称, value: { 基金代码: 仓位 }
+    for (const fund of fundsDetail) {
+        for (const h of fund.holdings) {
+            if (!allStocks.has(h.name)) allStocks.set(h.name, {});
+            const stockMap = allStocks.get(h.name);
+            stockMap[fund.code] = h.ratio;
+        }
+    }
+    
+    let holdingsHtml = '<div class="card" style="padding: 12px;"><div style="font-weight: 800; font-size: 14px; margin-bottom: 12px;">📊 十大重仓股对比（合并相同股票）</div>';
+    holdingsHtml += '<div style="overflow-x: auto;"><table class="data-table perf-table" style="min-width: 400px;">';
+    holdingsHtml += '<thead><tr><th>股票名称</th>';
+    for (const fund of fundsDetail) {
+        holdingsHtml += `<th>${fund.name}</th>`;
+    }
+    holdingsHtml += '</tr></thead><tbody>';
+    
+    // 按总仓位排序（可选）
+    const stockList = Array.from(allStocks.entries());
+    stockList.sort((a, b) => {
+        const sumA = Object.values(a[1]).reduce((s, v) => s + parseFloat(v || 0), 0);
+        const sumB = Object.values(b[1]).reduce((s, v) => s + parseFloat(v || 0), 0);
+        return sumB - sumA;
+    });
+    
+    for (const [stockName, fundRatios] of stockList.slice(0, 10)) {
+        holdingsHtml += '<tr>';
+        holdingsHtml += `<td class="indicator-cell"><b>${stockName}</b></td>`;
+        for (const fund of fundsDetail) {
+            let ratio = fundRatios[fund.code];
+            let ratioText = ratio ? (typeof ratio === 'number' ? ratio.toFixed(2) + '%' : ratio + '%') : '--';
+            holdingsHtml += `<td>${ratioText}</td>`;
+        }
+        holdingsHtml += '</tr>';
+    }
+    holdingsHtml += '</tbody></table></div></div>';
+    
+    contentDiv.innerHTML = basicHtml + managerHtml + holdingsHtml;
 },
 
 // 更新对比周期
@@ -4424,6 +4591,7 @@ updateComparePeriod() {
     this.compareState.period = period;
     this.buildCompareChartData();
     this.drawCompareChart();
+    // 可选：周期变化也可以刷新详情中的某些数据（如收益率），但详情主要展示静态信息，无需刷新
 },
 
 // 构建对比图表数据（累计收益率曲线）

@@ -2452,39 +2452,58 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     }, 400); 
   },
   
+// ==========================================
+  // 10. 股票行情大厅模块 (含弹窗初始化清理)
+  // ==========================================
   openMarketDetail(secid, name) { 
-  this.marketState.currentSecid = secid; 
-  this.marketState.chartType = 'trend'; 
-  this.crosshair = { active: false, x: 0, y: 0, index: -1 }; 
-
-   // 【新增】只在刚打开时允许自动滚动到最右边
-    this.marketState.needScrollToRight = true; 
-
-    // 新增：初始化默认精度，防止接口没加载完时显示错乱
-    this.marketState.currentDecimals = (secid.includes('USDCNH') || name.includes('人民币')) ? 4 : 2;
-
-  // ✅ 关键修复1：先清空旧数据（防止残留）
-  document.getElementById('md-price').innerText = '--';
-  document.getElementById('md-chg-val').innerText = '--';
-  document.getElementById('md-chg-rate').innerText = '--';
-
-  document.getElementById('md-open').innerText = '--';
-  document.getElementById('md-high').innerText = '--';
-  document.getElementById('md-low').innerText = '--';
-
-  // ✅ 标题更新
-  document.getElementById('md-title').innerText = name; 
-
-  this.openModal('market-detail'); 
-
-  // ✅ 关键修复2：强制重新拉取
-  this.refreshMarketDetail(); 
-
-  // ✅ 防止旧定时器叠加
-  if (this.intradayTimer) clearInterval(this.intradayTimer);
-
-  this.startIntradayTimer(); 
-},
+      this.marketState.currentSecid = secid; 
+      this.marketState.chartType = 'trend'; 
+      this.crosshair = { active: false, x: 0, y: 0, index: -1 }; 
+    
+      this.marketState.needScrollToRight = true; 
+      this.marketState.currentDecimals = (secid.includes('USDCNH') || name.includes('人民币')) ? 4 : 2;
+    
+      // 1. 清空基础行情数据（防止残留）
+      document.getElementById('md-price').innerText = '--';
+      document.getElementById('md-chg-val').innerText = '--';
+      document.getElementById('md-chg-rate').innerText = '--';
+    
+      document.getElementById('md-open').innerText = '--';
+      document.getElementById('md-high').innerText = '--';
+      document.getElementById('md-low').innerText = '--';
+    
+      // 2. 标题更新
+      document.getElementById('md-title').innerText = name; 
+    
+      // =======================================================
+      // 【核心修复】：彻底清空并重置 AI 预测相关的所有状态与 DOM
+      // =======================================================
+      
+      // 恢复图表区域显示，隐藏 AI 区域
+      const chartCore = document.getElementById('md-chart-core-area');
+      const aiArea = document.getElementById('md-ai-area');
+      const flowArea = document.getElementById('md-fund-flow-area');
+      if (chartCore) chartCore.style.display = 'block';
+      if (flowArea) flowArea.style.display = 'block';
+      if (aiArea) {
+          aiArea.style.display = 'none';
+          // 暴力清空里面的所有 HTML（等下次点击 AI 预测 tab 时重新渲染干净的）
+          aiArea.innerHTML = ''; 
+      }
+      
+      // 重置顶部 Tab 高亮状态，强制回到“分时走势”
+      document.querySelectorAll('#md-chart-tabs .action-pill').forEach(el => el.classList.remove('active'));
+      const trendTab = document.querySelector('#md-chart-tabs .action-pill[onclick*="trend"]');
+      if (trendTab) trendTab.classList.add('active');
+      // =======================================================
+    
+      this.openModal('market-detail'); 
+    
+      this.refreshMarketDetail(); 
+    
+      if (this.intradayTimer) clearInterval(this.intradayTimer);
+      this.startIntradayTimer(); 
+  },
 
   onCanvasScroll() {
     if (!this._scrollTicking) {

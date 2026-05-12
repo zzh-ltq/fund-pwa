@@ -376,6 +376,13 @@
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
+
+/* 对比弹窗详情区域样式修复 */
+#compare-details-area {
+    margin-top: 16px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+}
     
 /* ========== 智投专属样式 ========== */
     .invest-sub-tabs { display: flex; gap: 8px; margin-bottom: 10px; background: #f1f5f9; padding: 4px; border-radius: 12px; }
@@ -428,9 +435,8 @@
   <!-- 自选首页 -->
   <div id="view-home" class="page-view active">
     <div class="nav-bar">
-  <div style="display:flex; gap:8px;"><div class="nav-btn" onclick="app.openSyncView()">☁️同步</div><div class="nav-btn" onclick="app.refreshAll()">🔄刷新</div><div class="nav-btn" style="background:#fff;" onclick="app.batchUpdateSellConfirmInfo()">🔄赎率</div></div>
-  <div class="nav-title">📈 养鸡小能手</div>
-  <div class="nav-btn" style="background:#fff;" onclick="app.openSearch()">🔍搜索</div>
+      <div class="nav-title">📈 养鸡小能手</div>
+      <div class="nav-btn" style="background:#fff;" onclick="app.openSearch()">🔍搜索</div>
   </div>
     <div class="scroll-area">
       <div class="tabs-wrapper">
@@ -571,8 +577,37 @@
   
   <!-- 设置页 -->
   <div id="view-sync" class="page-view">
-  <div class="nav-bar"><div class="nav-btn left" onclick="app.switchTab('home')">‹ 返回自选</div><div class="nav-title">⚙️ 设置中心</div><div style="width:60px;"></div></div>
-    <div class="scroll-area"><div class="card" style="margin-bottom: 12px;"><h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">Cloudflare R2 同步配置</h3><input type="text" id="r2-bucket" placeholder="Bucket Name"><input type="text" id="r2-ak" placeholder="Access Key ID"><input type="password" id="r2-sk" placeholder="Secret Access Key"><input type="text" id="r2-endpoint" placeholder="Endpoint URL"><button class="btn-primary" onclick="app.saveR2ParamsOnly()">💾 保存配置参数</button><button class="btn-primary btn-success" onclick="app.pullFromCloud()">📥 从云端拉取最新数据</button><button class="btn-primary" style="background:#fff; color:var(--blue); border:2px solid var(--blue-light); margin-top:8px; box-shadow:none;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button></div><div class="card"><h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">数据管理</h3><button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="app.clearFundData()">🗑️ 清空本地所有基金(保留配置)</button></div></div></div>
+  <div class="nav-bar">
+    <div class="nav-btn left" onclick="app.switchTab('home')">‹ 返回自选</div>
+    <div class="nav-title">⚙️ 设置中心</div><div style="width:60px;"></div>
+  </div>
+    <div class="scroll-area">
+      <div class="card" style="margin-bottom: 12px;">
+        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">Cloudflare R2 同步配置</h3>
+        <input type="text" id="r2-bucket" placeholder="Bucket Name">
+        <input type="text" id="r2-ak" placeholder="Access Key ID">
+        <input type="password" id="r2-sk" placeholder="Secret Access Key">
+        <input type="text" id="r2-endpoint" placeholder="Endpoint URL">
+        <button class="btn-primary" onclick="app.saveR2ParamsOnly()">💾 保存配置参数</button>
+        <button class="btn-primary btn-success" onclick="app.pullFromCloud()">📥 从云端拉取最新数据</button>
+        <button class="btn-primary" style="background:#fff; color:var(--blue); border:2px solid var(--blue-light); margin-top:8px; box-shadow:none;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button>
+      </div>
+      <div class="card" style="margin-bottom: 12px;">
+        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">🔄 数据更新</h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+        <button class="btn-primary" style="background: var(--green); box-shadow: none;" onclick="app.refreshAll()">📊 全量刷新净值</button>
+        <button class="btn-primary" style="background: var(--blue); box-shadow: none;" onclick="app.batchUpdateSellConfirmInfo()">💰 赎率/到账更新</button>
+        <button class="btn-primary" style="background: #8b5cf6; box-shadow: none;" onclick="app.batchFetchHoldings()">📦 批量抓取持仓</button>
+        </div>
+        <div style="font-size: 11px; color: var(--text-sub); margin-top: 8px;">
+        💡 提示：批量抓取持仓会保存到本地，上传云端时一并备份。
+        </div>
+    </div>
+      <div class="card"><h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">数据管理</h3>
+        <button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="app.clearFundData()">🗑️ 清空本地所有基金(保留配置)</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 弹窗:分组管理 -->
   <div id="modal-group-mgr" class="modal-view" onclick="app.closeOutside(event, 'group-mgr')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><div class="nav-btn left" onclick="app.closeModal('group-mgr')">‹ 返回</div><div class="nav-title">分组管理</div><div style="width:60px;"></div></div><div class="mgr-header"><span style="flex:1;">分组名称</span><div style="display:flex; width:100px; justify-content:space-between;"><span>修改</span><span>清空</span><span>排序</span></div></div><div class="mgr-list-wrap" id="mgr-scroll-box"><div id="group-mgr-list" style="position:relative;"></div></div><div class="mgr-bottom-bar" style="position: relative; padding: 12px;"><button class="btn-primary" style="border-radius:20px; margin-bottom: 0;" onclick="app.createGroup()">＋ 新建分组</button></div></div></div>
@@ -1098,6 +1133,111 @@ async batchUpdateSellConfirmInfo() {
     }
     
     // 【优化4：取消自动上传】已经删除了原有的 if(this.s3) { this.pushToCloud(); }
+},
+
+// 批量抓取所有基金的持仓信息并缓存（支持联接基金穿透）
+async batchFetchHoldings() {
+    const allCodes = Object.keys(this.data.fundsCache);
+    if (allCodes.length === 0) {
+        this.showToast('暂无基金数据', 'error');
+        return;
+    }
+
+    this.showToast(`开始抓取 ${allCodes.length} 只基金的持仓...`);
+    
+    const loadingModal = document.getElementById('modal-loading');
+    const titleText = document.getElementById('loading-modal-title');
+    const progressText = document.getElementById('loading-progress-text');
+    titleText.innerText = '正在抓取持仓数据...';
+    loadingModal.style.display = 'flex';
+    progressText.innerText = `0 / ${allCodes.length}`;
+
+    let successCount = 0;
+    let processed = 0;
+
+    // 并发控制避免过载
+    const batchSize = 3;
+    for (let i = 0; i < allCodes.length; i += batchSize) {
+        const chunk = allCodes.slice(i, i + batchSize);
+        await Promise.all(chunk.map(async (code) => {
+            try {
+                let stocks = [];
+                let bonds = [];
+                
+                // 1. 获取债券持仓
+                bonds = await this.fetchEastMoneyTable(code, 'zqcc');
+                
+                // 2. 获取股票持仓
+                stocks = await this.fetchEastMoneyTable(code, 'jjcc');
+                
+                // 3. 如果没有股票持仓，检查是否有手动绑定的 ETF
+                if ((!stocks || stocks.length === 0) && this.data.fundsCache[code]?.boundEtfCode) {
+                    const boundCode = this.data.fundsCache[code].boundEtfCode;
+                    const etfStocks = await this.fetchEastMoneyTable(boundCode, 'jjcc');
+                    if (etfStocks && etfStocks.length > 0) {
+                        const ratioMultiplier = 0.945; // 联接基金常见仓位 94.5%
+                        stocks = etfStocks.map(s => ({
+                            code: s.code,
+                            name: s.name,
+                            ratio: (s.ratio * ratioMultiplier).toFixed(2)
+                        }));
+                    }
+                }
+                
+                // 4. 如果没有股票持仓但名称包含"联接"，尝试通过名称匹配 ETF（兜底）
+                if ((!stocks || stocks.length === 0) && this.data.fundsCache[code]?.name?.includes('联接')) {
+                    await this.loadMasterList();
+                    const fundName = this.data.fundsCache[code].name;
+                    let company = fundName.substring(0, 3);
+                    if (company === '交银施') company = '交银';
+                    let cleanTheme = fundName.split('联接')[0]
+                        .replace(company, '')
+                        .replace(/ETF|发起式|指数|证券投资基金|A|C|E|I/g, '')
+                        .replace(/中证|国证|上证|深证|富时|标普|纳斯达克/g, '')
+                        .trim();
+                    
+                    let matched = this.masterFundList.find(f => {
+                        const isETF = f[0].startsWith('15') || f[0].startsWith('51');
+                        if (!isETF) return false;
+                        const hasCompany = f[2].includes(company) || f[2].includes(company.substring(0,2));
+                        const hasTheme = f[2].includes(cleanTheme);
+                        return hasCompany && hasTheme;
+                    });
+                    
+                    if (matched) {
+                        const etfStocks = await this.fetchEastMoneyTable(matched[0], 'jjcc');
+                        if (etfStocks && etfStocks.length > 0) {
+                            stocks = etfStocks.map(s => ({
+                                code: s.code,
+                                name: s.name,
+                                ratio: (s.ratio * 0.945).toFixed(2)
+                            }));
+                        }
+                    }
+                }
+                
+                if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+                this.data.fundsCache[code].holdingsCache = {
+                    stocks: stocks || [],
+                    bonds: bonds || [],
+                    timestamp: Date.now()
+                };
+                if (stocks && stocks.length > 0) successCount++;
+            } catch(e) {
+                // 静默失败
+            }
+            processed++;
+            progressText.innerText = `${processed} / ${allCodes.length}`;
+        }));
+        if (i + batchSize < allCodes.length) await new Promise(r => setTimeout(r, 300));
+    }
+
+    await this.saveData();
+    loadingModal.style.display = 'none';
+    this.showToast(`✅ 持仓抓取完成，成功 ${successCount} 只，失败/无数据 ${allCodes.length - successCount} 只`);
+    
+    // 如果当前在自选或板块页，刷新可能受益的显示
+    if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
 },
   
   formatEMDate(ts, length = 10, offset = 0) { 
@@ -4570,7 +4710,7 @@ async renderCompareDetails() {
         return sumB - sumA;
     });
     
-    for (const [stockName, fundRatios] of stockList.slice(0, 10)) {
+    for (const [stockName, fundRatios] of stockList) {  // 移除 .slice(0, 10)
         holdingsHtml += '<tr>';
         holdingsHtml += `<td class="indicator-cell"><b>${stockName}</b></td>`;
         for (const fund of fundsDetail) {
@@ -6082,223 +6222,135 @@ updateFundCardDisplay(code) {
     return []; 
   },
   
-  async loadHoldings(code) { 
-    document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8; font-weight:bold;">底层穿透解析中...</div>'; 
-    try { 
-      let stocks = [], bonds = [];
-      let underlyingEtf = null;
-      let isLinkedETF = false;
+  // 加载基金持仓（优先从缓存读取）
+async loadHoldings(code) {
+    const container = document.getElementById('det-hold-area');
+    if (!container) return;
+    
+    const cached = this.data.fundsCache[code]?.holdingsCache;
+    if (cached && cached.stocks && Array.isArray(cached.stocks)) {
+        // 使用缓存数据，但仍需获取实时股票涨跌幅
+        await this._renderHoldingsUI(code, cached.stocks, cached.bonds);
+        return;
+    }
+    
+    // 无缓存，显示友好提示并提供抓取入口
+    container.innerHTML = `
+        <div style="text-align:center; padding:40px 20px; color:#94a3b8;">
+            <div style="font-size:40px; margin-bottom:12px;">📭</div>
+            <div style="font-weight:bold; margin-bottom:8px;">暂无持仓缓存数据</div>
+            <div style="font-size:12px; margin-bottom:16px;">请前往「设置中心」→「批量抓取持仓」获取</div>
+            <button class="btn-primary" style="background: #8b5cf6; margin-top:8px;" onclick="app.batchFetchHoldings()">📦 立即批量抓取</button>
+        </div>
+    `;
+},
 
-      // 无论是否穿透，原基金的债券持仓先抓取（联接基金也会留部分债券做底仓）
-      bonds = await this.fetchEastMoneyTable(code, 'zqcc');
-
-      // 1. ================= 绝对最高优先级：人工手动绑定 =================
-      const boundCode = this.data.fundsCache[code]?.boundEtfCode;
-      
-      if (boundCode) {
-          // 只要用户绑定了代码，直接锁定目标，完全跳过查原基金股票的步骤！
-          // 联接基金持仓一般为90-95%，按94.5%估算最科学
-          underlyingEtf = { code: boundCode, name: '', ratio: 94.5 };
-      } 
-      // 2. ================= 如果没有绑定，走正常的自动抓取/推演流程 =================
-      else {
-          // A. 先查基金本身的股票持仓
-          stocks = await this.fetchEastMoneyTable(code, 'jjcc');
-
-          // B. 如果没查到，尝试百度备用接口
-          if (!stocks || stocks.length === 0) {
-              try {
-                  const baiduData = await fetchJSONP(`https://gushitong.baidu.com/opendata?resource_id=5803&query=${code}&new_need_di=1&source=qieman`, 'cb'); 
-                  const tabs = baiduData?.Result?.[0]?.DisplayData?.resultData?.tplData?.result?.content?.tabs || []; 
-                  const posContent = tabs.find(t=>t.type==='position')?.content;
-                  
-                  if (posContent?.heavyStock?.body?.length > 0) {
-                      stocks = posContent.heavyStock.body.map(h => ({ name: h.name, code: h.code, ratio: parseFloat(h.positionProportion) })); 
-                  } else if (posContent?.heavyFund?.body?.length > 0) {
-                      underlyingEtf = {
-                          code: posContent.heavyFund.body[0].code,
-                          name: posContent.heavyFund.body[0].name,
-                          ratio: parseFloat(posContent.heavyFund.body[0].positionProportion) || 94.5
-                      };
-                  }
-              } catch(e) {}
-          }
-
-          // C. 如果还是没查到，去东方财富查“基金持仓(fundcc)”看看买没买自家 ETF
-          if ((!stocks || stocks.length === 0) && !underlyingEtf) {
-              const fundsHeld = await this.fetchEastMoneyTable(code, 'fundcc');
-              if (fundsHeld && fundsHeld.length > 0) {
-                  underlyingEtf = { code: fundsHeld[0].code, name: fundsHeld[0].name, ratio: fundsHeld[0].ratio };
-              }
-          }
-
-          // D. 如果统统失败，且名字包含"联接"，启动 AI 名称交叉模糊推演
-          const fundName = this.data.fundsCache[code]?.name || '';
-          if ((!stocks || stocks.length === 0) && !underlyingEtf && fundName.includes('联接')) {
-              await this.loadMasterList(); 
-              if (this.masterFundList && this.masterFundList.length > 0) {
-                  let company = fundName.substring(0, 3); 
-                  if (company === '交银施') company = '交银';
-
-                  let cleanTheme = fundName.split('联接')[0]
-                      .replace(company, '') 
-                      .replace(company.substring(0,2), '') 
-                      .replace(/ETF|发起式|指数|证券投资基金|A|C|E|I/g, '') 
-                      .replace(/中证|国证|上证|深证|富时|标普|纳斯达克/g, '') 
-                      .trim();
-
-                  let matched = this.masterFundList.find(f => {
-                      const isETF = f[0].startsWith('15') || f[0].startsWith('51');
-                      if (!isETF) return false;
-                      const hasCompany = f[2].includes(company) || f[2].includes(company.substring(0,2));
-                      const hasTheme = f[2].includes(cleanTheme);
-                      return hasCompany && hasTheme;
-                  });
-
-                  if (!matched && cleanTheme.length >= 4) {
-                      let shortTheme = cleanTheme.substring(cleanTheme.length - 4);
-                      matched = this.masterFundList.find(f => {
-                          return (f[0].startsWith('15') || f[0].startsWith('51')) &&
-                                 (f[2].includes(company) || f[2].includes(company.substring(0,2))) &&
-                                 f[2].includes(shortTheme);
-                      });
-                  }
-
-                  if (matched) {
-                      underlyingEtf = { code: matched[0], name: matched[2], ratio: 94.5 }; 
-                  }
-              }
-          }
-      }
-
-      // 3. 补全 ETF 名称：如果有了穿透代码但缺少名称 (通常是人工手动绑定纯数字造成的)，去本地字典里反查一下名称
-      if (underlyingEtf && !underlyingEtf.name) {
-          await this.loadMasterList();
-          if (this.masterFundList && this.masterFundList.length > 0) {
-              let matched = this.masterFundList.find(f => f[0] === underlyingEtf.code);
-              if (matched) {
-                  underlyingEtf.name = matched[2];
-              }
-          }
-      }
-
-      // 4. 【执行终极穿透】：只要底层 ETF 目标锁定了，直接去抓取该 ETF 的股票，并按比例折算
-      if (underlyingEtf) {
-          const etfStocks = await this.fetchEastMoneyTable(underlyingEtf.code, 'jjcc');
-          if (etfStocks && etfStocks.length > 0) {
-              isLinkedETF = true; // 标记穿透成功，用于 UI 显示徽章
-              const ratioMultiplier = underlyingEtf.ratio / 100;
-              // 覆盖掉原本可能存在的空股票数组
-              stocks = etfStocks.map(s => ({
-                  ...s,
-                  ratio: Number((s.ratio * ratioMultiplier).toFixed(2)) 
-              }));
-          }
-      }
-
-      // 若查了一大圈啥也没有，抛出异常渲染空状态
-      if((!stocks || stocks.length === 0) && (!bonds || bonds.length === 0)) throw new Error(); 
-      
-      const stockSecids = stocks.map(h => {
-          let pfx = '0.';
-          if (h.code.length === 5) pfx = '116.'; 
-          else if (h.code.startsWith('6') || h.code.startsWith('9')) pfx = '1.';
-          else if (h.code.startsWith('4') || h.code.startsWith('8')) pfx = '0.';
-          h.fallbackSecid = pfx + h.code; 
-          return pfx + h.code;
-      }).join(','); 
-
-      const bondSecids = bonds.map(h => {
-          let pfx = h.code.startsWith('1') ? '1.' : '0.';
-          h.fallbackSecid = pfx + h.code;
-          return pfx + h.code;
-      }).join(',');
-
-      const allSecids = [stockSecids, bondSecids].filter(x=>x).join(',');
-
-      let qtMap = {}; 
-      if (allSecids) {
-          const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${allSecids}&fields=f2,f3,f12,f13,f60,f100&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb'); 
-          (qtData?.data?.diff || []).forEach(item => { 
-            let chg = 0; 
-            if (item.f3 !== '-' && !isNaN(parseFloat(item.f3))) { 
-              chg = parseFloat(item.f3); 
-            } else if (item.f2 !== '-' && item.f60 !== '-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))) { 
-              let f2 = parseFloat(item.f2); 
-              let f60 = parseFloat(item.f60); 
-              if (f60 > 0) chg = ((f2 - f60) / f60) * 100; 
-            } 
-            qtMap[item.f12] = {
-                chg: chg !== 0 ? Number(chg.toFixed(2)) : '--', 
-                industry: (item.f100 && item.f100 !== '-') ? item.f100 : '',
-                fullSecid: `${item.f13}.${item.f12}` 
-            }; 
-          }); 
-      }
-      
-      let sumR = 0, est = 0; 
-      let stocksHtml = '';
-      if (stocks.length > 0) {
-          stocksHtml = stocks.map(h => { 
+  // 渲染持仓UI（股票+债券，附带实时涨跌幅）
+async _renderHoldingsUI(code, stocks, bonds) {
+    const container = document.getElementById('det-hold-area');
+    if (!container) return;
+    
+    // 构建所有需要查询的 secid 列表（股票 + 债券）
+    const stockSecids = stocks.map(h => {
+        let pfx = '0.';
+        if (h.code.length === 5) pfx = '116.';
+        else if (h.code.startsWith('6') || h.code.startsWith('9')) pfx = '1.';
+        else if (h.code.startsWith('4') || h.code.startsWith('8')) pfx = '0.';
+        h.fallbackSecid = pfx + h.code;
+        return pfx + h.code;
+    }).join(',');
+    
+    const bondSecids = bonds.map(h => {
+        let pfx = h.code.startsWith('1') ? '1.' : '0.';
+        h.fallbackSecid = pfx + h.code;
+        return pfx + h.code;
+    }).join(',');
+    
+    const allSecids = [stockSecids, bondSecids].filter(x=>x).join(',');
+    
+    let qtMap = {};
+    if (allSecids) {
+        try {
+            const qtData = await fetchJSONP(`https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&secids=${allSecids}&fields=f2,f3,f12,f13,f60,f100&ut=fa5fd1943c7b386f172d6893dbfba10b`, 'cb');
+            (qtData?.data?.diff || []).forEach(item => {
+                let chg = 0;
+                if (item.f3 !== '-' && !isNaN(parseFloat(item.f3))) {
+                    chg = parseFloat(item.f3);
+                } else if (item.f2 !== '-' && item.f60 !== '-' && !isNaN(parseFloat(item.f2)) && !isNaN(parseFloat(item.f60))) {
+                    let f2 = parseFloat(item.f2);
+                    let f60 = parseFloat(item.f60);
+                    if (f60 > 0) chg = ((f2 - f60) / f60) * 100;
+                }
+                qtMap[item.f12] = {
+                    chg: chg !== 0 ? Number(chg.toFixed(2)) : '--',
+                    industry: (item.f100 && item.f100 !== '-') ? item.f100 : '',
+                    fullSecid: `${item.f13}.${item.f12}`
+                };
+            });
+        } catch(e) {}
+    }
+    
+    let sumR = 0, est = 0;
+    let stocksHtml = '';
+    if (stocks.length > 0) {
+        stocksHtml = stocks.map(h => {
             let stockInfo = qtMap[h.code] || { chg: '--', industry: '', fullSecid: h.fallbackSecid };
             let chg = stockInfo.chg;
             let ind = stockInfo.industry;
-            let secid = stockInfo.fullSecid; 
-
-            sumR += h.ratio; 
-            if (chg !== '--') est += (h.ratio/100)*chg; 
+            let secid = stockInfo.fullSecid;
+            
+            sumR += parseFloat(h.ratio);
+            if (chg !== '--') est += (parseFloat(h.ratio)/100) * chg;
             
             let isHK = h.code.length === 5 || secid.startsWith('116.');
-            let hkHtml = isHK ? `<span class="c-tag" style="background:#f3e8ff; color:#9333ea; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold; border: 1px solid #e9d5ff;">港股</span>` : '';
-            let indHtml = ind ? `<span class="c-tag" style="background:#e0e7ff; color:#3b82f6; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold;">${ind}</span>` : '';
-
-            return `<div class="list-item" style="padding: 12px 14px; cursor: pointer;" onclick="app.openMarketDetail('${secid}', '${h.name}')">
-                      <div style="flex:2; display:flex; flex-direction:column; gap:4px;">
-                          <span style="font-weight:900; font-size:14px; color:var(--text-main);">${h.name}</span>
-                          <div style="display:flex; align-items:center; gap:6px;">
-                              <span class="c-code" style="font-size:11px;">${h.code}</span>
-                              ${hkHtml}
-                              ${indHtml}
-                          </div>
-                      </div>
-                      <span style="flex:1;text-align:center; color:var(--text-sub); font-size:13px; font-weight:800;">${h.ratio}%</span>
-                      <span style="flex:1;text-align:right; font-weight:900; font-size:15px;" class="${chg>0?'red':(chg<0?'green':'')}">${chg>0?'+':''}${chg}${chg!=='--'?'%':''}</span>
-                      <span style="color:#cbd5e1; font-size:18px; margin-left:10px; font-weight:bold;">›</span>
-                    </div>`; 
-          }).join(''); 
-      }
-      
-      let bondsHtml = '';
-      if (bonds.length > 0) {
-          let bHtml = bonds.map(h => {
-             let stockInfo = qtMap[h.code] || { chg: '--', fullSecid: h.fallbackSecid };
-             let chg = stockInfo.chg;
-             let secid = stockInfo.fullSecid;
-             return `<div class="list-item" style="padding: 12px 14px; cursor: pointer;" onclick="app.openMarketDetail('${secid}', '${h.name}')">
-                  <div style="flex:2; display:flex; flex-direction:column; gap:4px;">
-                      <span style="font-weight:900; font-size:14px; color:var(--text-main);">${h.name}</span>
-                      <div style="display:flex; align-items:center; gap:6px;">
-                          <span class="c-code" style="font-size:11px;">${h.code}</span>
-                          <span class="c-tag" style="background:#fefce8; color:#ca8a04; font-size:10px; padding: 2px 6px; border-radius:4px; font-weight:bold; border: 1px solid #fef08a;">债券</span>
-                      </div>
-                  </div>
-                  <span style="flex:1;text-align:center; color:var(--text-sub); font-size:13px; font-weight:800;">${h.ratio}%</span>
-                  <span style="flex:1;text-align:right; font-weight:900; font-size:15px;" class="${chg>0?'red':(chg<0?'green':'')}">${chg>0?'+':''}${chg}${chg!=='--'?'%':''}</span>
-                  <span style="color:#cbd5e1; font-size:18px; margin-left:10px; font-weight:bold;">›</span>
-                </div>`; 
-          }).join('');
-          bondsHtml = `<div style="margin: 18px 0 8px; font-weight: 900; color: #1e293b; font-size: 14px; border-left: 4px solid #ca8a04; padding-left: 8px;">债券持仓明细</div>${bHtml}`;
-      }
-
-      let topCard = '';
-      if (stocks.length > 0) {
-         let etfDisplayName = underlyingEtf && underlyingEtf.code ? underlyingEtf.code : '';
-         if (underlyingEtf && underlyingEtf.name) {
-             etfDisplayName += ` (${underlyingEtf.name})`;
-         }
-         let linkBadge = isLinkedETF ? `<span style="background:#e0e7ff; color:#3b82f6; padding:2px 6px; border-radius:4px; margin-left:8px; font-size:10px;">由 ${etfDisplayName} 穿透估算</span>` : '';
-         
-         topCard = `<div class="card" style="margin-bottom:12px;">
+            let hkHtml = isHK ? `<span class="c-tag" style="background:#f3e8ff; color:#9333ea; font-size:10px; padding: 2px 6px; border-radius:4px;">港股</span>` : '';
+            let indHtml = ind ? `<span class="c-tag" style="background:#e0e7ff; color:#3b82f6; font-size:10px; padding: 2px 6px; border-radius:4px;">${ind}</span>` : '';
+            
+            return `<div class="list-item" style="padding:12px 14px; cursor:pointer;" onclick="app.openMarketDetail('${secid}', '${h.name}')">
+                <div style="flex:2; display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-weight:900; font-size:14px; color:var(--text-main);">${h.name}</span>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span class="c-code" style="font-size:11px;">${h.code}</span>
+                        ${hkHtml}
+                        ${indHtml}
+                    </div>
+                </div>
+                <span style="flex:1; text-align:center; color:var(--text-sub); font-size:13px; font-weight:800;">${h.ratio}%</span>
+                <span style="flex:1; text-align:right; font-weight:900; font-size:15px;" class="${chg>0?'red':(chg<0?'green':'')}">${chg>0?'+':''}${chg}${chg!=='--'?'%':''}</span>
+                <span style="color:#cbd5e1; font-size:18px; margin-left:10px;">›</span>
+            </div>`;
+        }).join('');
+    }
+    
+    let bondsHtml = '';
+    if (bonds.length > 0) {
+        let bHtml = bonds.map(h => {
+            let stockInfo = qtMap[h.code] || { chg: '--', fullSecid: h.fallbackSecid };
+            let chg = stockInfo.chg;
+            let secid = stockInfo.fullSecid;
+            return `<div class="list-item" style="padding:12px 14px; cursor:pointer;" onclick="app.openMarketDetail('${secid}', '${h.name}')">
+                <div style="flex:2; display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-weight:900; font-size:14px; color:var(--text-main);">${h.name}</span>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <span class="c-code" style="font-size:11px;">${h.code}</span>
+                        <span class="c-tag" style="background:#fefce8; color:#ca8a04; font-size:10px; padding:2px 6px; border-radius:4px;">债券</span>
+                    </div>
+                </div>
+                <span style="flex:1; text-align:center; color:var(--text-sub); font-size:13px; font-weight:800;">${h.ratio}%</span>
+                <span style="flex:1; text-align:right; font-weight:900; font-size:15px;" class="${chg>0?'red':(chg<0?'green':'')}">${chg>0?'+':''}${chg}${chg!=='--'?'%':''}</span>
+                <span style="color:#cbd5e1; font-size:18px; margin-left:10px;">›</span>
+            </div>`;
+        }).join('');
+        bondsHtml = `<div style="margin:18px 0 8px; font-weight:900; color:#1e293b; font-size:14px; border-left:4px solid #ca8a04; padding-left:8px;">债券持仓明细</div>${bHtml}`;
+    }
+    
+    let topCard = '';
+    if (stocks.length > 0) {
+        let linkBadge = '';
+        if (this.data.fundsCache[code]?.boundEtfCode) {
+            linkBadge = `<span style="background:#e0e7ff; color:#3b82f6; padding:2px 6px; border-radius:4px; margin-left:8px; font-size:10px;">由 ${this.data.fundsCache[code].boundEtfCode} 穿透估算</span>`;
+        }
+        topCard = `<div class="card" style="margin-bottom:12px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:6px; color:var(--text-sub); font-size:12px; align-items:center;">
                 <span>前十股票占比 ${linkBadge}</span>
                 <span style="font-weight:900; color:var(--text-main); font-size:14px;">${sumR.toFixed(2)}%</span>
@@ -6307,14 +6359,11 @@ updateFundCardDisplay(code) {
                 <span>股票加权估算</span>
                 <span style="font-weight:900; font-size:15px;" class="${est>=0?'red':'green'}">${est>0?'+':''}${est.toFixed(2)}%</span>
             </div>
-         </div>`;
-      }
-      
-      document.getElementById('det-hold-area').innerHTML = topCard + stocksHtml + bondsHtml; 
-    } catch(e) { 
-      document.getElementById('det-hold-area').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8; font-weight:bold;">暂无股票或债券持仓数据</div>'; 
-    } 
-  },
+        </div>`;
+    }
+    
+    container.innerHTML = topCard + stocksHtml + bondsHtml;
+},
   
   // ==========================================
   // 13. 系统其它辅助

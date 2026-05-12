@@ -386,7 +386,12 @@
 
   /* 对比弹窗布局优化 */
 #compare-chart-container {
-    margin-bottom: 20px;
+    overflow: hidden;  /* 防止滚动条干扰缩放拖拽 */
+    position: relative;
+}
+canvas#compare-canvas {
+    display: block;
+    cursor: default;
 }
 #compare-legend-wrapper {
     margin-top: 8px;
@@ -693,7 +698,6 @@
                 <div id="compare-chart-container" style="position: relative; flex: 1; min-height: 380px;">
                     <canvas id="compare-canvas" style="width: 100%; height: 100%; background: #fff; border-radius: 12px;"></canvas>
                 </div>
-                <div id="compare-hover-info" style="margin-top: 8px; font-size: 11px; color: var(--text-sub); text-align: center; min-height: 32px; background: #f8fafc; border-radius: 8px; padding: 4px 8px;"></div>
             </div>
           <!-- 图例会动态插入到此位置 -->
           <div id="compare-legend-wrapper"></div>
@@ -4554,6 +4558,8 @@ compareState: {
     selectedCodes: new Set(),
     period: 90,          // 对比周期（交易日数）
     chartData: [],       // 存储每条曲线的数据和颜色
+    zoom: 1,        // 缩放比例，1 为原始大小
+    offset: 0,      // 水平偏移（数据点索引）
     hoverIndex: -1,
     hoveredFund: null
 },
@@ -4858,6 +4864,9 @@ buildCompareChartData() {
     
     this.compareState.chartData = chartData;
     return chartData;
+  // 重置缩放和偏移
+this.compareState.zoom = 1;
+this.compareState.offset = 0;
 },
 
 // 绘制对比图表
@@ -4890,6 +4899,13 @@ drawCompareChart() {
     const yMax = maxRate + yPadding;
     const yMin = minRate - yPadding;
     
+    // 获取当前缩放比例和偏移
+    let zoom = this.compareState.zoom || 1;
+    let offset = this.compareState.offset || 0;
+    // 限制偏移范围
+    const maxOffset = Math.max(0, (chartData[0].rates.length - 1) * (1 - 1/zoom));
+    offset = Math.min(maxOffset, Math.max(0, offset));
+    
     const rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = rect.width * dpr;
@@ -4906,7 +4922,17 @@ drawCompareChart() {
     const dh = rect.height - pad.t - pad.b;
     if (dw <= 0 || dh <= 0) return;
     
-    const getX = (idx, total) => pad.l + (idx / (total - 1)) * dw;
+    // 转换函数：考虑缩放和偏移（水平方向）
+    const totalPoints = chartData[0].rates.length;
+    const visiblePoints = Math.floor(totalPoints / zoom);
+    const startIdx = Math.floor(offset);
+    const endIdx = Math.min(totalPoints - 1, startIdx + visiblePoints);
+    const step = (endIdx - startIdx) / (dw);
+    
+    const getX = (idx) => {
+        const relativeIdx = idx - startIdx;
+        return pad.l + (relativeIdx / (endIdx - startIdx)) * dw;
+    };
     const getY = (rate) => pad.t + dh - ((rate - yMin) / (yMax - yMin)) * dh;
     
     // 绘制背景网格
@@ -4955,70 +4981,61 @@ drawCompareChart() {
         ctx.fillText(dates[total - 1], lastX, rect.height - pad.b + 12);
     }
     
-    // 绘制曲线
+     // 绘制曲线
     for (let i = 0; i < chartData.length; i++) {
         const data = chartData[i];
-        const total = data.rates.length;
-        if (total < 2) continue;
+        const rates = data.rates;
+        if (rates.length === 0) continue;
         
         ctx.beginPath();
-        ctx.moveTo(getX(0, total), getY(data.rates[0]));
-        for (let j = 1; j < total; j++) {
-            ctx.lineTo(getX(j, total), getY(data.rates[j]));
+        let firstPoint = true;
+        for (let idx = startIdx; idx <= endIdx; idx++) {
+            if (idx >= rates.length) break;
+            const x = getX(idx);
+            const y = getY(rates[idx]);
+            if (firstPoint) {
+                ctx.moveTo(x, y);
+                firstPoint = false;
+            } else {
+                ctx.lineTo(x, y);
+            }
         }
         ctx.strokeStyle = data.color;
         ctx.lineWidth = 2;
         ctx.stroke();
         
-        // 绘制末端数据点
-        const lastX = getX(total - 1, total);
-        const lastY = getY(data.rates[total - 1]);
-        ctx.beginPath();
-        ctx.arc(lastX, lastY, 4, 0, 2 * Math.PI);
-        ctx.fillStyle = data.color;
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-        
-        // 使用数字序号代替基金名称（序号 = i+1）
-        const seq = (i + 1).toString();
-        ctx.font = 'bold 11px sans-serif';
-        ctx.fillStyle = data.color;
-        ctx.shadowBlur = 0;
-        ctx.fillText(seq, lastX + 5, lastY - 3);
-    }
-    
-    // 绘制十字线（如果有 hover）
-    if (this.compareState.hoverIndex >= 0 && this.compareState.chartData.length > 0) {
-        const firstData = this.compareState.chartData[0];
-        const total = firstData.rates.length;
-        if (this.compareState.hoverIndex < total) {
-            const hoverX = getX(this.compareState.hoverIndex, total);
+        // 绘制末端数据点（如果末端在可视范围内）
+        const lastIdx = rates.length - 1;
+        if (lastIdx >= startIdx && lastIdx <= endIdx) {
+            const lastX = getX(lastIdx);
+            const lastY = getY(rates[lastIdx]);
             ctx.beginPath();
-            ctx.moveTo(hoverX, pad.t);
-            ctx.lineTo(hoverX, rect.height - pad.b);
-            ctx.strokeStyle = '#94a3b8';
-            ctx.setLineDash([4, 4]);
+            ctx.arc(lastX, lastY, 4, 0, 2 * Math.PI);
+            ctx.fillStyle = data.color;
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1.5;
             ctx.stroke();
-            ctx.setLineDash([]);
             
-            // 显示该日期所有基金的收益率
-            const infoParts = [];
-            for (const data of this.compareState.chartData) {
-                if (this.compareState.hoverIndex < data.rates.length) {
-                    const rate = data.rates[this.compareState.hoverIndex];
-                    const sign = rate >= 0 ? '+' : '';
-                    infoParts.push(`${data.name}: ${sign}${rate.toFixed(2)}%`);
-                }
-            }
-            const infoDiv = document.getElementById('compare-hover-info');
-            if (infoDiv) {
-                const dateStr = firstData.dates[this.compareState.hoverIndex] || '';
-                infoDiv.innerHTML = `<span style="font-weight: bold;">${dateStr}</span> | ${infoParts.join(' | ')}`;
-            }
+            // 显示数字序号
+            const seq = (i + 1).toString();
+            ctx.font = 'bold 11px sans-serif';
+            ctx.fillStyle = data.color;
+            ctx.fillText(seq, lastX + 5, lastY - 3);
         }
     }
+    
+    // 绘制X轴日期标签（仅显示可视范围内的几个日期）
+    const dates = chartData[0].dates;
+    const labelStep = Math.ceil((endIdx - startIdx) / 6);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    for (let idx = startIdx; idx <= endIdx; idx += labelStep) {
+        const x = getX(idx);
+        ctx.fillText(dates[idx], x, rect.height - pad.b + 12);
+    }
+    
 },
 
   // 渲染对比图例（显示序号和基金名称）
@@ -5039,98 +5056,169 @@ renderCompareLegend() {
     if (wrapper) wrapper.innerHTML = legendHtml;
 },
 
-// 绑定图表鼠标事件
 bindCompareChartEvents() {
     const canvas = document.getElementById('compare-canvas');
     if (!canvas) return;
     
-    // 鼠标移动时更新十字线和信息
-    canvas.onmousemove = (e) => {
+    // 移除所有旧事件（避免重复绑定）
+    canvas.onwheel = null;
+    canvas.onmousedown = null;
+    canvas.onmousemove = null;
+    canvas.onmouseup = null;
+    canvas.onmouseleave = null;
+    canvas.ontouchstart = null;
+    canvas.ontouchmove = null;
+    canvas.ontouchend = null;
+    
+    // --- 鼠标滚轮缩放 ---
+    canvas.onwheel = (e) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        let newZoom = (this.compareState.zoom || 1) * delta;
+        newZoom = Math.min(5, Math.max(1, newZoom));
+        if (newZoom === this.compareState.zoom) return;
+        
+        // 获取鼠标相对于画布的位置，计算偏移保持鼠标位置对应的数据点不变
         const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
+        const mouseX = e.clientX - rect.left;
         const pad = { l: 50, r: 40 };
         const dw = rect.width - pad.l - pad.r;
-        
-        if (x < pad.l || x > rect.width - pad.r) {
-            if (this.compareState.hoverIndex !== -1) {
-                this.compareState.hoverIndex = -1;
-                this.drawCompareChart();
-                document.getElementById('compare-hover-info').innerHTML = '';
-            }
-            return;
+        if (mouseX >= pad.l && mouseX <= rect.width - pad.r) {
+            const totalPoints = this.compareState.chartData[0]?.rates.length || 1;
+            const oldZoom = this.compareState.zoom || 1;
+            const oldOffset = this.compareState.offset || 0;
+            const visiblePointsOld = totalPoints / oldZoom;
+            const mouseRatio = (mouseX - pad.l) / dw;
+            const oldIdx = oldOffset + mouseRatio * visiblePointsOld;
+            
+            const visiblePointsNew = totalPoints / newZoom;
+            const newOffset = oldIdx - mouseRatio * visiblePointsNew;
+            this.compareState.offset = Math.min(Math.max(0, newOffset), totalPoints - visiblePointsNew);
         }
         
-        const chartData = this.compareState.chartData;
-        if (chartData.length === 0) return;
-        
-        const total = chartData[0].rates.length;
-        const ratio = (x - pad.l) / dw;
-        let idx = Math.round(ratio * (total - 1));
-        idx = Math.max(0, Math.min(total - 1, idx));
-        
-        if (this.compareState.hoverIndex !== idx) {
-            this.compareState.hoverIndex = idx;
+        this.compareState.zoom = newZoom;
+        this.drawCompareChart();
+    };
+    
+    // --- 鼠标拖拽平移（仅在缩放 > 1 时启用）---
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartOffset = 0;
+    
+    canvas.onmousedown = (e) => {
+        if ((this.compareState.zoom || 1) <= 1.01) return;
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartOffset = this.compareState.offset || 0;
+        canvas.style.cursor = 'grabbing';
+        e.preventDefault();
+    };
+    
+    canvas.onmousemove = (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - dragStartX;
+        const rect = canvas.getBoundingClientRect();
+        const pad = { l: 50, r: 40 };
+        const dw = rect.width - pad.l - pad.r;
+        const totalPoints = this.compareState.chartData[0]?.rates.length || 1;
+        const zoom = this.compareState.zoom || 1;
+        const visiblePoints = totalPoints / zoom;
+        const deltaOffset = (dx / dw) * visiblePoints;
+        let newOffset = dragStartOffset - deltaOffset;
+        const maxOffset = Math.max(0, totalPoints - visiblePoints);
+        newOffset = Math.min(maxOffset, Math.max(0, newOffset));
+        this.compareState.offset = newOffset;
+        this.drawCompareChart();
+    };
+    
+    canvas.onmouseup = () => {
+        isDragging = false;
+        canvas.style.cursor = 'default';
+    };
+    canvas.onmouseleave = () => {
+        isDragging = false;
+        canvas.style.cursor = 'default';
+    };
+    
+    // --- 触摸缩放与拖拽（移动端）---
+    let initialPinchDistance = 0;
+    let initialZoom = 1;
+    let initialOffset = 0;
+    let touchStartX = 0;
+    let touchStartOffset = 0;
+    let isTouchDragging = false;
+    
+    const getPinchDistance = (touches) => {
+        const dx = touches[0].clientX - touches[1].clientX;
+        const dy = touches[0].clientY - touches[1].clientY;
+        return Math.sqrt(dx*dx + dy*dy);
+    };
+    
+    canvas.ontouchstart = (e) => {
+        e.preventDefault();
+        const touches = e.touches;
+        if (touches.length === 2) {
+            // 双指缩放
+            initialPinchDistance = getPinchDistance(touches);
+            initialZoom = this.compareState.zoom || 1;
+            initialOffset = this.compareState.offset || 0;
+        } else if (touches.length === 1 && (this.compareState.zoom || 1) > 1.01) {
+            // 单指拖拽（缩放>1时）
+            isTouchDragging = true;
+            touchStartX = touches[0].clientX;
+            touchStartOffset = this.compareState.offset || 0;
+        }
+    };
+    
+    canvas.ontouchmove = (e) => {
+        e.preventDefault();
+        const touches = e.touches;
+        if (touches.length === 2) {
+            const newDistance = getPinchDistance(touches);
+            const scale = newDistance / initialPinchDistance;
+            let newZoom = initialZoom * scale;
+            newZoom = Math.min(5, Math.max(1, newZoom));
+            if (newZoom !== (this.compareState.zoom || 1)) {
+                // 保持中心点对应的数据位置（简单实现：保持第一个手指位置不变）
+                const rect = canvas.getBoundingClientRect();
+                const pad = { l: 50, r: 40 };
+                const dw = rect.width - pad.l - pad.r;
+                const totalPoints = this.compareState.chartData[0]?.rates.length || 1;
+                const oldZoom = this.compareState.zoom || 1;
+                const oldOffset = this.compareState.offset || 0;
+                const visiblePointsOld = totalPoints / oldZoom;
+                // 取两个手指的中点
+                const centerX = (touches[0].clientX + touches[1].clientX) / 2 - rect.left;
+                if (centerX >= pad.l && centerX <= rect.width - pad.r) {
+                    const ratio = (centerX - pad.l) / dw;
+                    const idx = oldOffset + ratio * visiblePointsOld;
+                    const visiblePointsNew = totalPoints / newZoom;
+                    const newOffset = idx - ratio * visiblePointsNew;
+                    this.compareState.offset = Math.min(Math.max(0, newOffset), totalPoints - visiblePointsNew);
+                }
+                this.compareState.zoom = newZoom;
+                this.drawCompareChart();
+            }
+        } else if (touches.length === 1 && isTouchDragging) {
+            const dx = touches[0].clientX - touchStartX;
+            const rect = canvas.getBoundingClientRect();
+            const pad = { l: 50, r: 40 };
+            const dw = rect.width - pad.l - pad.r;
+            const totalPoints = this.compareState.chartData[0]?.rates.length || 1;
+            const zoom = this.compareState.zoom || 1;
+            const visiblePoints = totalPoints / zoom;
+            const deltaOffset = (dx / dw) * visiblePoints;
+            let newOffset = touchStartOffset - deltaOffset;
+            const maxOffset = Math.max(0, totalPoints - visiblePoints);
+            newOffset = Math.min(maxOffset, Math.max(0, newOffset));
+            this.compareState.offset = newOffset;
             this.drawCompareChart();
         }
     };
     
-    // 鼠标点击时显示对应曲线的基金名称
-    canvas.onclick = (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        const pad = { l: 50, r: 40, t: 25, b: 35 };
-        const dw = rect.width - pad.l - pad.r;
-        const dh = rect.height - pad.t - pad.b;
-        
-        const chartData = this.compareState.chartData;
-        if (chartData.length === 0) return;
-        
-        // 计算 Y 轴范围
-        let allRates = [];
-        chartData.forEach(d => allRates.push(...d.rates));
-        const maxRate = Math.max(...allRates, 5);
-        const minRate = Math.min(...allRates, -5);
-        const rateRange = maxRate - minRate;
-        const yPadding = rateRange * 0.1;
-        const yMax = maxRate + yPadding;
-        const yMin = minRate - yPadding;
-        
-        const getY = (rate) => pad.t + dh - ((rate - yMin) / (yMax - yMin)) * dh;
-        
-        // 找到最接近鼠标位置的曲线
-        let minDist = Infinity;
-        let closestFund = null;
-        
-        for (const data of chartData) {
-            const total = data.rates.length;
-            if (total < 2) continue;
-            
-            // 找到 X 方向最近的点的索引
-            const xStep = dw / (total - 1);
-            let idx = Math.round((mouseX - pad.l) / xStep);
-            idx = Math.max(0, Math.min(total - 1, idx));
-            
-            const pointX = pad.l + idx * xStep;
-            const pointY = getY(data.rates[idx]);
-            const dist = Math.sqrt(Math.pow(mouseX - pointX, 2) + Math.pow(mouseY - pointY, 2));
-            
-            if (dist < minDist && dist < 50) {
-                minDist = dist;
-                closestFund = data;
-            }
-        }
-        
-        if (closestFund) {
-            this.showToast(`📈 ${closestFund.name}`, 'success');
-        }
-    };
-    
-    canvas.onmouseleave = () => {
-        this.compareState.hoverIndex = -1;
-        this.drawCompareChart();
-        const infoDiv = document.getElementById('compare-hover-info');
-        if (infoDiv) infoDiv.innerHTML = '';
+    canvas.ontouchend = () => {
+        isTouchDragging = false;
+        initialPinchDistance = 0;
     };
 },
 

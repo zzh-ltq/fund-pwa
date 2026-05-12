@@ -4683,21 +4683,30 @@ async renderCompareDetails() {
     contentDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载详细信息中...</div>';
     
     try {
-        // 确保 basicInfo 和 managerInfo 存在（如果不存在则静默使用默认值）
-        for (const fund of selectedFunds) {
+        // 并发获取所有选中基金的完整信息（从接口实时获取，确保数据最新）
+        await Promise.all(selectedFunds.map(async (fund) => {
+            const fullInfo = await this.fetchFundFullInfo(fund.code);
             if (!this.data.fundsCache[fund.code]) this.data.fundsCache[fund.code] = {};
-            if (!this.data.fundsCache[fund.code].basicInfo) {
-                this.data.fundsCache[fund.code].basicInfo = { size: '--', establishDate: '--', riskLevel: '中高风险' };
-            }
-            if (!this.data.fundsCache[fund.code].managerInfo) {
-                this.data.fundsCache[fund.code].managerInfo = { name: '--', years: '--', avgReturn: '--', tenureReturn: '--', maxDrawdown: '--' };
-            }
-        }
+            const mgr = fullInfo.manager;
+            this.data.fundsCache[fund.code].basicInfo = {
+                size: fullInfo.fundInfo?.fundscale || fullInfo.fundInfo?.fundSize || '--',
+                establishDate: fullInfo.fundInfo?.establishDate || '--',
+                riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
+            };
+            this.data.fundsCache[fund.code].managerInfo = {
+                name: mgr?.name || '--',
+                years: mgr?.workTime || '--',
+                avgReturn: mgr?.power?.avr !== undefined ? mgr.power.avr.toFixed(2) : '--',
+                tenureReturn: mgr?.tenureReturn !== undefined ? mgr.tenureReturn.toFixed(2) : '--',
+                maxDrawdown: mgr?.maxDrawdown !== undefined ? mgr.maxDrawdown.toFixed(2) : '--'
+            };
+            await this.saveData();
+        }));
         
-        // 基本信息卡片
+        // 构建基本信息卡片
         let basicHtml = '<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">';
         for (const fund of selectedFunds) {
-            const info = this.data.fundsCache[fund.code]?.basicInfo;
+            const info = this.data.fundsCache[fund.code]?.basicInfo || { size: '--', establishDate: '--', riskLevel: '中高风险' };
             basicHtml += `<div class="card" style="flex:1; min-width:200px; padding:12px;">
                 <div style="font-weight:800; font-size:14px; margin-bottom:8px; color:var(--blue);">${fund.name}</div>
                 <div style="font-size:12px; display:grid; grid-template-columns:1fr 1fr; gap:6px;">
@@ -4714,9 +4723,9 @@ async renderCompareDetails() {
         let managerHtml = '<div class="card" style="padding:12px; margin-bottom:16px;"><div style="font-weight:800; font-size:14px; margin-bottom:12px;">👨‍💼 基金经理对比</div>';
         managerHtml += '<div style="overflow-x:auto;"><table class="data-table perf-table" style="min-width:600px;"><thead><tr><th>基金名称</th><th>经理姓名</th><th>从业年限</th><th>年均回报</th><th>任期回报</th><th>最大回撤</th></tr></thead><tbody>';
         for (const fund of selectedFunds) {
-            const mgr = this.data.fundsCache[fund.code]?.managerInfo;
-            const avgClass = parseFloat(mgr.avgReturn) >= 0 ? 'red' : 'green';
-            const tenureClass = parseFloat(mgr.tenureReturn) >= 0 ? 'red' : 'green';
+            const mgr = this.data.fundsCache[fund.code]?.managerInfo || { name: '--', years: '--', avgReturn: '--', tenureReturn: '--', maxDrawdown: '--' };
+            const avgClass = parseFloat(mgr.avgReturn) >= 0 ? 'red' : (parseFloat(mgr.avgReturn) < 0 ? 'green' : '');
+            const tenureClass = parseFloat(mgr.tenureReturn) >= 0 ? 'red' : (parseFloat(mgr.tenureReturn) < 0 ? 'green' : '');
             managerHtml += `<tr>
                 <td class="indicator-cell">${fund.name}</td>
                 <td>${mgr.name}</td>
@@ -4726,7 +4735,7 @@ async renderCompareDetails() {
                 <td class="green">${mgr.maxDrawdown}%</td>
             </tr>`;
         }
-        managerHtml += '</tbody></table></div></div>';
+        managerHtml += '</tbody>赶table></div></div>';
         
         // 十大重仓股对比（从 holdingsCache 读取）
         let holdingsHtml = '<div class="card" style="padding:12px;"><div style="font-weight:800; font-size:14px; margin-bottom:12px;">📊 十大重仓股对比</div>';

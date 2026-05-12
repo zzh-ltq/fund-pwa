@@ -4683,11 +4683,19 @@ async renderCompareDetails() {
     contentDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载详细信息中...</div>';
     
     try {
-        // 并发获取所有选中基金的完整信息（从接口实时获取，确保数据最新）
+        // 并发获取所有选中基金的完整信息
         await Promise.all(selectedFunds.map(async (fund) => {
             const fullInfo = await this.fetchFundFullInfo(fund.code);
             if (!this.data.fundsCache[fund.code]) this.data.fundsCache[fund.code] = {};
             const mgr = fullInfo.manager;
+            
+            // 安全数值格式化函数
+            const formatNum = (val, digits = 2) => {
+                if (val === undefined || val === null || val === '--') return '--';
+                const num = parseFloat(val);
+                return isNaN(num) ? '--' : num.toFixed(digits);
+            };
+            
             this.data.fundsCache[fund.code].basicInfo = {
                 size: fullInfo.fundInfo?.fundscale || fullInfo.fundInfo?.fundSize || '--',
                 establishDate: fullInfo.fundInfo?.establishDate || '--',
@@ -4696,9 +4704,9 @@ async renderCompareDetails() {
             this.data.fundsCache[fund.code].managerInfo = {
                 name: mgr?.name || '--',
                 years: mgr?.workTime || '--',
-                avgReturn: mgr?.power?.avr !== undefined ? mgr.power.avr.toFixed(2) : '--',
-                tenureReturn: mgr?.tenureReturn !== undefined ? mgr.tenureReturn.toFixed(2) : '--',
-                maxDrawdown: mgr?.maxDrawdown !== undefined ? mgr.maxDrawdown.toFixed(2) : '--'
+                avgReturn: formatNum(mgr?.power?.avr),
+                tenureReturn: formatNum(mgr?.tenureReturn),
+                maxDrawdown: formatNum(mgr?.maxDrawdown)
             };
             await this.saveData();
         }));
@@ -4724,8 +4732,8 @@ async renderCompareDetails() {
         managerHtml += '<div style="overflow-x:auto;"><table class="data-table perf-table" style="min-width:600px;"><thead><tr><th>基金名称</th><th>经理姓名</th><th>从业年限</th><th>年均回报</th><th>任期回报</th><th>最大回撤</th></tr></thead><tbody>';
         for (const fund of selectedFunds) {
             const mgr = this.data.fundsCache[fund.code]?.managerInfo || { name: '--', years: '--', avgReturn: '--', tenureReturn: '--', maxDrawdown: '--' };
-            const avgClass = parseFloat(mgr.avgReturn) >= 0 ? 'red' : (parseFloat(mgr.avgReturn) < 0 ? 'green' : '');
-            const tenureClass = parseFloat(mgr.tenureReturn) >= 0 ? 'red' : (parseFloat(mgr.tenureReturn) < 0 ? 'green' : '');
+            const avgClass = (mgr.avgReturn !== '--' && parseFloat(mgr.avgReturn) >= 0) ? 'red' : (mgr.avgReturn !== '--' && parseFloat(mgr.avgReturn) < 0 ? 'green' : '');
+            const tenureClass = (mgr.tenureReturn !== '--' && parseFloat(mgr.tenureReturn) >= 0) ? 'red' : (mgr.tenureReturn !== '--' && parseFloat(mgr.tenureReturn) < 0 ? 'green' : '');
             managerHtml += `<tr>
                 <td class="indicator-cell">${fund.name}</td>
                 <td>${mgr.name}</td>
@@ -4770,7 +4778,7 @@ async renderCompareDetails() {
                 for (const fund of selectedFunds) {
                     let ratio = fundRatios[fund.code];
                     let ratioText = ratio ? (typeof ratio === 'number' ? ratio.toFixed(2) + '%' : ratio + '%') : '--';
-                    holdingsHtml += `<td>${ratioText}</td>`;
+                    holdingsHtml += `<td style="text-align:center;">${ratioText}</td>`;
                 }
                 holdingsHtml += '</tr>';
             }

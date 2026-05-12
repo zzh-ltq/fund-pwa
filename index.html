@@ -3611,33 +3611,38 @@ drawIntradayFlowCanvas(data) {
 
       btn.innerText = '⚙️ 拉取数据并运算中...';
       btn.style.pointerEvents = 'none';
+      
       const resultBox = document.getElementById('m-ai-pred-result');
-      resultBox.style.display = 'none';
+      // 【修改】：点击立刻清空旧数据，并显示 Loading 动画
+      resultBox.innerHTML = `
+          <div style="text-align:center; padding: 40px 20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; box-shadow:0 8px 20px rgba(0,0,0,0.02);">
+              <div class="loading-spinner" style="margin: 0 auto 15px auto;"></div>
+              <div style="font-weight:900; color:var(--blue); font-size:15px; margin-bottom:6px;">正在启动模型算力引擎</div>
+              <div style="font-size:12px; color:var(--text-sub);">正在提取并分析 <b>${name}</b> 近 ${period} 天的数据...</div>
+          </div>
+      `;
+      resultBox.style.display = 'block';
 
       try {
-          // 拉取足够的历史收盘价数据
           const historyDataObj = await this._fetchMarketHistoryKlines(secid, period + 10);
           if (!historyDataObj) throw new Error("获取历史K线数据失败");
           
           let historyPrices = historyDataObj.map(d => d.close);
 
-          // 如果勾选并填入了今日最新价，则拼接到末尾
           if (useToday && todayInput !== '') {
               const todayPrice = parseFloat(todayInput);
               if (!isNaN(todayPrice)) {
-                  // 为了防止收盘后东方财富接口已经包含今天数据导致重复，做个简单的日期判定去重
-                  // 简单起见，直接覆盖最后一个或者追加
                   historyPrices.push(todayPrice);
               }
           }
 
           let payload = null;
           if (engine === 'js_knn') {
-              await new Promise(r => setTimeout(r, 400)); // 动画缓冲
+              await new Promise(r => setTimeout(r, 600)); // 故意加一点动画缓冲，让用户感知到计算
               const res = this._runLocalJSEnsemble(historyPrices);
               payload = { models: [{ title: '⚡ 内置 KNN 相似度推演', res: res }] };
           } else if (engine === 'local_api') {
-              payload = await this._fetchLocalPythonAPI(historyPrices, name); // 复用之前的Python请求
+              payload = await this._fetchLocalPythonAPI(historyPrices, name); 
           }
 
           if (payload) {
@@ -3672,34 +3677,37 @@ drawIntradayFlowCanvas(data) {
                       </div>
                   `;
               });
-              resultBox.innerHTML = html;
-              resultBox.style.display = 'block';
+              resultBox.innerHTML = html; // 新结果彻底覆盖掉 Loading 动画
           }
       } catch (err) {
-          this.showToast(err.message || '预测执行失败', 'error');
+          resultBox.innerHTML = `<div style="text-align:center; padding:20px; color:var(--red); font-weight:bold;">${err.message || '预测执行失败'}</div>`;
       } finally {
           btn.innerText = '🔮 启动 AI 预测推演';
           btn.style.pointerEvents = 'auto';
       }
   },
 
-// 5. 执行技术面综合深度诊断 (结合K线形态、量价、分时、均线)
+  // 5. 执行技术面综合诊断
   async runMarketTechnicalAnalysis(secid, name) {
       const btn = document.getElementById('m-tech-run-btn');
       btn.innerText = '📡 全维数据提取与扫描中...';
       btn.style.pointerEvents = 'none';
       
       const resultBox = document.getElementById('m-tech-result');
-      // 【修复】：点击立即清空旧数据并隐藏
-      resultBox.style.display = 'none';
-      resultBox.innerHTML = ''; 
+      // 【修改】：点击立刻清空旧数据，并显示 Loading 动画
+      resultBox.innerHTML = `
+          <div style="text-align:center; padding: 40px 20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; box-shadow:0 8px 20px rgba(0,0,0,0.02);">
+              <div class="loading-spinner" style="margin: 0 auto 15px auto;"></div>
+              <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">技术面全维度雷达扫描中</div>
+              <div style="font-size:12px; color:var(--text-sub);">正在提取并分析 <b>${name}</b> 的形态与量价流向...</div>
+          </div>
+      `;
+      resultBox.style.display = 'block';
 
       try {
-          // 1. 获取近 100 天 K 线数据 (用于均线、形态、量能)
           const klines = await this._fetchMarketHistoryKlines(secid, 100);
           if (!klines || klines.length < 60) throw new Error("K线数据不足，无法生成报告");
 
-          // 2. 额外拉取今日【分时走势】(用于判断日内均价线和尾盘承接)
           let intradayTrend = null;
           try {
               const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53&_=${Date.now()}`;
@@ -3707,7 +3715,6 @@ drawIntradayFlowCanvas(data) {
               intradayTrend = trendRes?.data?.trends || [];
           } catch(e) {}
 
-          // 3. 拉取今日实时资金流入 (f62)
           let netFlowStr = '--';
           let netFlowVal = 0;
           try {
@@ -3725,11 +3732,9 @@ drawIntradayFlowCanvas(data) {
           const yestK = klines[klines.length - 2];
           const currentPrice = todayK.close;
 
-          // ================= 技术指标计算 =================
           const calcMA = (data, d) => data.slice(-d).reduce((a,b)=>a+b,0) / d;
           const ma5 = calcMA(prices, 5), ma10 = calcMA(prices, 10), ma20 = calcMA(prices, 20);
 
-          // RSI (14)
           let gains = 0, losses = 0;
           for (let i = prices.length - 13; i < prices.length; i++) {
               let diff = prices[i] - prices[i-1];
@@ -3738,94 +3743,73 @@ drawIntradayFlowCanvas(data) {
           let rs = (gains / 14) / (losses / 14 || 0.0001);
           const rsi14 = 100 - (100 / (1 + rs));
 
-          // ================= 深度打分系统 (基准50分，动态加减) =================
           let score = 50; 
           let trendAdv = '', shapeAdv = '', volAdv = '', intraAdv = '';
 
-          // A. K线形态学分析 (Morphology)
           const body = todayK.close - todayK.open;
           const upperShadow = todayK.high - Math.max(todayK.open, todayK.close);
           const lowerShadow = Math.min(todayK.open, todayK.close) - todayK.low;
-          const priceRange = todayK.high - todayK.low || 0.001;
           const bodyPercent = (Math.abs(body) / yestK.close) * 100;
 
           if (lowerShadow > Math.abs(body) * 2 && lowerShadow > upperShadow) {
-              score += 12;
-              shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">长下影线探底：</span>下方承接盘极强，俗称“定海神针”，短期见底反弹概率极大。`;
+              score += 12; shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">长下影线探底：</span>下方承接盘极强，俗称“定海神针”，短期反弹概率极大。`;
           } else if (upperShadow > Math.abs(body) * 2 && upperShadow > lowerShadow) {
-              score -= 12;
-              shapeAdv = `<span style="color:#10b981; font-weight:bold;">长上影线承压：</span>上方抛压极重，冲高回落，短期面临调整风险。`;
+              score -= 12; shapeAdv = `<span style="color:#10b981; font-weight:bold;">长上影线承压：</span>上方抛压极重，冲高回落，短期面临调整风险。`;
           } else if (bodyPercent > 2.0 && body > 0) {
-              score += 10;
-              shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">实体大阳线：</span>多头占据绝对主导，上攻意愿强烈。`;
+              score += 10; shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">实体大阳线：</span>多头占据绝对主导，上攻意愿强烈。`;
           } else if (bodyPercent > 2.0 && body < 0) {
-              score -= 10;
-              shapeAdv = `<span style="color:#10b981; font-weight:bold;">实体大阴线：</span>空头肆虐，破位下杀迹象明显。`;
+              score -= 10; shapeAdv = `<span style="color:#10b981; font-weight:bold;">实体大阴线：</span>空头肆虐，破位下杀迹象明显。`;
           } else {
               shapeAdv = `K线实体较小，多空双方处于焦灼试探期。`;
           }
 
-          // B. 量价配合分析 (Volume)
           const avgVol5 = vols.slice(-6, -1).reduce((a,b)=>a+b,0) / 5;
           const volRatio = todayK.vol / (avgVol5 || 1);
 
           if (volRatio > 1.3 && body > 0) {
-              score += 15;
-              volAdv = `<span style="color:#f43f5e; font-weight:bold;">放量上涨：</span>量比高达 ${volRatio.toFixed(2)}，增量资金进场抢筹，良性多头格局。`;
+              score += 15; volAdv = `<span style="color:#f43f5e; font-weight:bold;">放量上涨：</span>量比高达 ${volRatio.toFixed(2)}，增量资金抢筹，良性多头格局。`;
           } else if (volRatio > 1.3 && body <= 0) {
-              score -= 15;
-              volAdv = `<span style="color:#10b981; font-weight:bold;">放量滞涨/下跌：</span>量比 ${volRatio.toFixed(2)}，资金放量出逃或高位滞涨，极其危险。`;
+              score -= 15; volAdv = `<span style="color:#10b981; font-weight:bold;">放量滞涨/下跌：</span>量比 ${volRatio.toFixed(2)}，资金放量出逃或高位滞涨，极其危险。`;
           } else if (volRatio < 0.7 && body < 0) {
-              score += 5;
-              volAdv = `<span style="color:#f59e0b; font-weight:bold;">缩量回调：</span>量比仅 ${volRatio.toFixed(2)}，下跌无量，主力洗盘概率大于出货。`;
+              score += 5; volAdv = `<span style="color:#f59e0b; font-weight:bold;">缩量回调：</span>量比仅 ${volRatio.toFixed(2)}，下跌无量，洗盘概率大于出货。`;
           } else {
               volAdv = `成交量表现平稳 (量比 ${volRatio.toFixed(2)})，未见异常异动。`;
           }
 
-          // C. 均线与均值回归 (Trend & RSI)
           if (currentPrice > ma5 && ma5 > ma10 && ma10 > ma20) {
-              score += 10;
-              trendAdv = `均线呈<b style="color:#f43f5e;">标准多头排列</b>，趋势向上。`;
+              score += 10; trendAdv = `均线呈<b style="color:#f43f5e;">标准多头排列</b>，趋势向上。`;
           } else if (currentPrice < ma5 && ma5 < ma10 && ma10 < ma20) {
-              score -= 10;
-              trendAdv = `均线呈<b style="color:#10b981;">典型空头排列</b>，犹如泰山压顶。`;
+              score -= 10; trendAdv = `均线呈<b style="color:#10b981;">典型空头排列</b>，犹如泰山压顶。`;
           } else if (currentPrice > ma20) {
               score += 5; trendAdv = `站稳 20 日生命线，结构偏暖。`;
           } else {
               score -= 5; trendAdv = `跌破 20 日生命线，趋势走弱。`;
           }
 
-          if (rsi14 < 30) { score += 8; trendAdv += ` 且 RSI 处于极度超卖区，存在报复性反弹需求。`; }
+          if (rsi14 < 30) { score += 8; trendAdv += ` 且 RSI 极度超卖，存在报复性反弹需求。`; }
           else if (rsi14 > 70) { score -= 8; trendAdv += ` 且 RSI 极度超买，面临技术性修正。`; }
 
-          // D. 日内分时均价线分析 (Intraday VWAP)
           if (intradayTrend && intradayTrend.length > 0) {
-              // 取最后一分钟的分时数据: "时间,价格,均价,成交量..."
               const lastMinParams = intradayTrend[intradayTrend.length - 1].split(',');
               const closePrice = parseFloat(lastMinParams[1]);
-              const vwapPrice = parseFloat(lastMinParams[2]); // 分时黄线(均价线)
+              const vwapPrice = parseFloat(lastMinParams[2]);
               
               if (closePrice > vwapPrice * 1.005) {
-                  score += 8;
-                  intraAdv = `日内收盘价高出均价线，<span style="color:#f43f5e;">尾盘存在抢筹或强势维持</span>。`;
+                  score += 8; intraAdv = `收盘价高出均价线，<span style="color:#f43f5e;">尾盘存在抢筹或强势维持</span>。`;
               } else if (closePrice < vwapPrice * 0.995) {
-                  score -= 8;
-                  intraAdv = `日内收盘价低于均价线，<span style="color:#10b981;">走势重心下移，尾盘承接乏力</span>。`;
+                  score -= 8; intraAdv = `收盘价低于均价线，<span style="color:#10b981;">重心下移，尾盘承接乏力</span>。`;
               } else {
                   intraAdv = `日内价格紧贴均价线，走势平稳无大幅偏离。`;
               }
           } else {
-              intraAdv = `因处于盘前或接口限制，暂无当日分时微观数据。`;
+              intraAdv = `暂无当日分时微观数据。`;
           }
 
-          // E. 主力资金补充加分
           if (netFlowVal > 0) score += 5;
           else if (netFlowVal < 0) score -= 5;
 
-          // 边界约束
           score = Math.max(0, Math.min(100, score));
 
-          // ================= 最终定论 =================
           let finalConclusion = '';
           let finalColor = '';
           if (score >= 80) { finalConclusion = '🚀 强力看多 (闭眼上车)'; finalColor = '#f43f5e'; }
@@ -3834,7 +3818,7 @@ drawIntradayFlowCanvas(data) {
           else if (score >= 20) { finalConclusion = '📉 偏向空头 (逢高减仓)'; finalColor = '#059669'; }
           else { finalConclusion = '⚠️ 强力看空 (清仓规避)'; finalColor = '#10b981'; }
 
-          // ================= 渲染报告 UI =================
+          // 覆盖掉 Loading 动画
           resultBox.innerHTML = `
             <div class="card" style="border: 1px solid #e2e8f0; background: #fff;">
                 <div style="text-align:center; padding-bottom: 12px; border-bottom: 1px dashed #cbd5e1; margin-bottom: 15px;">
@@ -3862,10 +3846,9 @@ drawIntradayFlowCanvas(data) {
                 </div>
             </div>
           `;
-          resultBox.style.display = 'block';
 
       } catch (err) {
-          this.showToast(err.message || '诊断失败', 'error');
+          resultBox.innerHTML = `<div style="text-align:center; padding:20px; color:var(--red); font-weight:bold;">${err.message || '诊断失败'}</div>`;
       } finally {
           btn.innerText = '📡 立即生成技术面诊断报告';
           btn.style.pointerEvents = 'auto';

@@ -1136,109 +1136,147 @@ async batchUpdateSellConfirmInfo() {
     // 【优化4：取消自动上传】已经删除了原有的 if(this.s3) { this.pushToCloud(); }
 },
 
-// 批量抓取所有基金的持仓信息并缓存（支持联接基金穿透）
-async batchFetchHoldings() {
+// 批量抓取所有基金的持仓信息（优化版：支持缓存跳过、高并发、超时控制）
+async batchFetchHoldings(forceRefresh = false) {
     const allCodes = Object.keys(this.data.fundsCache);
     if (allCodes.length === 0) {
         this.showToast('暂无基金数据', 'error');
         return;
     }
-
-    this.showToast(`开始抓取 ${allCodes.length} 只基金的持仓...`);
+    
+    // 过滤出需要抓取的基金（24小时内有缓存且未强制刷新则跳过）
+    const now = Date.now();
+    const CACHE_TTL = 24 * 60 * 60 * 1000; // 24小时
+    let codesToFetch = allCodes;
+    if (!forceRefresh) {
+        codesToFetch = allCodes.filter(code => {
+            const cache = this.data.fundsCache[code]?.holdingsCache;
+            return !cache || (now - cache.timestamp) > CACHE_TTL;
+        });
+    }
+    
+    if (codesToFetch.length === 0) {
+        this.showToast('所有基金持仓缓存均为最新，无需重复抓取', 'success');
+        return;
+    }
+    
+    this.showToast(`开始抓取 ${codesToFetch.length} 只基金的持仓（跳过 ${allCodes.length - codesToFetch.length} 只已缓存）...`);
     
     const loadingModal = document.getElementById('modal-loading');
     const titleText = document.getElementById('loading-modal-title');
     const progressText = document.getElementById('loading-progress-text');
     titleText.innerText = '正在抓取持仓数据...';
     loadingModal.style.display = 'flex';
-    progressText.innerText = `0 / ${allCodes.length}`;
-
+    progressText.innerText = `0 / ${codesToFetch.length}`;
+    
     let successCount = 0;
     let processed = 0;
-
-    // 并发控制避免过载
-    const batchSize = 3;
-    for (let i = 0; i < allCodes.length; i += batchSize) {
-        const chunk = allCodes.slice(i, i + batchSize);
-        await Promise.all(chunk.map(async (code) => {
+    
+    // 最大并发数 6，使用队列控制
+    const BATCH_SIZE = 6;
+    for (let i = 0; i < codesToFetch.length; i += BATCH_SIZE) {
+        const chunk = codesToFetch.slice(i, i + BATCH_SIZE);
+        const promises = chunk.map(async (code) => {
             try {
-                let stocks = [];
-                let bonds = [];
-                
-                // 1. 获取债券持仓
-                bonds = await this.fetchEastMoneyTable(code, 'zqcc');
-                
-                // 2. 获取股票持仓
-                stocks = await this.fetchEastMoneyTable(code, 'jjcc');
-                
-                // 3. 如果没有股票持仓，检查是否有手动绑定的 ETF
-                if ((!stocks || stocks.length === 0) && this.data.fundsCache[code]?.boundEtfCode) {
-                    const boundCode = this.data.fundsCache[code].boundEtfCode;
-                    const etfStocks = await this.fetchEastMoneyTable(boundCode, 'jjcc');
-                    if (etfStocks && etfStocks.length > 0) {
-                        const ratioMultiplier = 0.945; // 联接基金常见仓位 94.5%
-                        stocks = etfStocks.map(s => ({
-                            code: s.code,
-                            name: s.name,
-                            ratio: (s.ratio * ratioMultiplier).toFixed(2)
-                        }));
-                    }
-                }
-                
-                // 4. 如果没有股票持仓但名称包含"联接"，尝试通过名称匹配 ETF（兜底）
-                if ((!stocks || stocks.length === 0) && this.data.fundsCache[code]?.name?.includes('联接')) {
-                    await this.loadMasterList();
-                    const fundName = this.data.fundsCache[code].name;
-                    let company = fundName.substring(0, 3);
-                    if (company === '交银施') company = '交银';
-                    let cleanTheme = fundName.split('联接')[0]
-                        .replace(company, '')
-                        .replace(/ETF|发起式|指数|证券投资基金|A|C|E|I/g, '')
-                        .replace(/中证|国证|上证|深证|富时|标普|纳斯达克/g, '')
-                        .trim();
-                    
-                    let matched = this.masterFundList.find(f => {
-                        const isETF = f[0].startsWith('15') || f[0].startsWith('51');
-                        if (!isETF) return false;
-                        const hasCompany = f[2].includes(company) || f[2].includes(company.substring(0,2));
-                        const hasTheme = f[2].includes(cleanTheme);
-                        return hasCompany && hasTheme;
-                    });
-                    
-                    if (matched) {
-                        const etfStocks = await this.fetchEastMoneyTable(matched[0], 'jjcc');
-                        if (etfStocks && etfStocks.length > 0) {
-                            stocks = etfStocks.map(s => ({
-                                code: s.code,
-                                name: s.name,
-                                ratio: (s.ratio * 0.945).toFixed(2)
-                            }));
-                        }
-                    }
-                }
-                
-                if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-                this.data.fundsCache[code].holdingsCache = {
-                    stocks: stocks || [],
-                    bonds: bonds || [],
-                    timestamp: Date.now()
-                };
-                if (stocks && stocks.length > 0) successCount++;
-            } catch(e) {
+                // 带超时的抓取任务
+                await this._fetchSingleFundHoldingsWithTimeout(code, 8000);
+                successCount++;
+            } catch (e) {
                 // 静默失败
             }
             processed++;
-            progressText.innerText = `${processed} / ${allCodes.length}`;
-        }));
-        if (i + batchSize < allCodes.length) await new Promise(r => setTimeout(r, 300));
+            progressText.innerText = `${processed} / ${codesToFetch.length}`;
+        });
+        await Promise.all(promises);
+        if (i + BATCH_SIZE < codesToFetch.length) {
+            await new Promise(r => setTimeout(r, 200)); // 减少等待时间
+        }
     }
-
+    
     await this.saveData();
     loadingModal.style.display = 'none';
-    this.showToast(`✅ 持仓抓取完成，成功 ${successCount} 只，失败/无数据 ${allCodes.length - successCount} 只`);
-    
-    // 如果当前在自选或板块页，刷新可能受益的显示
+    this.showToast(`✅ 持仓抓取完成，成功 ${successCount} 只，失败/无数据 ${codesToFetch.length - successCount} 只`);
     if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+},
+
+// 为单只基金抓取持仓增加超时控制
+_fetchSingleFundHoldingsWithTimeout(code, timeoutMs) {
+    return new Promise(async (resolve, reject) => {
+        const timeoutId = setTimeout(() => reject(new Error('Timeout')), timeoutMs);
+        try {
+            await this._fetchSingleFundHoldings(code);
+            clearTimeout(timeoutId);
+            resolve();
+        } catch (err) {
+            clearTimeout(timeoutId);
+            reject(err);
+        }
+    });
+},
+
+// 单只基金持仓抓取核心逻辑（支持绑定ETF穿透）
+async _fetchSingleFundHoldings(code) {
+    let stocks = [];
+    let bonds = [];
+    
+    // 1. 获取债券持仓
+    bonds = await this.fetchEastMoneyTable(code, 'zqcc');
+    
+    // 2. 获取股票持仓
+    stocks = await this.fetchEastMoneyTable(code, 'jjcc');
+    
+    // 3. 如果没有股票持仓，检查是否有手动绑定的 ETF
+    if ((!stocks || stocks.length === 0) && this.data.fundsCache[code]?.boundEtfCode) {
+        const boundCode = this.data.fundsCache[code].boundEtfCode;
+        const etfStocks = await this.fetchEastMoneyTable(boundCode, 'jjcc');
+        if (etfStocks && etfStocks.length > 0) {
+            const ratioMultiplier = 0.945;
+            stocks = etfStocks.map(s => ({
+                code: s.code,
+                name: s.name,
+                ratio: (s.ratio * ratioMultiplier).toFixed(2)
+            }));
+        }
+    }
+    
+    // 4. 如果没有股票持仓但名称包含"联接"，尝试通过名称匹配 ETF（兜底）
+    if ((!stocks || stocks.length === 0) && this.data.fundsCache[code]?.name?.includes('联接')) {
+        await this.loadMasterList();
+        const fundName = this.data.fundsCache[code].name;
+        let company = fundName.substring(0, 3);
+        if (company === '交银施') company = '交银';
+        let cleanTheme = fundName.split('联接')[0]
+            .replace(company, '')
+            .replace(/ETF|发起式|指数|证券投资基金|A|C|E|I/g, '')
+            .replace(/中证|国证|上证|深证|富时|标普|纳斯达克/g, '')
+            .trim();
+        
+        let matched = this.masterFundList.find(f => {
+            const isETF = f[0].startsWith('15') || f[0].startsWith('51');
+            if (!isETF) return false;
+            const hasCompany = f[2].includes(company) || f[2].includes(company.substring(0,2));
+            const hasTheme = f[2].includes(cleanTheme);
+            return hasCompany && hasTheme;
+        });
+        
+        if (matched) {
+            const etfStocks = await this.fetchEastMoneyTable(matched[0], 'jjcc');
+            if (etfStocks && etfStocks.length > 0) {
+                stocks = etfStocks.map(s => ({
+                    code: s.code,
+                    name: s.name,
+                    ratio: (s.ratio * 0.945).toFixed(2)
+                }));
+            }
+        }
+    }
+    
+    if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+    this.data.fundsCache[code].holdingsCache = {
+        stocks: stocks || [],
+        bonds: bonds || [],
+        timestamp: Date.now()
+    };
 },
   
   formatEMDate(ts, length = 10, offset = 0) { 
@@ -4474,7 +4512,7 @@ compareState: {
 // 预定义对比曲线颜色池
 compareColors: ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444', '#22c55e', '#eab308'],
 
-// 打开对比弹窗
+// 打开对比弹窗（默认选中优劣综合前三 + 综合超级分前三）
 openCompareModal() {
     const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId);
     if (!currentGroup || currentGroup.fundCodes.length === 0) {
@@ -4482,14 +4520,14 @@ openCompareModal() {
         return;
     }
     
-    // 收集分组内所有有效基金并计算得分
-    const validFunds = [];
+    // 格式化所有基金，获取得分
+    const formattedFunds = [];
     for (const code of currentGroup.fundCodes) {
         const f = this.data.fundsCache[code];
         if (f && f.netWorth && f.netWorth.length >= 30) {
             const formatted = this.formatFund(code);
             if (formatted.isLoad) {
-                validFunds.push({
+                formattedFunds.push({
                     code: code,
                     name: f.name || code,
                     netWorth: f.netWorth,
@@ -4500,26 +4538,30 @@ openCompareModal() {
         }
     }
     
-    if (validFunds.length === 0) {
+    if (formattedFunds.length === 0) {
         this.showToast('当前分组没有足够历史数据的基金（需≥30天）', 'error');
         return;
     }
     
-    // 按综合得分排序（优先 superScore，其次 medalScore）
-    validFunds.sort((a, b) => {
-        const aScore = a.superScore || a.medalScore || 0;
-        const bScore = b.superScore || b.medalScore || 0;
-        return bScore - aScore;
-    });
+    // 按综合超级分排序取前3
+    const bySuper = [...formattedFunds].sort((a, b) => b.superScore - a.superScore);
+    const topSuper = bySuper.slice(0, 3);
     
-    // 默认选中前三名
-    this.compareState.selectedCodes.clear();
-    const topCount = Math.min(3, validFunds.length);
-    for (let i = 0; i < topCount; i++) {
-        this.compareState.selectedCodes.add(validFunds[i].code);
+    // 按优劣综合分排序取前3
+    const byMedal = [...formattedFunds].sort((a, b) => b.medalScore - a.medalScore);
+    const topMedal = byMedal.slice(0, 3);
+    
+    // 合并去重（使用 Set 基于 code）
+    const selectedSet = new Set();
+    [...topSuper, ...topMedal].forEach(f => selectedSet.add(f.code));
+    
+    // 如果去重后没有选中任何基金（理论上不会），则保底选第一只
+    if (selectedSet.size === 0 && formattedFunds.length > 0) {
+        selectedSet.add(formattedFunds[0].code);
     }
     
-    this.compareState.funds = validFunds;
+    this.compareState.selectedCodes = selectedSet;
+    this.compareState.funds = formattedFunds;
     this.compareState.period = 15;  // 默认15天
     document.getElementById('compare-period').value = '15';
     

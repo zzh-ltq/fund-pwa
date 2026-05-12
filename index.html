@@ -388,15 +388,19 @@
 #compare-chart-container {
     margin-bottom: 20px;
 }
+#compare-legend-wrapper {
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
 .compare-legend-area {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 8px 12px;
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
-    margin: 12px 0 16px;
-    padding: 8px 12px;
-    background: #f8fafc;
-    border-radius: 12px;
     font-size: 11px;
+    border: 1px solid #e2e8f0;
 }
 .compare-legend-item {
     display: inline-flex;
@@ -691,6 +695,8 @@
                 </div>
                 <div id="compare-hover-info" style="margin-top: 8px; font-size: 11px; color: var(--text-sub); text-align: center; min-height: 32px; background: #f8fafc; border-radius: 8px; padding: 4px 8px;"></div>
             </div>
+          <!-- 图例会动态插入到此位置 -->
+          <div id="compare-legend-wrapper"></div>
           <!-- 基金详细信息对比区域 -->
           <div id="compare-details-area" style="margin-top: 16px; display: none;">
               <div style="font-size: 14px; font-weight: 800; color: var(--text-main); margin-bottom: 10px;">📋 基金详情对比</div>
@@ -5017,7 +5023,7 @@ drawCompareChart() {
 
   // 渲染对比图例（显示序号和基金名称）
 renderCompareLegend() {
-    let legendHtml = '<div class="compare-legend-area"><span style="font-weight:800; margin-right:8px;">📌 图例：</span>';
+    let legendHtml = '<div class="compare-legend-area" style="margin: 12px 0 20px;"><span style="font-weight:800; margin-right:8px;">📌 图例：</span>';
     for (let i = 0; i < this.compareState.chartData.length; i++) {
         const data = this.compareState.chartData[i];
         legendHtml += `
@@ -5029,16 +5035,8 @@ renderCompareLegend() {
         `;
     }
     legendHtml += '</div>';
-    
-    // 插入到图表容器后面
-    const chartContainer = document.getElementById('compare-chart-container');
-    let legendDiv = document.getElementById('compare-legend-area');
-    if (!legendDiv) {
-        legendDiv = document.createElement('div');
-        legendDiv.id = 'compare-legend-area';
-        chartContainer.parentNode.insertBefore(legendDiv, chartContainer.nextSibling);
-    }
-    legendDiv.innerHTML = legendHtml;
+    const wrapper = document.getElementById('compare-legend-wrapper');
+    if (wrapper) wrapper.innerHTML = legendHtml;
 },
 
 // 绑定图表鼠标事件

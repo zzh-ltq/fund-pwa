@@ -383,6 +383,49 @@
     padding-top: 8px;
     border-top: 1px solid #e2e8f0;
 }
+
+  /* 对比弹窗布局优化 */
+#compare-chart-container {
+    margin-bottom: 20px;
+}
+.compare-legend-area {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 12px 0 16px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 12px;
+    font-size: 11px;
+}
+.compare-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 16px;
+    transition: all 0.2s;
+}
+.compare-legend-item:hover {
+    background: #e6f0ff;
+}
+.legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+.legend-num {
+    font-weight: 800;
+    width: 20px;
+    text-align: center;
+}
+.legend-name {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
     
 /* ========== 智投专属样式 ========== */
     .invest-sub-tabs { display: flex; gap: 8px; margin-bottom: 10px; background: #f1f5f9; padding: 4px; border-radius: 12px; }
@@ -4512,7 +4555,7 @@ compareState: {
 // 预定义对比曲线颜色池
 compareColors: ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444', '#22c55e', '#eab308'],
 
-// 打开对比弹窗（默认选中优劣综合前三 + 综合超级分前三）
+// 打开对比弹窗（确保与主界面排名一致）
 openCompareModal() {
     const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId);
     if (!currentGroup || currentGroup.fundCodes.length === 0) {
@@ -4520,62 +4563,58 @@ openCompareModal() {
         return;
     }
     
-    // 格式化所有基金，获取得分
-    const formattedFunds = [];
-    for (const code of currentGroup.fundCodes) {
-        const f = this.data.fundsCache[code];
-        if (f && f.netWorth && f.netWorth.length >= 30) {
-            const formatted = this.formatFund(code);
-            if (formatted.isLoad) {
-                formattedFunds.push({
-                    code: code,
-                    name: f.name || code,
-                    netWorth: f.netWorth,
-                    superScore: formatted.superScore || 0,
-                    medalScore: formatted.medalScore || 0
-                });
-            }
-        }
-    }
+    // 格式化所有基金，获取得分（与主界面完全一致）
+    let formattedFunds = currentGroup.fundCodes.map(code => this.formatFund(code));
+    formattedFunds = formattedFunds.filter(f => f.isLoad && f.netWorth && f.netWorth.length >= 30);
     
     if (formattedFunds.length === 0) {
         this.showToast('当前分组没有足够历史数据的基金（需≥30天）', 'error');
         return;
     }
     
-    // 按综合超级分排序取前3
-    const bySuper = [...formattedFunds].sort((a, b) => b.superScore - a.superScore);
-    const topSuper = bySuper.slice(0, 3);
+    // 确保得分已更新（formatFund 中已调用，但为确保，再显式计算一次）
+    this.calculateMedals(formattedFunds);
+    this.calculateSuperScoreMedals(formattedFunds);
     
-    // 按优劣综合分排序取前3
+    // 按优劣综合得分排序取前三
     const byMedal = [...formattedFunds].sort((a, b) => b.medalScore - a.medalScore);
     const topMedal = byMedal.slice(0, 3);
     
-    // 合并去重（使用 Set 基于 code）
-    const selectedSet = new Set();
-    [...topSuper, ...topMedal].forEach(f => selectedSet.add(f.code));
+    // 按综合超级分排序取前三
+    const bySuper = [...formattedFunds].sort((a, b) => b.superScore - a.superScore);
+    const topSuper = bySuper.slice(0, 3);
     
-    // 如果去重后没有选中任何基金（理论上不会），则保底选第一只
-    if (selectedSet.size === 0 && formattedFunds.length > 0) {
-        selectedSet.add(formattedFunds[0].code);
+    // 合并去重
+    const selectedSet = new Set();
+    [...topMedal, ...topSuper].forEach(f => selectedSet.add(f.code));
+    
+    // 如果去重后不到3只，则补足到3只（按综合分从高到低）
+    if (selectedSet.size < 3 && formattedFunds.length >= 3) {
+        const allSorted = [...formattedFunds].sort((a, b) => (b.superScore || b.medalScore) - (a.superScore || a.medalScore));
+        for (let f of allSorted) {
+            if (!selectedSet.has(f.code)) {
+                selectedSet.add(f.code);
+                if (selectedSet.size === 3) break;
+            }
+        }
     }
     
     this.compareState.selectedCodes = selectedSet;
-    this.compareState.funds = formattedFunds;
-    this.compareState.period = 15;  // 默认15天
+    this.compareState.funds = formattedFunds.map(f => ({
+        code: f.code,
+        name: f.name,
+        netWorth: f.netWorth,
+        superScore: f.superScore,
+        medalScore: f.medalScore
+    }));
+    this.compareState.period = 15;
     document.getElementById('compare-period').value = '15';
     
     this.openModal('compare');
-    
-    // 渲染基金选择列表
     this.renderCompareFundList();
-    // 构建并绘制图表
     this.buildCompareChartData();
     this.drawCompareChart();
-    // 渲染详细信息
     this.renderCompareDetails();
-    
-    // 绑定 canvas 事件
     setTimeout(() => this.bindCompareChartEvents(), 100);
 },
 
@@ -4835,7 +4874,7 @@ drawCompareChart() {
         return;
     }
     
-    // 计算所有曲线的全局最大/最小收益率
+    // 计算全局收益率范围
     let allRates = [];
     chartData.forEach(d => allRates.push(...d.rates));
     const maxRate = Math.max(...allRates, 5);
@@ -4845,7 +4884,6 @@ drawCompareChart() {
     const yMax = maxRate + yPadding;
     const yMin = minRate - yPadding;
     
-    // 获取容器尺寸并设置 canvas
     const rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = rect.width * dpr;
@@ -4857,11 +4895,9 @@ drawCompareChart() {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, rect.width, rect.height);
     
-    // 绘制参数
     const pad = { l: 50, r: 40, t: 25, b: 35 };
     const dw = rect.width - pad.l - pad.r;
     const dh = rect.height - pad.t - pad.b;
-    
     if (dw <= 0 || dh <= 0) return;
     
     const getX = (idx, total) => pad.l + (idx / (total - 1)) * dw;
@@ -4914,23 +4950,24 @@ drawCompareChart() {
     }
     
     // 绘制曲线
-    for (const data of chartData) {
+    for (let i = 0; i < chartData.length; i++) {
+        const data = chartData[i];
         const total = data.rates.length;
         if (total < 2) continue;
         
         ctx.beginPath();
         ctx.moveTo(getX(0, total), getY(data.rates[0]));
-        for (let i = 1; i < total; i++) {
-            ctx.lineTo(getX(i, total), getY(data.rates[i]));
+        for (let j = 1; j < total; j++) {
+            ctx.lineTo(getX(j, total), getY(data.rates[j]));
         }
         ctx.strokeStyle = data.color;
         ctx.lineWidth = 2;
         ctx.stroke();
         
         // 绘制末端数据点
-        ctx.beginPath();
         const lastX = getX(total - 1, total);
         const lastY = getY(data.rates[total - 1]);
+        ctx.beginPath();
         ctx.arc(lastX, lastY, 4, 0, 2 * Math.PI);
         ctx.fillStyle = data.color;
         ctx.fill();
@@ -4938,11 +4975,12 @@ drawCompareChart() {
         ctx.lineWidth = 1.5;
         ctx.stroke();
         
-        // 在曲线末端添加基金名称标签
-        ctx.font = 'bold 9px sans-serif';
+        // 使用数字序号代替基金名称（序号 = i+1）
+        const seq = (i + 1).toString();
+        ctx.font = 'bold 11px sans-serif';
         ctx.fillStyle = data.color;
         ctx.shadowBlur = 0;
-        ctx.fillText(data.name.length > 8 ? data.name.slice(0, 6) + '..' : data.name, lastX + 5, lastY - 3);
+        ctx.fillText(seq, lastX + 5, lastY - 3);
     }
     
     // 绘制十字线（如果有 hover）
@@ -4975,6 +5013,32 @@ drawCompareChart() {
             }
         }
     }
+},
+
+  // 渲染对比图例（显示序号和基金名称）
+renderCompareLegend() {
+    let legendHtml = '<div class="compare-legend-area"><span style="font-weight:800; margin-right:8px;">📌 图例：</span>';
+    for (let i = 0; i < this.compareState.chartData.length; i++) {
+        const data = this.compareState.chartData[i];
+        legendHtml += `
+            <div class="compare-legend-item" onclick="app.toggleCompareFund('${data.code}', event)">
+                <div class="legend-color" style="background: ${data.color};"></div>
+                <span class="legend-num">${i+1}</span>
+                <span class="legend-name" title="${data.name}">${data.name.length > 12 ? data.name.slice(0,10)+'...' : data.name}</span>
+            </div>
+        `;
+    }
+    legendHtml += '</div>';
+    
+    // 插入到图表容器后面
+    const chartContainer = document.getElementById('compare-chart-container');
+    let legendDiv = document.getElementById('compare-legend-area');
+    if (!legendDiv) {
+        legendDiv = document.createElement('div');
+        legendDiv.id = 'compare-legend-area';
+        chartContainer.parentNode.insertBefore(legendDiv, chartContainer.nextSibling);
+    }
+    legendDiv.innerHTML = legendHtml;
 },
 
 // 绑定图表鼠标事件

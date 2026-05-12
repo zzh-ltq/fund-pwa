@@ -4552,71 +4552,50 @@ drawIntradayFlowCanvas(data) {
 // 15. 基金对比功能模块
 // ==========================================
 
-// 对比弹窗状态
+
+
 compareState: {
-    funds: [],           // { code, name, netWorth, rates }
+    funds: [],
     selectedCodes: new Set(),
-    period: 90,          // 对比周期（交易日数）
-    chartData: [],       // 存储每条曲线的数据和颜色
-    hoverIndex: -1,
-    hoveredFund: null
-},
+    period: 15,
+    chartData: [],
+  },
+  compareColors: ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444', '#22c55e', '#eab308'],
 
-// 预定义对比曲线颜色池
-compareColors: ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444', '#22c55e', '#eab308'],
-
-// 打开对比弹窗（确保与主界面排名一致）
-openCompareModal() {
+  // 打开对比弹窗
+  async openCompareModal() {
     const currentGroup = this.data.groups.find(g => g.id === this.currentGroupId);
     if (!currentGroup || currentGroup.fundCodes.length === 0) {
-        this.showToast('当前分组没有基金，请先添加基金', 'error');
-        return;
+      this.showToast('当前分组没有基金，请先添加基金', 'error');
+      return;
     }
     
-    // 格式化所有基金，获取得分（与主界面完全一致）
     let formattedFunds = currentGroup.fundCodes.map(code => this.formatFund(code));
     formattedFunds = formattedFunds.filter(f => f.isLoad && f.netWorth && f.netWorth.length >= 30);
-    
     if (formattedFunds.length === 0) {
-        this.showToast('当前分组没有足够历史数据的基金（需≥30天）', 'error');
-        return;
+      this.showToast('当前分组没有足够历史数据的基金（需≥30天）', 'error');
+      return;
     }
     
-    // 确保得分已更新（formatFund 中已调用，但为确保，再显式计算一次）
     this.calculateMedals(formattedFunds);
     this.calculateSuperScoreMedals(formattedFunds);
     
-    // 按优劣综合得分排序取前三
     const byMedal = [...formattedFunds].sort((a, b) => b.medalScore - a.medalScore);
     const topMedal = byMedal.slice(0, 3);
-    
-    // 按综合超级分排序取前三
     const bySuper = [...formattedFunds].sort((a, b) => b.superScore - a.superScore);
     const topSuper = bySuper.slice(0, 3);
     
-    // 合并去重
     const selectedSet = new Set();
     [...topMedal, ...topSuper].forEach(f => selectedSet.add(f.code));
-    
-    // 如果去重后不到3只，则补足到3只（按综合分从高到低）
     if (selectedSet.size < 3 && formattedFunds.length >= 3) {
-        const allSorted = [...formattedFunds].sort((a, b) => (b.superScore || b.medalScore) - (a.superScore || a.medalScore));
-        for (let f of allSorted) {
-            if (!selectedSet.has(f.code)) {
-                selectedSet.add(f.code);
-                if (selectedSet.size === 3) break;
-            }
-        }
+      const allSorted = [...formattedFunds].sort((a, b) => (b.superScore || b.medalScore) - (a.superScore || a.medalScore));
+      for (let f of allSorted) {
+        if (!selectedSet.has(f.code)) { selectedSet.add(f.code); if (selectedSet.size === 3) break; }
+      }
     }
     
     this.compareState.selectedCodes = selectedSet;
-    this.compareState.funds = formattedFunds.map(f => ({
-        code: f.code,
-        name: f.name,
-        netWorth: f.netWorth,
-        superScore: f.superScore,
-        medalScore: f.medalScore
-    }));
+    this.compareState.funds = formattedFunds.map(f => ({ code: f.code, name: f.name, netWorth: f.netWorth, superScore: f.superScore, medalScore: f.medalScore }));
     this.compareState.period = 15;
     document.getElementById('compare-period').value = '15';
     
@@ -4625,59 +4604,41 @@ openCompareModal() {
     this.buildCompareChartData();
     this.drawCompareChart();
     this.renderCompareDetails();
-    setTimeout(() => this.bindCompareChartEvents(), 100);
-
-  // 预加载选中基金的基本信息（规模、成立日期）
-const selectedCodes = Array.from(this.compareState.selectedCodes);
-await Promise.all(selectedCodes.map(async (code) => {
-    if (!this.data.fundsCache[code]?.basicInfo) {
+    
+    // 预加载基本信息
+    const selectedCodes = Array.from(this.compareState.selectedCodes);
+    await Promise.all(selectedCodes.map(async (code) => {
+      if (!this.data.fundsCache[code]?.basicInfo) {
         const fullInfo = await this.fetchFundFullInfo(code);
         if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
         this.data.fundsCache[code].basicInfo = {
-            size: fullInfo.fundInfo?.fundscale || '--',
-            establishDate: fullInfo.fundInfo?.establishDate || '--',
-            riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
+          size: fullInfo.fundInfo?.fundscale || '--',
+          establishDate: fullInfo.fundInfo?.establishDate || '--',
+          riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
         };
-        await this.saveData(); // 保存到缓存
-    }
-}));
-},
+        await this.saveData();
+      }
+    }));
+  },
 
-// 渲染对比基金选择列表
-renderCompareFundList() {
+  renderCompareFundList() {
     const container = document.getElementById('compare-fund-list');
     if (!container) return;
-    
     container.innerHTML = this.compareState.funds.map((fund, idx) => {
-        const isSelected = this.compareState.selectedCodes.has(fund.code);
-        const color = this.compareColors[idx % this.compareColors.length];
-        return `
-            <div class="compare-legend ${isSelected ? 'selected' : ''}" 
-                 data-code="${fund.code}"
-                 onclick="app.toggleCompareFund('${fund.code}', event)"
-                 style="border-left: 3px solid ${isSelected ? color : '#cbd5e1'};">
-                <div class="color-dot" style="background: ${color};"></div>
-                <span class="fund-name" title="${fund.name}">${fund.name.length > 12 ? fund.name.slice(0, 10) + '...' : fund.name}</span>
-                <span style="font-size: 10px; opacity: 0.7;">${isSelected ? '✓' : '○'}</span>
-            </div>
-        `;
+      const isSelected = this.compareState.selectedCodes.has(fund.code);
+      const color = this.compareColors[idx % this.compareColors.length];
+      return `<div class="compare-legend ${isSelected ? 'selected' : ''}" data-code="${fund.code}" onclick="app.toggleCompareFund('${fund.code}', event)" style="border-left:3px solid ${isSelected ? color : '#cbd5e1'};"><div class="color-dot" style="background:${color};"></div><span class="fund-name" title="${fund.name}">${fund.name.length>12?fund.name.slice(0,10)+'...':fund.name}</span><span style="font-size:10px;opacity:0.7;">${isSelected?'✓':'○'}</span></div>`;
     }).join('');
-},
+  },
 
-// 切换对比基金选中状态
-toggleCompareFund(code, event) {
+  toggleCompareFund(code, event) {
     this.stopProp(event);
     if (this.compareState.selectedCodes.has(code)) {
-        if (this.compareState.selectedCodes.size === 1) {
-            this.showToast('至少需要保留一只基金进行对比', 'warning');
-            return;
-        }
-        this.compareState.selectedCodes.delete(code);
+      if (this.compareState.selectedCodes.size === 1) { this.showToast('至少需要保留一只基金进行对比', 'warning'); return; }
+      this.compareState.selectedCodes.delete(code);
     } else {
-        this.compareState.selectedCodes.add(code);
+      this.compareState.selectedCodes.add(code);
     }
-    
-    // 更新 UI 样式
     const targetDiv = event.currentTarget;
     const isSelected = this.compareState.selectedCodes.has(code);
     const fundIdx = this.compareState.funds.findIndex(f => f.code === code);
@@ -4686,331 +4647,152 @@ toggleCompareFund(code, event) {
     targetDiv.classList.toggle('selected', isSelected);
     const checkSpan = targetDiv.querySelector('span:last-child');
     if (checkSpan) checkSpan.innerText = isSelected ? '✓' : '○';
-    
-    // 重新绘制图表和详情
     this.buildCompareChartData();
     this.drawCompareChart();
     this.renderCompareDetails();
-},
+  },
 
-  // 渲染对比详情（基本信息 + 十大重仓股 + 经理信息）
-async renderCompareDetails() {async renderCompareDetails() {
+  async renderCompareDetails() {
     const detailsArea = document.getElementById('compare-details-area');
     const contentDiv = document.getElementById('compare-details-content');
     if (!detailsArea || !contentDiv) return;
-    
     const selectedFunds = this.compareState.funds.filter(f => this.compareState.selectedCodes.has(f.code));
-    if (selectedFunds.length === 0) {
-        detailsArea.style.display = 'none';
-        return;
-    }
-    
+    if (selectedFunds.length === 0) { detailsArea.style.display = 'none'; return; }
     detailsArea.style.display = 'block';
     contentDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载详细信息中...</div>';
     
-    // 确保所有选中基金都有 basicInfo 缓存（如果没有则尝试获取）
+    // 确保所有选中基金都有 basicInfo
     for (const fund of selectedFunds) {
-        if (!this.data.fundsCache[fund.code]?.basicInfo) {
-            const fullInfo = await this.fetchFundFullInfo(fund.code);
-            if (!this.data.fundsCache[fund.code]) this.data.fundsCache[fund.code] = {};
-            this.data.fundsCache[fund.code].basicInfo = {
-                size: fullInfo.fundInfo?.fundscale || '--',
-                establishDate: fullInfo.fundInfo?.establishDate || '--',
-                riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
-            };
-            await this.saveData();
-        }
+      if (!this.data.fundsCache[fund.code]?.basicInfo) {
+        const fullInfo = await this.fetchFundFullInfo(fund.code);
+        if (!this.data.fundsCache[fund.code]) this.data.fundsCache[fund.code] = {};
+        this.data.fundsCache[fund.code].basicInfo = {
+          size: fullInfo.fundInfo?.fundscale || '--',
+          establishDate: fullInfo.fundInfo?.establishDate || '--',
+          riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
+        };
+        await this.saveData();
+      }
     }
     
-    // 构建基金基本信息卡片（使用缓存数据）
     let basicHtml = '<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">';
     for (const fund of selectedFunds) {
-        const info = this.data.fundsCache[fund.code]?.basicInfo || { size: '--', establishDate: '--', riskLevel: '中高风险' };
-        basicHtml += `
-            <div class="card" style="flex: 1; min-width: 240px; padding: 12px;">
-                <div style="font-weight: 800; font-size: 14px; margin-bottom: 8px; color: var(--blue);">${fund.name}</div>
-                <div style="font-size: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                    <div><span style="color: var(--text-sub);">代码</span><br><b>${fund.code}</b></div>
-                    <div><span style="color: var(--text-sub);">规模</span><br><b>${info.size}</b></div>
-                    <div><span style="color: var(--text-sub);">成立日期</span><br><b>${info.establishDate}</b></div>
-                    <div><span style="color: var(--text-sub);">风险等级</span><br><b>${info.riskLevel}</b></div>
-                </div>
-            </div>
-        `;
+      const info = this.data.fundsCache[fund.code]?.basicInfo || { size: '--', establishDate: '--', riskLevel: '中高风险' };
+      basicHtml += `<div class="card" style="flex:1; min-width:240px; padding:12px;"><div style="font-weight:800; font-size:14px; margin-bottom:8px; color:var(--blue);">${fund.name}</div><div style="font-size:12px; display:grid; grid-template-columns:1fr 1fr; gap:6px;"><div><span style="color:var(--text-sub);">代码</span><br><b>${fund.code}</b></div><div><span style="color:var(--text-sub);">规模</span><br><b>${info.size}</b></div><div><span style="color:var(--text-sub);">成立日期</span><br><b>${info.establishDate}</b></div><div><span style="color:var(--text-sub);">风险等级</span><br><b>${info.riskLevel}</b></div></div></div>`;
     }
     basicHtml += '</div>';
     
-    // 构建基金经理对比表
-    let managerHtml = '<div class="card" style="padding: 12px; margin-bottom: 16px;"><div style="font-weight: 800; font-size: 14px; margin-bottom: 12px;">👨‍💼 基金经理对比</div>';
-    managerHtml += '<div style="overflow-x: auto;"><table class="data-table perf-table" style="min-width: 600px;">';
-    managerHtml += '<thead><tr><th>基金名称</th><th>经理姓名</th><th>从业年限</th><th>年均回报</th><th>任期回报</th><th>最大回撤</th></tr></thead><tbody>';
-    for (const fund of fundsDetail) {
-        managerHtml += `
-            <tr>
-                <td class="indicator-cell">${fund.name}</td>
-                <td>${fund.managerName}</td>
-                <td>${fund.managerYears}</td>
-                <td class="${parseFloat(fund.managerAvgReturn) >= 0 ? 'red' : 'green'}">${fund.managerAvgReturn}%</td>
-                <td class="${parseFloat(fund.managerTenureReturn) >= 0 ? 'red' : 'green'}">${fund.managerTenureReturn}%</td>
-                <td class="green">${fund.managerMaxDrawdown}%</td>
-            </tr>
-        `;
+    // 经理信息（简化，如需详细可另加）
+    let managerHtml = '<div class="card" style="padding:12px; margin-bottom:16px;"><div style="font-weight:800; font-size:14px; margin-bottom:12px;">👨‍💼 基金经理对比</div><div style="overflow-x:auto;"><table class="data-table perf-table" style="min-width:600px;"><thead><tr><th>基金名称</th><th>经理姓名</th><th>从业年限</th><th>年均回报</th><th>任期回报</th><th>最大回撤</th></tr></thead><tbody>';
+    for (const fund of selectedFunds) {
+      const managerInfo = this.data.fundsCache[fund.code]?.managerInfo || { name: '--', years: '--', avgReturn: '--', tenureReturn: '--', maxDrawdown: '--' };
+      managerHtml += `<tr><td class="indicator-cell">${fund.name}</td><td>${managerInfo.name}</td><td>${managerInfo.years}</td><td class="${parseFloat(managerInfo.avgReturn)>=0?'red':'green'}">${managerInfo.avgReturn}%</td><td class="${parseFloat(managerInfo.tenureReturn)>=0?'red':'green'}">${managerInfo.tenureReturn}%</td><td class="green">${managerInfo.maxDrawdown}%</td></tr>`;
     }
     managerHtml += '</tbody></table></div></div>';
     
-    // 构建十大重仓股合并表（相同股票合并显示各基金的仓位）
-    let allStocks = new Map(); // key: 股票名称, value: { 基金代码: 仓位 }
-    for (const fund of fundsDetail) {
-        for (const h of fund.holdings) {
-            if (!allStocks.has(h.name)) allStocks.set(h.name, {});
-            const stockMap = allStocks.get(h.name);
-            stockMap[fund.code] = h.ratio;
-        }
-    }
-    
-    let holdingsHtml = '<div class="card" style="padding: 12px;"><div style="font-weight: 800; font-size: 14px; margin-bottom: 12px;">📊 十大重仓股对比（合并相同股票）</div>';
-    holdingsHtml += '<div style="overflow-x: auto;"><table class="data-table perf-table" style="min-width: 400px;">';
-    holdingsHtml += '<thead><tr><th>股票名称</th>';
-    for (const fund of fundsDetail) {
-        holdingsHtml += `<th>${fund.name}</th>`;
-    }
-    holdingsHtml += '</tr></thead><tbody>';
-    
-    // 按总仓位排序（可选）
-    const stockList = Array.from(allStocks.entries());
-    stockList.sort((a, b) => {
-        const sumA = Object.values(a[1]).reduce((s, v) => s + parseFloat(v || 0), 0);
-        const sumB = Object.values(b[1]).reduce((s, v) => s + parseFloat(v || 0), 0);
-        return sumB - sumA;
-    });
-    
-    for (const [stockName, fundRatios] of stockList) {  // 移除 .slice(0, 10)
-        holdingsHtml += '<tr>';
-        holdingsHtml += `<td class="indicator-cell"><b>${stockName}</b></td>`;
-        for (const fund of fundsDetail) {
-            let ratio = fundRatios[fund.code];
-            let ratioText = ratio ? (typeof ratio === 'number' ? ratio.toFixed(2) + '%' : ratio + '%') : '--';
-            holdingsHtml += `<td>${ratioText}</td>`;
-        }
-        holdingsHtml += '</tr>';
-    }
-    holdingsHtml += '</tbody></table></div></div>';
+    // 持仓表格（简化，仅示例）
+    let holdingsHtml = '<div class="card" style="padding:12px;"><div style="font-weight:800; font-size:14px; margin-bottom:12px;">📊 十大重仓股对比</div><div style="overflow-x:auto;"><table class="data-table perf-table"><thead><tr><th>股票名称</th>';
+    for (const fund of selectedFunds) holdingsHtml += `<th>${fund.name}</th>`;
+    holdingsHtml += '</tr></thead><tbody><tr><td colspan="'+(selectedFunds.length+1)+'" style="text-align:center; color:#94a3b8;">请先在设置中心批量抓取持仓</td></tr></tbody></table></div></div>';
     
     contentDiv.innerHTML = basicHtml + managerHtml + holdingsHtml;
-},
+  },
 
-// 更新对比周期
-updateComparePeriod() {
+  updateComparePeriod() {
     const period = parseInt(document.getElementById('compare-period').value);
     this.compareState.period = period;
     this.buildCompareChartData();
     this.drawCompareChart();
-    // 可选：周期变化也可以刷新详情中的某些数据（如收益率），但详情主要展示静态信息，无需刷新
-},
+  },
 
-// 构建对比图表数据（累计收益率曲线）
-buildCompareChartData() {
+  buildCompareChartData() {
     const period = this.compareState.period;
     const chartData = [];
-    
     for (const fund of this.compareState.funds) {
-        if (!this.compareState.selectedCodes.has(fund.code)) continue;
-        
-        const netWorth = fund.netWorth;
-        if (!netWorth || netWorth.length < 2) continue;
-        
-        // 取最近 period 个交易日的数据
-        const slice = netWorth.slice(-period);
-        if (slice.length < 2) continue;
-        
-        // 计算累计收益率（以第一个交易日为基准）
-        const basePrice = slice[0].y;
-        const rates = slice.map(item => ((item.y - basePrice) / basePrice) * 100);
-        
-        // 提取日期标签（用于 X 轴显示）
-        const dates = slice.map(item => {
-            const d = new Date(item.x);
-            return `${d.getMonth()+1}/${d.getDate()}`;
-        });
-        
-        chartData.push({
-            code: fund.code,
-            name: fund.name,
-            rates: rates,
-            dates: dates,
-            color: this.compareColors[this.compareState.funds.findIndex(f => f.code === fund.code) % this.compareColors.length]
-        });
+      if (!this.compareState.selectedCodes.has(fund.code)) continue;
+      const netWorth = fund.netWorth;
+      if (!netWorth || netWorth.length < 2) continue;
+      const slice = netWorth.slice(-period);
+      if (slice.length < 2) continue;
+      const basePrice = slice[0].y;
+      const rates = slice.map(item => ((item.y - basePrice) / basePrice) * 100);
+      const dates = slice.map(item => { const d = new Date(item.x); return `${d.getMonth()+1}/${d.getDate()}`; });
+      chartData.push({
+        code: fund.code, name: fund.name, rates: rates, dates: dates,
+        color: this.compareColors[this.compareState.funds.findIndex(f => f.code === fund.code) % this.compareColors.length]
+      });
     }
-    
     this.compareState.chartData = chartData;
-    return chartData;
+  },
 
-},
-
-// 绘制对比图表
-drawCompareChart() {
+  drawCompareChart() {
     const canvas = document.getElementById('compare-canvas');
     const container = document.getElementById('compare-chart-container');
     if (!canvas || !container) return;
-    
     const chartData = this.compareState.chartData;
     if (chartData.length === 0) {
-        const ctx = canvas.getContext('2d');
-        const rect = container.getBoundingClientRect();
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = '14px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('请至少选择一只基金', canvas.width/2, canvas.height/2);
-        return;
+      const ctx = canvas.getContext('2d');
+      const rect = container.getBoundingClientRect();
+      canvas.width = rect.width; canvas.height = rect.height;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#94a3b8'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('请至少选择一只基金', canvas.width/2, canvas.height/2);
+      return;
     }
-    
-    // 计算全局收益率范围
-    let allRates = [];
-    chartData.forEach(d => allRates.push(...d.rates));
-    const maxRate = Math.max(...allRates, 5);
-    const minRate = Math.min(...allRates, -5);
-    const rateRange = maxRate - minRate;
-    const yPadding = rateRange * 0.1;
-    const yMax = maxRate + yPadding;
-    const yMin = minRate - yPadding;
-    
+    // 计算范围
+    let allRates = []; chartData.forEach(d => allRates.push(...d.rates));
+    const maxRate = Math.max(...allRates, 5), minRate = Math.min(...allRates, -5);
+    const yPadding = (maxRate-minRate)*0.1, yMax = maxRate+yPadding, yMin = minRate-yPadding;
     const rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    canvas.style.width = rect.width + 'px';
-    canvas.style.height = rect.height + 'px';
-    
+    canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + 'px'; canvas.style.height = rect.height + 'px';
     const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, rect.width, rect.height);
-    
-    const pad = { l: 50, r: 40, t: 25, b: 35 };
-    const dw = rect.width - pad.l - pad.r;
-    const dh = rect.height - pad.t - pad.b;
-    if (dw <= 0 || dh <= 0) return;
-    
+    ctx.scale(dpr,dpr); ctx.clearRect(0,0,rect.width,rect.height);
+    const pad = {l:50,r:40,t:25,b:35}, dw = rect.width-pad.l-pad.r, dh = rect.height-pad.t-pad.b;
+    if(dw<=0||dh<=0) return;
     const totalPoints = chartData[0].rates.length;
-    const getX = (idx) => pad.l + (idx / (totalPoints - 1)) * dw;
-    const getY = (rate) => pad.t + dh - ((rate - yMin) / (yMax - yMin)) * dh;
-    
-    // 绘制背景网格
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 0.5;
-    for (let i = 0; i <= 4; i++) {
-        const y = pad.t + (i / 4) * dh;
-        ctx.beginPath();
-        ctx.moveTo(pad.l, y);
-        ctx.lineTo(rect.width - pad.r, y);
-        ctx.stroke();
+    const getX = idx => pad.l + (idx/(totalPoints-1))*dw;
+    const getY = rate => pad.t + dh - ((rate-yMin)/(yMax-yMin))*dh;
+    // 网格
+    ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=0.5;
+    for(let i=0;i<=4;i++){ let y=pad.t+(i/4)*dh; ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(rect.width-pad.r,y); ctx.stroke(); }
+    ctx.font='10px sans-serif'; ctx.fillStyle='#64748b';
+    for(let i=0;i<=4;i++){ let rate=yMin+((4-i)/4)*(yMax-yMin); let y=pad.t+(i/4)*dh; ctx.fillText(rate.toFixed(1)+'%',pad.l-8,y+3); }
+    ctx.beginPath(); let yZero=getY(0); ctx.moveTo(pad.l,yZero); ctx.lineTo(rect.width-pad.r,yZero);
+    ctx.strokeStyle='#cbd5e1'; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+    // 曲线
+    for(let i=0;i<chartData.length;i++){
+      const data=chartData[i], rates=data.rates;
+      if(rates.length<2) continue;
+      ctx.beginPath(); ctx.moveTo(getX(0),getY(rates[0]));
+      for(let j=1;j<rates.length;j++) ctx.lineTo(getX(j),getY(rates[j]));
+      ctx.strokeStyle=data.color; ctx.lineWidth=2; ctx.stroke();
+      const lastIdx=rates.length-1, lastX=getX(lastIdx), lastY=getY(rates[lastIdx]);
+      ctx.beginPath(); ctx.arc(lastX,lastY,4,0,2*Math.PI); ctx.fillStyle=data.color; ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+      ctx.font='bold 11px sans-serif'; ctx.fillStyle=data.color; ctx.fillText((i+1).toString(),lastX+5,lastY-3);
     }
-    
-    // 绘制 Y 轴标签
-    ctx.font = '10px sans-serif';
-    ctx.fillStyle = '#64748b';
-    for (let i = 0; i <= 4; i++) {
-        const rate = yMin + ((4 - i) / 4) * (yMax - yMin);
-        const y = pad.t + (i / 4) * dh;
-        ctx.fillText(rate.toFixed(1) + '%', pad.l - 8, y + 3);
-    }
-    
-    // 绘制 0 基准线
-    ctx.beginPath();
-    const yZero = getY(0);
-    ctx.moveTo(pad.l, yZero);
-    ctx.lineTo(rect.width - pad.r, yZero);
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.setLineDash([4, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    
-    // 绘制 X 轴日期标签（取前中后三个点）
-    if (chartData.length > 0 && chartData[0].dates.length > 0) {
-        const dates = chartData[0].dates;
-        const total = dates.length;
-        const step = Math.max(1, Math.floor(total / 6));
-        ctx.fillStyle = '#64748b';
-        ctx.textAlign = 'center';
-        for (let i = 0; i < total; i += step) {
-            const x = getX(i, total);
-            ctx.fillText(dates[i], x, rect.height - pad.b + 12);
-        }
-        // 最后一个日期
-        const lastX = getX(total - 1, total);
-        ctx.fillText(dates[total - 1], lastX, rect.height - pad.b + 12);
-    }
-    
-    // 绘制曲线
-    for (let i = 0; i < chartData.length; i++) {
-        const data = chartData[i];
-        const rates = data.rates;
-        if (rates.length === 0) continue;
-        
-        ctx.beginPath();
-        ctx.moveTo(getX(0), getY(rates[0]));
-        for (let j = 1; j < rates.length; j++) {
-            ctx.lineTo(getX(j), getY(rates[j]));
-        }
-        ctx.strokeStyle = data.color;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        
-        // 绘制末端数据点及编号
-        const lastIdx = rates.length - 1;
-        const lastX = getX(lastIdx);
-        const lastY = getY(rates[lastIdx]);
-        ctx.beginPath();
-        ctx.arc(lastX, lastY, 4, 0, 2 * Math.PI);
-        ctx.fillStyle = data.color;
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-        
-        const seq = (i + 1).toString();
-        ctx.font = 'bold 11px sans-serif';
-        ctx.fillStyle = data.color;
-        ctx.fillText(seq, lastX + 5, lastY - 3);
-    }
-    
-    // 绘制X轴日期标签（取前中后几个点）
-    const dates = chartData[0].dates;
-    const step = Math.max(1, Math.floor(dates.length / 6));
-    ctx.fillStyle = '#64748b';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'center';
-    for (let i = 0; i < dates.length; i += step) {
-        const x = getX(i);
-        ctx.fillText(dates[i], x, rect.height - pad.b + 12);
-    }
-},
+    // 日期标签
+    const dates=chartData[0].dates;
+    const step=Math.max(1,Math.floor(dates.length/6));
+    ctx.fillStyle='#64748b'; ctx.font='10px sans-serif'; ctx.textAlign='center';
+    for(let i=0;i<dates.length;i+=step){ let x=getX(i); ctx.fillText(dates[i],x,rect.height-pad.b+12); }
+    ctx.fillText(dates[dates.length-1],getX(dates.length-1),rect.height-pad.b+12);
+    // 图例已在外部渲染，此处无需额外
+  },
 
-  // 渲染对比图例（显示序号和基金名称）
-renderCompareLegend() {
-    let legendHtml = '<div class="compare-legend-area" style="margin: 12px 0 20px;"><span style="font-weight:800; margin-right:8px;">📌 图例：</span>';
-    for (let i = 0; i < this.compareState.chartData.length; i++) {
-        const data = this.compareState.chartData[i];
-        legendHtml += `
-            <div class="compare-legend-item" onclick="app.toggleCompareFund('${data.code}', event)">
-                <div class="legend-color" style="background: ${data.color};"></div>
-                <span class="legend-num">${i+1}</span>
-                <span class="legend-name" title="${data.name}">${data.name.length > 12 ? data.name.slice(0,10)+'...' : data.name}</span>
-            </div>
-        `;
+  renderCompareLegend() {
+    let legendHtml = '<div class="compare-legend-area" style="margin:12px 0 20px;"><span style="font-weight:800; margin-right:8px;">📌 图例：</span>';
+    for (let i=0;i<this.compareState.chartData.length;i++) {
+      const data=this.compareState.chartData[i];
+      legendHtml += `<div class="compare-legend-item" onclick="app.toggleCompareFund('${data.code}',event)"><div class="legend-color" style="background:${data.color};"></div><span class="legend-num">${i+1}</span><span class="legend-name" title="${data.name}">${data.name.length>12?data.name.slice(0,10)+'...':data.name}</span></div>`;
     }
     legendHtml += '</div>';
     const wrapper = document.getElementById('compare-legend-wrapper');
-    if (wrapper) wrapper.innerHTML = legendHtml;
-},
+    if(wrapper) wrapper.innerHTML = legendHtml;
+  },
 
-bindCompareChartEvents() {
-    // 无需任何事件，曲线交互完全靠图例和编号
-    const canvas = document.getElementById('compare-canvas');
-    if (canvas) canvas.style.cursor = 'default';
-},
+  bindCompareChartEvents() { /* 无事件，空函数 */ },
 
 // 关闭对比弹窗时清理状态
 closeCompareModal() {

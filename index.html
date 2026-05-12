@@ -4600,25 +4600,41 @@ compareState: {
     document.getElementById('compare-period').value = '15';
     
     this.openModal('compare');
+    
+    // 在 openCompareModal 函数末尾，this.openModal('compare') 之后添加
+    this.renderCompareLegend();
+    
     this.renderCompareFundList();
     this.buildCompareChartData();
     this.drawCompareChart();
     this.renderCompareDetails();
     
-    // 预加载基本信息
-    const selectedCodes = Array.from(this.compareState.selectedCodes);
-    await Promise.all(selectedCodes.map(async (code) => {
-      if (!this.data.fundsCache[code]?.basicInfo) {
+    // 预加载基本信息和经理信息
+const selectedCodes = Array.from(this.compareState.selectedCodes);
+await Promise.all(selectedCodes.map(async (code) => {
+    if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+    let needUpdate = false;
+    if (!this.data.fundsCache[code].basicInfo) needUpdate = true;
+    if (!this.data.fundsCache[code].managerInfo) needUpdate = true;
+    if (needUpdate) {
         const fullInfo = await this.fetchFundFullInfo(code);
-        if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+        const mgr = fullInfo.manager;
         this.data.fundsCache[code].basicInfo = {
-          size: fullInfo.fundInfo?.fundscale || '--',
-          establishDate: fullInfo.fundInfo?.establishDate || '--',
-          riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
+            size: fullInfo.fundInfo?.fundscale || '--',
+            establishDate: fullInfo.fundInfo?.establishDate || '--',
+            riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
+        };
+        this.data.fundsCache[code].managerInfo = {
+            name: mgr?.name || '--',
+            years: mgr?.workTime || '--',
+            avgReturn: mgr?.power?.avr !== undefined ? mgr.power.avr.toFixed(2) : '--',
+            tenureReturn: mgr?.tenureReturn !== undefined ? mgr.tenureReturn.toFixed(2) : '--',
+            maxDrawdown: mgr?.maxDrawdown !== undefined ? mgr.maxDrawdown.toFixed(2) : '--'
         };
         await this.saveData();
-      }
-    }));
+    }
+}));
+    
   },
 
   renderCompareFundList() {
@@ -4649,10 +4665,15 @@ compareState: {
     if (checkSpan) checkSpan.innerText = isSelected ? '✓' : '○';
     this.buildCompareChartData();
     this.drawCompareChart();
+
+    // 在 this.drawCompareChart(); 之后添加
+    this.renderCompareLegend();
+    
     this.renderCompareDetails();
   },
 
-  async renderCompareDetails() {
+  // 修改 renderCompareDetails，读取缓存并显示持仓（如果有）
+async renderCompareDetails() {
     const detailsArea = document.getElementById('compare-details-area');
     const contentDiv = document.getElementById('compare-details-content');
     if (!detailsArea || !contentDiv) return;
@@ -4661,49 +4682,125 @@ compareState: {
     detailsArea.style.display = 'block';
     contentDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载详细信息中...</div>';
     
-    // 确保所有选中基金都有 basicInfo
+    // 确保所有选中基金都有 basicInfo 和 managerInfo（如果之前没有，则获取）
     for (const fund of selectedFunds) {
-      if (!this.data.fundsCache[fund.code]?.basicInfo) {
-        const fullInfo = await this.fetchFundFullInfo(fund.code);
         if (!this.data.fundsCache[fund.code]) this.data.fundsCache[fund.code] = {};
-        this.data.fundsCache[fund.code].basicInfo = {
-          size: fullInfo.fundInfo?.fundscale || '--',
-          establishDate: fullInfo.fundInfo?.establishDate || '--',
-          riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
-        };
-        await this.saveData();
-      }
+        let needUpdate = false;
+        if (!this.data.fundsCache[fund.code].basicInfo) needUpdate = true;
+        if (!this.data.fundsCache[fund.code].managerInfo) needUpdate = true;
+        if (needUpdate) {
+            const fullInfo = await this.fetchFundFullInfo(fund.code);
+            this.data.fundsCache[fund.code].basicInfo = {
+                size: fullInfo.fundInfo?.fundscale || '--',
+                establishDate: fullInfo.fundInfo?.establishDate || '--',
+                riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
+            };
+            const mgr = fullInfo.manager;
+            this.data.fundsCache[fund.code].managerInfo = {
+                name: mgr?.name || '--',
+                years: mgr?.workTime || '--',
+                avgReturn: mgr?.power?.avr !== undefined ? mgr.power.avr.toFixed(2) : '--',
+                tenureReturn: mgr?.tenureReturn !== undefined ? mgr.tenureReturn.toFixed(2) : '--',
+                maxDrawdown: mgr?.maxDrawdown !== undefined ? mgr.maxDrawdown.toFixed(2) : '--'
+            };
+            await this.saveData();
+        }
     }
     
+    // 基本信息卡片
     let basicHtml = '<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">';
     for (const fund of selectedFunds) {
-      const info = this.data.fundsCache[fund.code]?.basicInfo || { size: '--', establishDate: '--', riskLevel: '中高风险' };
-      basicHtml += `<div class="card" style="flex:1; min-width:240px; padding:12px;"><div style="font-weight:800; font-size:14px; margin-bottom:8px; color:var(--blue);">${fund.name}</div><div style="font-size:12px; display:grid; grid-template-columns:1fr 1fr; gap:6px;"><div><span style="color:var(--text-sub);">代码</span><br><b>${fund.code}</b></div><div><span style="color:var(--text-sub);">规模</span><br><b>${info.size}</b></div><div><span style="color:var(--text-sub);">成立日期</span><br><b>${info.establishDate}</b></div><div><span style="color:var(--text-sub);">风险等级</span><br><b>${info.riskLevel}</b></div></div></div>`;
+        const info = this.data.fundsCache[fund.code]?.basicInfo || { size: '--', establishDate: '--', riskLevel: '中高风险' };
+        basicHtml += `
+            <div class="card" style="flex: 1; min-width: 200px; padding: 12px;">
+                <div style="font-weight: 800; font-size: 14px; margin-bottom: 8px; color: var(--blue);">${fund.name}</div>
+                <div style="font-size: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                    <div><span style="color: var(--text-sub);">代码</span><br><b>${fund.code}</b></div>
+                    <div><span style="color: var(--text-sub);">规模</span><br><b>${info.size}</b></div>
+                    <div><span style="color: var(--text-sub);">成立日期</span><br><b>${info.establishDate}</b></div>
+                    <div><span style="color: var(--text-sub);">风险等级</span><br><b>${info.riskLevel}</b></div>
+                </div>
+            </div>
+        `;
     }
     basicHtml += '</div>';
     
-    // 经理信息（简化，如需详细可另加）
-    let managerHtml = '<div class="card" style="padding:12px; margin-bottom:16px;"><div style="font-weight:800; font-size:14px; margin-bottom:12px;">👨‍💼 基金经理对比</div><div style="overflow-x:auto;"><table class="data-table perf-table" style="min-width:600px;"><thead><tr><th>基金名称</th><th>经理姓名</th><th>从业年限</th><th>年均回报</th><th>任期回报</th><th>最大回撤</th></tr></thead><tbody>';
+    // 基金经理对比表格
+    let managerHtml = '<div class="card" style="padding: 12px; margin-bottom: 16px;"><div style="font-weight:800; font-size:14px; margin-bottom:12px;">👨‍💼 基金经理对比</div>';
+    managerHtml += '<div style="overflow-x: auto;"><table class="data-table perf-table" style="min-width: 600px;">';
+    managerHtml += '<thead><tr><th>基金名称</th><th>经理姓名</th><th>从业年限</th><th>年均回报</th><th>任期回报</th><th>最大回撤</th></tr></thead><tbody>';
     for (const fund of selectedFunds) {
-      const managerInfo = this.data.fundsCache[fund.code]?.managerInfo || { name: '--', years: '--', avgReturn: '--', tenureReturn: '--', maxDrawdown: '--' };
-      managerHtml += `<tr><td class="indicator-cell">${fund.name}</td><td>${managerInfo.name}</td><td>${managerInfo.years}</td><td class="${parseFloat(managerInfo.avgReturn)>=0?'red':'green'}">${managerInfo.avgReturn}%</td><td class="${parseFloat(managerInfo.tenureReturn)>=0?'red':'green'}">${managerInfo.tenureReturn}%</td><td class="green">${managerInfo.maxDrawdown}%</td></tr>`;
+        const mgr = this.data.fundsCache[fund.code]?.managerInfo || { name: '--', years: '--', avgReturn: '--', tenureReturn: '--', maxDrawdown: '--' };
+        managerHtml += `
+            <tr>
+                <td class="indicator-cell">${fund.name}</td>
+                <td>${mgr.name}</td>
+                <td>${mgr.years}</td>
+                <td class="${parseFloat(mgr.avgReturn) >= 0 ? 'red' : 'green'}">${mgr.avgReturn}%</td>
+                <td class="${parseFloat(mgr.tenureReturn) >= 0 ? 'red' : 'green'}">${mgr.tenureReturn}%</td>
+                <td class="green">${mgr.maxDrawdown}%</td>
+            </tr>
+        `;
     }
     managerHtml += '</tbody></table></div></div>';
     
-    // 持仓表格（简化，仅示例）
-    let holdingsHtml = '<div class="card" style="padding:12px;"><div style="font-weight:800; font-size:14px; margin-bottom:12px;">📊 十大重仓股对比</div><div style="overflow-x:auto;"><table class="data-table perf-table"><thead><tr><th>股票名称</th>';
-    for (const fund of selectedFunds) holdingsHtml += `<th>${fund.name}</th>`;
-    holdingsHtml += '</tr></thead><tbody><tr><td colspan="'+(selectedFunds.length+1)+'" style="text-align:center; color:#94a3b8;">请先在设置中心批量抓取持仓</td></tr></tbody></table></div></div>';
+    // 十大重仓股对比（从 holdingsCache 读取）
+    let holdingsHtml = '<div class="card" style="padding: 12px;"><div style="font-weight:800; font-size:14px; margin-bottom:12px;">📊 十大重仓股对比</div>';
+    // 收集所有股票的仓位
+    let allStocks = new Map(); // key: 股票名称, value: { 基金代码: 仓位 }
+    let hasData = false;
+    for (const fund of selectedFunds) {
+        const cache = this.data.fundsCache[fund.code]?.holdingsCache;
+        if (cache && cache.stocks && cache.stocks.length > 0) {
+            hasData = true;
+            for (const s of cache.stocks) {
+                if (!allStocks.has(s.name)) allStocks.set(s.name, {});
+                const map = allStocks.get(s.name);
+                map[fund.code] = s.ratio;
+            }
+        }
+    }
+    
+    if (!hasData) {
+        holdingsHtml += '<div style="text-align:center; padding:20px; color:#94a3b8;">请先在设置中心批量抓取持仓</div>';
+    } else {
+        holdingsHtml += '<div style="overflow-x: auto;"><table class="data-table perf-table" style="min-width: 500px;">';
+        holdingsHtml += '<thead><tr><th>股票名称</th>';
+        for (const fund of selectedFunds) {
+            holdingsHtml += `<th>${fund.name}</th>`;
+        }
+        holdingsHtml += '</tr></thead><tbody>';
+        // 按总仓位排序取前20（实际显示所有有数据的股票）
+        const stockList = Array.from(allStocks.entries());
+        stockList.sort((a, b) => {
+            const sumA = Object.values(a[1]).reduce((s, v) => s + parseFloat(v || 0), 0);
+            const sumB = Object.values(b[1]).reduce((s, v) => s + parseFloat(v || 0), 0);
+            return sumB - sumA;
+        });
+        for (const [stockName, fundRatios] of stockList.slice(0, 20)) {
+            holdingsHtml += '<tr>';
+            holdingsHtml += `<td class="indicator-cell"><b>${stockName}</b></td>`;
+            for (const fund of selectedFunds) {
+                let ratio = fundRatios[fund.code];
+                let ratioText = ratio ? (typeof ratio === 'number' ? ratio.toFixed(2) + '%' : ratio + '%') : '--';
+                holdingsHtml += `<td>${ratioText}</td>`;
+            }
+            holdingsHtml += '</tr>';
+        }
+        holdingsHtml += '</tbody></table></div>';
+    }
+    holdingsHtml += '</div>';
     
     contentDiv.innerHTML = basicHtml + managerHtml + holdingsHtml;
-  },
+},
 
   updateComparePeriod() {
     const period = parseInt(document.getElementById('compare-period').value);
     this.compareState.period = period;
     this.buildCompareChartData();
     this.drawCompareChart();
-  },
+    this.renderCompareLegend(); // 新增
+},
 
   buildCompareChartData() {
     const period = this.compareState.period;

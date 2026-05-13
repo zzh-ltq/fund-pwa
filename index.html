@@ -4745,12 +4745,13 @@ compareState: {
                     establishDate: fullInfo.fundInfo?.establishDate || '--',
                     riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
                 };
+                const safeNum = (v) => (v !== undefined && v !== null && !isNaN(parseFloat(v))) ? parseFloat(v).toFixed(2) : '--';
                 this.data.fundsCache[code].managerInfo = {
                     name: mgr?.name || '--',
                     years: mgr?.workTime || '--',
-                    avgReturn: mgr?.power?.avr !== undefined ? mgr.power.avr.toFixed(2) : '--',
-                    tenureReturn: mgr?.tenureReturn !== undefined ? mgr.tenureReturn.toFixed(2) : '--',
-                    maxDrawdown: mgr?.maxDrawdown !== undefined ? mgr.maxDrawdown.toFixed(2) : '--'
+                    avgReturn: safeNum(mgr?.power?.avr),
+                    tenureReturn: safeNum(mgr?.tenureReturn),
+                    maxDrawdown: safeNum(mgr?.maxDrawdown)
                 };
                 await this.saveData();
                 // 重新渲染详情（因为信息已更新）
@@ -4826,14 +4827,15 @@ async renderCompareDetails() {
                 establishDate: fullInfo.fundInfo?.establishDate || '--',
                 riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
             };
+            const safeNum = (v) => (v !== undefined && v !== null && !isNaN(parseFloat(v))) ? parseFloat(v).toFixed(2) : '--';
             cached.managerInfo = {
                 name: mgr.name || '--',
-                years: mgr.workTime || '--', // 从业年限
-                avgReturn: mgr.power?.avr !== undefined ? mgr.power.avr.toFixed(2) : '--',
-                fundCount: '--', // 东方财富个别接口不返回此项，保底留空
-                scale: mgr.fundSize || '--', // 管理规模
-                tenureDays: mgr.workTime || '--', // 任期
-                tenureReturn: mgr.tenureReturn !== undefined ? mgr.tenureReturn.toFixed(2) : '--'
+                years: mgr.workTime || '--', 
+                avgReturn: safeNum(mgr.power?.avr),
+                fundCount: '--', 
+                scale: mgr.fundSize || '--', 
+                tenureDays: mgr.workTime || '--', 
+                tenureReturn: safeNum(mgr.tenureReturn)
             };
             this.data.fundsCache[code] = cached;
         }

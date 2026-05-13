@@ -437,7 +437,7 @@ canvas#compare-canvas {
 }
 
 
- /* 对比详情横向滚动容器 */
+/* 对比详情横向滚动容器 */
 .compare-scroll-x {
     overflow-x: auto;
     overflow-y: hidden;
@@ -479,10 +479,15 @@ canvas#compare-canvas {
     color: var(--blue);
     border-bottom: 2px solid var(--blue);
 }
-/* 卡片容器 */
+/* 卡片容器（支持拖拽） */
 .compare-cards-wrapper {
     display: inline-flex;
     gap: 0;
+    cursor: grab;
+    user-select: none;
+}
+.compare-cards-wrapper.dragging {
+    cursor: grabbing;
 }
 /* 单个卡片 */
 .compare-detail-card {
@@ -494,7 +499,6 @@ canvas#compare-canvas {
     border: 1px solid #e2e8f0;
     border-top: none;
     white-space: normal;
-    margin-right: 0;
 }
 /* 卡片内各区块 */
 .card-section {
@@ -516,23 +520,23 @@ canvas#compare-canvas {
     align-items: center;
     gap: 6px;
 }
-.info-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    font-size: 12px;
+/* 垂直信息布局 */
+.info-vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
-.info-item {
+.info-row {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    flex-wrap: wrap;
+    font-size: 12px;
 }
-.info-label {
+.info-row .label {
     color: var(--text-sub);
     font-weight: 600;
 }
-.info-value {
+.info-row .value {
     font-weight: 800;
     color: var(--text-main);
 }
@@ -4805,11 +4809,9 @@ async renderCompareDetails() {
     }
     const detailsArea = document.getElementById('compare-details-area');
     detailsArea.style.display = 'block';
-    
-    // 清空容器，重新构建
     container.innerHTML = '';
     
-    // 1. 获取所有基金数据
+    // 获取所有选中基金的完整数据
     const fundsData = await Promise.all(selectedFunds.map(async (fund) => {
         const code = fund.code;
         const cached = this.data.fundsCache[code] || {};
@@ -4862,43 +4864,52 @@ async renderCompareDetails() {
             }
         }
         
-        // 持仓
+        // 持仓数据
         let holdings = [];
         const hc = cached.holdingsCache;
         if (hc && hc.stocks && hc.stocks.length) {
             holdings = hc.stocks.map(s => ({ name: s.name, ratio: parseFloat(s.ratio) }));
         }
         
-        return { code, name: fund.name, size, establishDate, riskLevel, rank: rankText, manager: { name: managerName, years: managerYears, avgReturn: managerAvgReturn, fundCount: managerFundCount, scale: managerScale, tenureDays: managerTenureDays, tenureReturn: managerTenureReturn }, holdings, tradeStatus: buyStatus, tradeFee: buyFee };
+        return { code, name: fund.name, size, establishDate, riskLevel, rank: rankText, 
+                 manager: { name: managerName, years: managerYears, avgReturn: managerAvgReturn, 
+                            fundCount: managerFundCount, scale: managerScale, tenureDays: managerTenureDays, tenureReturn: managerTenureReturn }, 
+                 holdings, tradeStatus: buyStatus, tradeFee: buyFee };
     }));
     
-    // 2. 构建合并持仓股票列表（按总仓位排序，取前10）
-    const stockMap = new Map();
+    // 构建合并持仓股票列表（按重复度排序）
+    const stockMap = new Map(); // name -> { count, totalRatio, ratiosByIndex }
     for (let i = 0; i < fundsData.length; i++) {
         for (const s of fundsData[i].holdings) {
-            if (!stockMap.has(s.name)) stockMap.set(s.name, {});
-            stockMap.get(s.name)[i] = s.ratio;
+            if (!stockMap.has(s.name)) stockMap.set(s.name, { count: 0, totalRatio: 0, ratios: {} });
+            const entry = stockMap.get(s.name);
+            entry.count++;
+            entry.totalRatio += s.ratio;
+            entry.ratios[i] = s.ratio;
         }
     }
-    let stockList = Array.from(stockMap.entries()).map(([name, ratioMap]) => {
-        const total = Object.values(ratioMap).reduce((s, r) => s + (r || 0), 0);
-        return { name, ratioMap, total };
+    let stockList = Array.from(stockMap.entries()).map(([name, data]) => ({
+        name, count: data.count, totalRatio: data.totalRatio, ratios: data.ratios
+    }));
+    // 排序：先按被持有的基金数量（重复度）降序，再按总仓位降序
+    stockList.sort((a, b) => {
+        if (a.count !== b.count) return b.count - a.count;
+        return b.totalRatio - a.totalRatio;
     });
-    stockList.sort((a, b) => b.total - a.total);
     const topStocks = stockList.slice(0, 10);
     
-    // 生成合并表格 HTML
     const buildMergedTable = () => {
         if (topStocks.length === 0) return '<div style="text-align:center; padding:20px; color:#94a3b8;">暂无持仓数据，请先在设置中心批量抓取</div>';
         let html = '<div style="overflow-x: auto;"><table class="merged-stock-table"><thead><tr><th>股票名称</th>';
         for (let i = 0; i < fundsData.length; i++) {
-            html += `<th>${fundsData[i].name.length > 8 ? fundsData[i].name.slice(0,6)+'…' : fundsData[i].name}</th>`;
+            let shortName = fundsData[i].name.length > 8 ? fundsData[i].name.slice(0,6)+'…' : fundsData[i].name;
+            html += `<th title="${fundsData[i].name}">${shortName}</th>`;
         }
         html += '</tr></thead><tbody>';
         for (const stock of topStocks) {
             html += `<tr><td>${stock.name}</td>`;
             for (let i = 0; i < fundsData.length; i++) {
-                let ratio = stock.ratioMap[i];
+                let ratio = stock.ratios[i];
                 let display = (ratio !== undefined && !isNaN(ratio)) ? ratio.toFixed(2) + '%' : '0.00%';
                 html += `<td style="text-align:right; font-weight:600;">${display}</td>`;
             }
@@ -4908,19 +4919,21 @@ async renderCompareDetails() {
         return html;
     };
     
-    // 3. 构建标签栏（粘性）
+    // 构建标签栏（粘性）
     const tabsWrapper = document.createElement('div');
     tabsWrapper.className = 'compare-scroll-x compare-tabs-sticky';
     tabsWrapper.innerHTML = `<div id="compare-fund-tabs" style="display: inline-flex;"></div>`;
     container.appendChild(tabsWrapper);
     
-    // 4. 构建卡片容器
+    // 卡片容器
     const cardsWrapper = document.createElement('div');
     cardsWrapper.className = 'compare-scroll-x';
+    cardsWrapper.style.overflowX = 'auto';
+    cardsWrapper.style.cursor = 'grab';
     cardsWrapper.innerHTML = `<div id="compare-cards-wrapper" class="compare-cards-wrapper"></div>`;
     container.appendChild(cardsWrapper);
     
-    // 5. 构建合并表格容器
+    // 合并持仓表格
     const mergedWrapper = document.createElement('div');
     mergedWrapper.style.marginTop = '20px';
     mergedWrapper.style.padding = '12px 4px';
@@ -4943,68 +4956,123 @@ async renderCompareDetails() {
         tab.innerText = f.name;
         tab.onclick = () => {
             const card = document.getElementById(`compare-card-${i}`);
-            if (card) card.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+            if (card) {
+                card.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+                document.querySelectorAll('.compare-fund-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+            }
         };
         tabsDiv.appendChild(tab);
         
-        // 卡片
+        // 卡片 - 垂直布局
         const card = document.createElement('div');
         card.className = 'compare-detail-card';
         card.id = `compare-card-${i}`;
         card.innerHTML = `
             <div class="card-section">
                 <div class="section-title">📊 基金信息</div>
-                <div class="info-grid">
-                    <div class="info-item"><span class="info-label">持有排名</span><span class="info-value rank-value">${f.rank}</span></div>
-                    <div class="info-item"><span class="info-label">基金规模</span><span class="info-value">${f.size}</span></div>
-                    <div class="info-item"><span class="info-label">成立日期</span><span class="info-value">${f.establishDate}</span></div>
+                <div class="info-vertical">
+                    <div class="info-row"><span class="label">持有排名</span><span class="value">${f.rank}</span></div>
+                    <div class="info-row"><span class="label">基金规模</span><span class="value">${f.size}</span></div>
+                    <div class="info-row"><span class="label">成立日期</span><span class="value">${f.establishDate}</span></div>
                 </div>
             </div>
             <div class="card-section">
                 <div class="section-title">👨‍💼 基金经理</div>
-                <div class="info-grid">
-                    <div class="info-item"><span class="info-label">姓名</span><span class="info-value">${f.manager.name}</span></div>
-                    <div class="info-item"><span class="info-label">从业年限</span><span class="info-value">${f.manager.years}</span></div>
-                    <div class="info-item"><span class="info-label">年均回报</span><span class="info-value ${parseFloat(f.manager.avgReturn) >= 0 ? 'red' : 'green'}">${f.manager.avgReturn}%</span></div>
-                    <div class="info-item"><span class="info-label">在管基金数</span><span class="info-value">${f.manager.fundCount}</span></div>
-                    <div class="info-item"><span class="info-label">管理规模</span><span class="info-value">${f.manager.scale}</span></div>
-                    <div class="info-item"><span class="info-label">本基金任期</span><span class="info-value">${f.manager.tenureDays}</span></div>
-                    <div class="info-item"><span class="info-label">任期回报</span><span class="info-value ${parseFloat(f.manager.tenureReturn) >= 0 ? 'red' : 'green'}">${f.manager.tenureReturn}%</span></div>
+                <div class="info-vertical">
+                    <div class="info-row"><span class="label">姓名</span><span class="value">${f.manager.name}</span></div>
+                    <div class="info-row"><span class="label">从业年限</span><span class="value">${f.manager.years}</span></div>
+                    <div class="info-row"><span class="label">年均回报</span><span class="value ${parseFloat(f.manager.avgReturn) >= 0 ? 'red' : 'green'}">${f.manager.avgReturn}%</span></div>
+                    <div class="info-row"><span class="label">在管基金数</span><span class="value">${f.manager.fundCount}</span></div>
+                    <div class="info-row"><span class="label">管理规模</span><span class="value">${f.manager.scale}</span></div>
+                    <div class="info-row"><span class="label">本基金任期</span><span class="value">${f.manager.tenureDays}</span></div>
+                    <div class="info-row"><span class="label">任期回报</span><span class="value ${parseFloat(f.manager.tenureReturn) >= 0 ? 'red' : 'green'}">${f.manager.tenureReturn}%</span></div>
                 </div>
             </div>
             <div class="card-section">
                 <div class="section-title">⚙️ 其他信息</div>
-                <div class="info-grid">
-                    <div class="info-item"><span class="info-label">风险等级</span><span class="info-value">${f.riskLevel}</span></div>
-                    <div class="info-item"><span class="info-label">申购状态</span><span class="info-value">${f.tradeStatus}</span></div>
-                    <div class="info-item"><span class="info-label">申购手续费</span><span class="info-value">${f.tradeFee}</span></div>
+                <div class="info-vertical">
+                    <div class="info-row"><span class="label">风险等级</span><span class="value">${f.riskLevel}</span></div>
+                    <div class="info-row"><span class="label">申购状态</span><span class="value">${f.tradeStatus}</span></div>
+                    <div class="info-row"><span class="label">申购手续费</span><span class="value">${f.tradeFee}</span></div>
                 </div>
             </div>
         `;
         cardsDiv.appendChild(card);
     }
     
-    // 联动滚动逻辑：卡片滚动时高亮对应标签
-    const scrollContainer = cardsWrapper;
-    scrollContainer.addEventListener('scroll', () => {
+    // 实现卡片容器的拖拽滚动（替代原生滚动条拖动，保留原生滚动条但增加拖拽）
+    let isDragging = false;
+    let startX = 0;
+    let scrollLeftStart = 0;
+    
+    const updateActiveTab = () => {
+        const scrollLeft = cardsWrapper.scrollLeft;
         const cards = document.querySelectorAll('.compare-detail-card');
-        const scrollLeft = scrollContainer.scrollLeft;
-        let active = 0;
+        let activeIndex = 0;
         for (let i = 0; i < cards.length; i++) {
             const left = cards[i].offsetLeft;
-            if (left <= scrollLeft + 50) active = i;
+            if (left <= scrollLeft + 50) activeIndex = i;
             else break;
         }
         document.querySelectorAll('.compare-fund-tab').forEach((tab, idx) => {
-            if (idx === active) tab.classList.add('active');
+            if (idx === activeIndex) tab.classList.add('active');
             else tab.classList.remove('active');
         });
+    };
+    
+    const onMouseMove = (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+        const dx = e.clientX - startX;
+        cardsWrapper.scrollLeft = scrollLeftStart - dx;
+        updateActiveTab();
+    };
+    const onMouseUp = () => {
+        isDragging = false;
+        cardsWrapper.style.cursor = 'grab';
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+    };
+    
+    cardsWrapper.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        isDragging = true;
+        startX = e.clientX;
+        scrollLeftStart = cardsWrapper.scrollLeft;
+        cardsWrapper.style.cursor = 'grabbing';
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        e.preventDefault();
     });
+    
+    // 触摸设备支持
+    cardsWrapper.addEventListener('touchstart', (e) => {
+        isDragging = true;
+        startX = e.touches[0].clientX;
+        scrollLeftStart = cardsWrapper.scrollLeft;
+        cardsWrapper.style.cursor = 'grabbing';
+    });
+    cardsWrapper.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        const dx = e.touches[0].clientX - startX;
+        cardsWrapper.scrollLeft = scrollLeftStart - dx;
+        updateActiveTab();
+        e.preventDefault();
+    });
+    cardsWrapper.addEventListener('touchend', () => {
+        isDragging = false;
+        cardsWrapper.style.cursor = 'grab';
+    });
+    
+    // 滚动时更新高亮（适配原生滚动条）
+    cardsWrapper.addEventListener('scroll', updateActiveTab);
     
     // 初始滚动到第一个卡片
     setTimeout(() => {
         const firstCard = document.getElementById('compare-card-0');
         if (firstCard) firstCard.scrollIntoView({ inline: 'start', block: 'nearest' });
+        updateActiveTab();
     }, 100);
 },
 

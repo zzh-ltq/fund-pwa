@@ -4809,7 +4809,7 @@ async renderCompareDetails() {
     // 获取所有选中基金的完整数据
     const fundsData = await Promise.all(selectedFunds.map(async (fund) => {
         const code = fund.code;
-        const cached = this.data.fundsCache[code] || {};
+        let cached = this.data.fundsCache[code] || {};
         
         const fmtNum = (val, digits = 2) => {
             if (val === undefined || val === null || val === '--') return '--';
@@ -4817,18 +4817,39 @@ async renderCompareDetails() {
             return isNaN(num) ? '--' : num.toFixed(digits);
         };
         
-        let size = cached.basicInfo?.size || '--';
-        let establishDate = cached.basicInfo?.establishDate || '--';
-        let riskLevel = cached.basicInfo?.riskLevel || '中高风险';
+        // 【修复点 1】：强制等待接口返回基本信息，防止渲染出 --
+        if (!cached.basicInfo || !cached.managerInfo) {
+            const fullInfo = await this.fetchFundFullInfo(code);
+            const mgr = fullInfo.manager || {};
+            cached.basicInfo = {
+                size: fullInfo.fundInfo?.fundscale || '--',
+                establishDate: fullInfo.fundInfo?.establishDate || '--',
+                riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
+            };
+            cached.managerInfo = {
+                name: mgr.name || '--',
+                years: mgr.workTime || '--', // 从业年限
+                avgReturn: mgr.power?.avr !== undefined ? mgr.power.avr.toFixed(2) : '--',
+                fundCount: '--', // 东方财富个别接口不返回此项，保底留空
+                scale: mgr.fundSize || '--', // 管理规模
+                tenureDays: mgr.workTime || '--', // 任期
+                tenureReturn: mgr.tenureReturn !== undefined ? mgr.tenureReturn.toFixed(2) : '--'
+            };
+            this.data.fundsCache[code] = cached;
+        }
+
+        let size = cached.basicInfo.size;
+        let establishDate = cached.basicInfo.establishDate;
+        let riskLevel = cached.basicInfo.riskLevel;
+        const mgr = cached.managerInfo;
         
+        // 【修复点 2】：更精准的正则，专门寻找表格里的 >数字|数字< 结构，防止抓到 600
         let rankText = '--';
         try {
             const rankHtml = await this.fetchArchiveTable('jdzf', 'apidata', code);
-            const match = rankHtml.match(/(\d+)(?:\|(\d+))?/);
-            if (match) rankText = match[2] ? `${match[1]}/${match[2]}` : match[1];
+            const match = rankHtml.match(/>\s*(\d+)\s*\|\s*(\d+)\s*</);
+            if (match) rankText = `${match[1]}/${match[2]}`;
         } catch(e) {}
-        
-        const mgr = cached.managerInfo || {};
         
         let buyStatus = '开放申购', buyFee = '0.00%';
         if (cached.tradeInfo) {
@@ -4853,8 +4874,8 @@ async renderCompareDetails() {
         
         return { 
             code, name: fund.name, size, establishDate, riskLevel, rank: rankText, 
-            manager: { name: mgr.name || '--', years: mgr.years || '--', avgReturn: mgr.avgReturn !== '--' ? fmtNum(mgr.avgReturn) : '--', 
-                       fundCount: mgr.fundCount || '--', scale: mgr.scale || '--', tenureDays: mgr.tenureDays || '--', tenureReturn: mgr.tenureReturn !== '--' ? fmtNum(mgr.tenureReturn) : '--' }, 
+            manager: { name: mgr.name, years: mgr.years, avgReturn: mgr.avgReturn !== '--' ? fmtNum(mgr.avgReturn) : '--', 
+                       fundCount: mgr.fundCount, scale: mgr.scale, tenureDays: mgr.tenureDays, tenureReturn: mgr.tenureReturn !== '--' ? fmtNum(mgr.tenureReturn) : '--' }, 
             holdings, tradeStatus: buyStatus, tradeFee: buyFee 
         };
     }));
@@ -7395,52 +7416,38 @@ parseFundRateHtml(html, code) {
     return cleaned;
   };
 
+// =================== 替换以下这块代码 ===================
 // 解析免赎回费的最短持有天数（7天或30天）
 let noSellFeeDays = null;
 if (sellRateHtml && sellRateHtml.includes('<table')) {
-  // 方式1：用正则直接匹配“大于等于30天”和“0.00%”
-  const combined = sellRateHtml;
-  // 匹配“大于等于30天”或“≥30天”附近存在0.00%
-  if (/(?:大于等于|≥)\s*30\s*天[^0-9]*0\.00%/.test(combined)) {
-    noSellFeeDays = 30;
-  } else if (/(?:大于等于|≥)\s*7\s*天[^0-9]*0\.00%/.test(combined)) {
-    noSellFeeDays = 7;
-  }
+  const parser = new DOMParser();
+  const rateDoc = parser.parseFromString(sellRateHtml, 'text/html');
+  const rows = rateDoc.querySelectorAll('table tr');
   
-  // 方式2：如果方式1未匹配，则解析表格DOM
-  if (!noSellFeeDays) {
-    const parser = new DOMParser();
-    const rateDoc = parser.parseFromString(sellRateHtml, 'text/html');
-    const rows = rateDoc.querySelectorAll('table tr');
-    for (let row of rows) {
-      const cells = row.querySelectorAll('td');
-      if (cells.length >= 2) {
-        const conditionText = cells[0].textContent.trim();
-        const rateText = cells[1]?.textContent.trim() || cells[cells.length-1]?.textContent.trim();
-        if (/0(\.00)?%/.test(rateText)) {
-          // 尝试匹配天数
-          let dayMatch = conditionText.match(/(\d+)天/);
-          if (dayMatch) {
-            const days = parseInt(dayMatch[1]);
-            if (days === 7 || days === 30) {
-              noSellFeeDays = days;
-              break;
-            }
-          }
-          // 匹配“大于等于7/30天”
-          let geMatch = conditionText.match(/(?:大于等于|≥|>=)\s*(\d+)\s*天/);
-          if (geMatch) {
-            const days = parseInt(geMatch[1]);
-            if (days === 7 || days === 30) {
-              noSellFeeDays = days;
-              break;
-            }
-          }
+  for (let row of rows) {
+    // 清理空格，将整行文本压缩在一起，如："大于等于7天,小于365天0.50%"
+    const text = row.textContent.replace(/\s+/g, '');
+    
+    // 【修复点】：只有在确信这一行是 0.00% 的情况下，才去提取这一行的天数
+    if (text.includes('0.00%') || (text.includes('0%') && !text.includes('10%'))) {
+      
+      // 提取这一行的具体天数要求
+      let match = text.match(/(?:大于等于|≥|>=)(\d+)天/);
+      if (match) {
+        const days = parseInt(match[1]);
+        
+        // 只有确切是 7天 或 30天 免费，才给徽章。如果是 1460天 则忽略。
+        if (days === 7 || days === 30) {
+          noSellFeeDays = days;
         }
+        
+        // 既然已经找到了 0% 费率的行，就不需要再往下遍历其他行了
+        break;
       }
     }
   }
 }
+// ========================================================
 
   return {
     buyMin, sipMin, buyMax, buyConfirm, sellConfirm, buyStatus, sellStatus, noSellFeeDays,

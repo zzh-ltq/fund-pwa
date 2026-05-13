@@ -1007,11 +1007,6 @@ canvas#compare-canvas {
 
           <!-- 原有的图表容器 (加了 id 以便控制隐藏) -->
           <div id="md-chart-core-area">
-              <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
-              <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
-              <div id="md-canvas-wrap" style="position:relative; width:100%; height:220px; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;" onscroll="app.onCanvasScroll()">
-                <canvas id="md-canvas" style="height:100%;"></canvas>
-              </div>
           </div>
           <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
           <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
@@ -4822,12 +4817,10 @@ async renderCompareDetails() {
             return isNaN(num) ? '--' : num.toFixed(digits);
         };
         
-        // 基本信息
         let size = cached.basicInfo?.size || '--';
         let establishDate = cached.basicInfo?.establishDate || '--';
         let riskLevel = cached.basicInfo?.riskLevel || '中高风险';
         
-        // 持有排名
         let rankText = '--';
         try {
             const rankHtml = await this.fetchArchiveTable('jdzf', 'apidata', code);
@@ -4835,19 +4828,9 @@ async renderCompareDetails() {
             if (match) rankText = match[2] ? `${match[1]}/${match[2]}` : match[1];
         } catch(e) {}
         
-        // 基金经理
         const mgr = cached.managerInfo || {};
-        const managerName = mgr.name || '--';
-        const managerYears = mgr.years || '--';
-        const managerAvgReturn = mgr.avgReturn !== '--' ? fmtNum(mgr.avgReturn) : '--';
-        const managerFundCount = mgr.fundCount || '--';
-        const managerScale = mgr.scale || '--';
-        const managerTenureDays = mgr.tenureDays || '--';
-        const managerTenureReturn = mgr.tenureReturn !== '--' ? fmtNum(mgr.tenureReturn) : '--';
         
-        // 交易信息
-        let buyStatus = '开放申购';
-        let buyFee = '0.00%';
+        let buyStatus = '开放申购', buyFee = '0.00%';
         if (cached.tradeInfo) {
             buyStatus = cached.tradeInfo.buyStatus;
             buyFee = cached.tradeInfo.buyFee;
@@ -4859,69 +4842,66 @@ async renderCompareDetails() {
                 const feeMatch = trade.buyRateHtml.match(/(\d+(?:\.\d+)?)%/);
                 buyFee = feeMatch ? feeMatch[1] + '%' : '0.00%';
                 cached.tradeInfo = { buyStatus, buyFee };
-                this.data.fundsCache[code] = cached;
-                await this.saveData();
             }
         }
         
-        // 持仓数据
         let holdings = [];
         const hc = cached.holdingsCache;
         if (hc && hc.stocks && hc.stocks.length) {
             holdings = hc.stocks.map(s => ({ name: s.name, ratio: parseFloat(s.ratio) }));
         }
         
-        return { code, name: fund.name, size, establishDate, riskLevel, rank: rankText, 
-                 manager: { name: managerName, years: managerYears, avgReturn: managerAvgReturn, 
-                            fundCount: managerFundCount, scale: managerScale, tenureDays: managerTenureDays, tenureReturn: managerTenureReturn }, 
-                 holdings, tradeStatus: buyStatus, tradeFee: buyFee };
+        return { 
+            code, name: fund.name, size, establishDate, riskLevel, rank: rankText, 
+            manager: { name: mgr.name || '--', years: mgr.years || '--', avgReturn: mgr.avgReturn !== '--' ? fmtNum(mgr.avgReturn) : '--', 
+                       fundCount: mgr.fundCount || '--', scale: mgr.scale || '--', tenureDays: mgr.tenureDays || '--', tenureReturn: mgr.tenureReturn !== '--' ? fmtNum(mgr.tenureReturn) : '--' }, 
+            holdings, tradeStatus: buyStatus, tradeFee: buyFee 
+        };
     }));
     
-    // 构建合并持仓股票列表（按重复度排序）
-    const stockMap = new Map(); // name -> { count, totalRatio, ratiosByIndex }
-    for (let i = 0; i < fundsData.length; i++) {
-        for (const s of fundsData[i].holdings) {
-            if (!stockMap.has(s.name)) stockMap.set(s.name, { count: 0, totalRatio: 0, ratios: {} });
-            const entry = stockMap.get(s.name);
-            entry.count++;
-            entry.totalRatio += s.ratio;
-            entry.ratios[i] = s.ratio;
-        }
-    }
-    let stockList = Array.from(stockMap.entries()).map(([name, data]) => ({
-        name, count: data.count, totalRatio: data.totalRatio, ratios: data.ratios
-    }));
-    // 排序：先按被持有的基金数量（重复度）降序，再按总仓位降序
-    stockList.sort((a, b) => {
-        if (a.count !== b.count) return b.count - a.count;
-        return b.totalRatio - a.totalRatio;
+    // 【算法重构】：处理10行重仓股的对齐逻辑
+    // 1. 统计所有股票出现频率
+    const stockFreq = {};
+    fundsData.forEach(f => {
+        f.holdings.forEach(s => {
+            if (!stockFreq[s.name]) stockFreq[s.name] = { count: 0, totalRatio: 0 };
+            stockFreq[s.name].count++;
+            stockFreq[s.name].totalRatio += s.ratio;
+        });
     });
-    const topStocks = stockList.slice(0, 10);
-    
-    const buildMergedTable = () => {
-        if (topStocks.length === 0) return '<div style="text-align:center; padding:20px; color:#94a3b8;">暂无持仓数据，请先在设置中心批量抓取</div>';
-        let html = '<div style="overflow-x: auto;"><table class="merged-stock-table"><thead><tr><th>股票名称</th>';
-        for (let i = 0; i < fundsData.length; i++) {
-            let shortName = fundsData[i].name.length > 8 ? fundsData[i].name.slice(0,6)+'…' : fundsData[i].name;
-            html += `<th title="${fundsData[i].name}">${shortName}</th>`;
-        }
-        html += '</tr></thead><tbody>';
-        for (const stock of topStocks) {
-            html += `<tr><td>${stock.name}</td>`;
-            for (let i = 0; i < fundsData.length; i++) {
-                let ratio = stock.ratios[i];
-                let display = (ratio !== undefined && !isNaN(ratio)) ? ratio.toFixed(2) + '%' : '0.00%';
-                html += `<td style="text-align:right; font-weight:600;">${display}</td>`;
+    // 2. 按出现次数降序，找出最常重复的股票作为基准排前面
+    const sortedGlobalStocks = Object.keys(stockFreq).sort((a, b) => {
+        if (stockFreq[b].count !== stockFreq[a].count) return stockFreq[b].count - stockFreq[a].count;
+        return stockFreq[b].totalRatio - stockFreq[a].totalRatio;
+    }).slice(0, 10);
+
+    // 3. 为每只基金构建 10 行显示数据
+    fundsData.forEach(f => {
+        f.displayHoldings = new Array(10).fill(null);
+        let usedStocks = new Set();
+        
+        // 第一步：先按全局高频股票站位对齐
+        for(let i = 0; i < sortedGlobalStocks.length; i++) {
+            let match = f.holdings.find(s => s.name === sortedGlobalStocks[i]);
+            if (match) {
+                f.displayHoldings[i] = match;
+                usedStocks.add(match.name);
             }
-            html += '</tr>';
         }
-        html += '</tbody></table></div>';
-        return html;
-    };
-    
-    // 构建标签栏（粘性）
+        
+        // 第二步：空位用该基金特有的其他股票补齐
+        let remaining = f.holdings.filter(s => !usedStocks.has(s.name));
+        for(let i = 0; i < 10; i++) {
+            if (!f.displayHoldings[i] && remaining.length > 0) {
+                f.displayHoldings[i] = remaining.shift();
+            }
+        }
+    });
+
+    // 构建标签栏容器
     const tabsWrapper = document.createElement('div');
     tabsWrapper.className = 'compare-scroll-x compare-tabs-sticky';
+    tabsWrapper.style.overflowX = 'auto'; // 确保顶部可以滚动
     tabsWrapper.innerHTML = `<div id="compare-fund-tabs" style="display: inline-flex;"></div>`;
     container.appendChild(tabsWrapper);
     
@@ -4933,38 +4913,30 @@ async renderCompareDetails() {
     cardsWrapper.innerHTML = `<div id="compare-cards-wrapper" class="compare-cards-wrapper"></div>`;
     container.appendChild(cardsWrapper);
     
-    // 合并持仓表格
-    const mergedWrapper = document.createElement('div');
-    mergedWrapper.style.marginTop = '20px';
-    mergedWrapper.style.padding = '12px 4px';
-    mergedWrapper.style.background = '#fff';
-    mergedWrapper.style.borderRadius = '16px';
-    mergedWrapper.style.border = '1px solid #e2e8f0';
-    mergedWrapper.innerHTML = `<div style="font-weight:800; font-size:14px; margin-bottom:8px;">📈 十大重仓股合并对比</div>${buildMergedTable()}`;
-    container.appendChild(mergedWrapper);
-    
     const tabsDiv = document.getElementById('compare-fund-tabs');
     const cardsDiv = document.getElementById('compare-cards-wrapper');
     
-    // 填充标签和卡片
+    // 填充内容
     for (let i = 0; i < fundsData.length; i++) {
         const f = fundsData[i];
-        // 标签
+        // 渲染顶部 Tab
         const tab = document.createElement('div');
         tab.className = 'compare-fund-tab';
         if (i === 0) tab.classList.add('active');
         tab.innerText = f.name;
         tab.onclick = () => {
             const card = document.getElementById(`compare-card-${i}`);
-            if (card) {
-                card.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
-                document.querySelectorAll('.compare-fund-tab').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-            }
+            if (card) card.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
         };
         tabsDiv.appendChild(tab);
         
-        // 卡片 - 垂直布局
+        // 生成持仓 HTML
+        const holdingsHtml = f.displayHoldings.map(s => {
+            if (s) return `<div class="info-row"><span class="label">${s.name}</span><span class="value">${s.ratio.toFixed(2)}%</span></div>`;
+            return `<div class="info-row"><span class="label">--</span><span class="value">--</span></div>`;
+        }).join('');
+
+        // 渲染底部垂直卡片
         const card = document.createElement('div');
         card.className = 'compare-detail-card';
         card.id = `compare-card-${i}`;
@@ -4976,6 +4948,10 @@ async renderCompareDetails() {
                     <div class="info-row"><span class="label">基金规模</span><span class="value">${f.size}</span></div>
                     <div class="info-row"><span class="label">成立日期</span><span class="value">${f.establishDate}</span></div>
                 </div>
+            </div>
+            <div class="card-section">
+                <div class="section-title">💼 十大重仓股</div>
+                <div class="info-vertical">${holdingsHtml}</div>
             </div>
             <div class="card-section">
                 <div class="section-title">👨‍💼 基金经理</div>
@@ -5001,79 +4977,62 @@ async renderCompareDetails() {
         cardsDiv.appendChild(card);
     }
     
-    // 实现卡片容器的拖拽滚动（替代原生滚动条拖动，保留原生滚动条但增加拖拽）
-    let isDragging = false;
-    let startX = 0;
-    let scrollLeftStart = 0;
-    
+    // 【联动修正】：双向绑定 Tabs 和 Cards 的滚动
+    let isSyncingLeft = false;
+    let isSyncingRight = false;
+
+    tabsWrapper.addEventListener('scroll', () => {
+        if (!isSyncingLeft) {
+            isSyncingRight = true;
+            cardsWrapper.scrollLeft = tabsWrapper.scrollLeft;
+        }
+        isSyncingLeft = false;
+    });
+
     const updateActiveTab = () => {
         const scrollLeft = cardsWrapper.scrollLeft;
         const cards = document.querySelectorAll('.compare-detail-card');
         let activeIndex = 0;
         for (let i = 0; i < cards.length; i++) {
-            const left = cards[i].offsetLeft;
-            if (left <= scrollLeft + 50) activeIndex = i;
+            if (cards[i].offsetLeft <= scrollLeft + 50) activeIndex = i;
             else break;
         }
         document.querySelectorAll('.compare-fund-tab').forEach((tab, idx) => {
-            if (idx === activeIndex) tab.classList.add('active');
-            else tab.classList.remove('active');
+            idx === activeIndex ? tab.classList.add('active') : tab.classList.remove('active');
         });
     };
-    
-    const onMouseMove = (e) => {
-        if (!isDragging) return;
-        e.preventDefault();
-        const dx = e.clientX - startX;
-        cardsWrapper.scrollLeft = scrollLeftStart - dx;
+
+    cardsWrapper.addEventListener('scroll', () => {
+        if (!isSyncingRight) {
+            isSyncingLeft = true;
+            tabsWrapper.scrollLeft = cardsWrapper.scrollLeft;
+        }
+        isSyncingRight = false;
         updateActiveTab();
-    };
-    const onMouseUp = () => {
-        isDragging = false;
-        cardsWrapper.style.cursor = 'grab';
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
-    };
-    
+    });
+
+    // 鼠标拖拽卡片逻辑
+    let isDragging = false, startX = 0, scrollLeftStart = 0;
     cardsWrapper.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
-        isDragging = true;
-        startX = e.clientX;
-        scrollLeftStart = cardsWrapper.scrollLeft;
-        cardsWrapper.style.cursor = 'grabbing';
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-        e.preventDefault();
+        isDragging = true; startX = e.clientX; scrollLeftStart = cardsWrapper.scrollLeft;
+        cardsWrapper.style.cursor = 'grabbing'; e.preventDefault();
     });
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return; e.preventDefault();
+        cardsWrapper.scrollLeft = scrollLeftStart - (e.clientX - startX);
+    });
+    document.addEventListener('mouseup', () => { isDragging = false; cardsWrapper.style.cursor = 'grab'; });
     
-    // 触摸设备支持
+    // 移动端触摸逻辑
     cardsWrapper.addEventListener('touchstart', (e) => {
-        isDragging = true;
-        startX = e.touches[0].clientX;
-        scrollLeftStart = cardsWrapper.scrollLeft;
-        cardsWrapper.style.cursor = 'grabbing';
+        isDragging = true; startX = e.touches[0].clientX; scrollLeftStart = cardsWrapper.scrollLeft;
     });
     cardsWrapper.addEventListener('touchmove', (e) => {
         if (!isDragging) return;
-        const dx = e.touches[0].clientX - startX;
-        cardsWrapper.scrollLeft = scrollLeftStart - dx;
-        updateActiveTab();
-        e.preventDefault();
+        cardsWrapper.scrollLeft = scrollLeftStart - (e.touches[0].clientX - startX);
     });
-    cardsWrapper.addEventListener('touchend', () => {
-        isDragging = false;
-        cardsWrapper.style.cursor = 'grab';
-    });
-    
-    // 滚动时更新高亮（适配原生滚动条）
-    cardsWrapper.addEventListener('scroll', updateActiveTab);
-    
-    // 初始滚动到第一个卡片
-    setTimeout(() => {
-        const firstCard = document.getElementById('compare-card-0');
-        if (firstCard) firstCard.scrollIntoView({ inline: 'start', block: 'nearest' });
-        updateActiveTab();
-    }, 100);
+    cardsWrapper.addEventListener('touchend', () => { isDragging = false; });
 },
 
   updateComparePeriod() {
@@ -5180,14 +5139,6 @@ async renderCompareDetails() {
     }
 },
 
-  bindCompareChartEvents() { /* 无事件，空函数 */ },
-
-// 关闭对比弹窗时清理状态
-closeCompareModal() {
-    this.closeModal('compare');
-    this.compareState.hoverIndex = -1;
-    this.compareState.selectedCodes.clear();
-},
   
   cleanOrphanFunds() { 
     const validCodes = new Set(); 
@@ -7138,9 +7089,7 @@ ds(e, i) {
               }
               html += '</tr>';
             }
-            html += '</tbody>赶able>';
-            // 修复多余的 "赶able>"：上面一行应该是 `</table>`，这里替换掉
-            html = html.replace(/赶able>/g, '</table>');
+            html += '</tbody></table>';
             generatedHtml = html;
           }
         }

@@ -4886,11 +4886,11 @@ renderCompareDetails() {
         </div>`;
     }).join('');
 
-    // 4. 构建基金概况对比表 (加入首列绝对定位固定)
+    // 4. 构建基金概况对比表 (剥离 relative，提升 z-index，纯净 sticky)
     let basicTableRows = fundsData.map(f => {
         const b = f.basic;
         return `<tr>
-            <td style="font-size:12px; font-weight:800; color:#1e293b; position:sticky; left:0; background:#f8fafc; z-index:11; box-shadow: inset -2px 0 4px -2px rgba(0,0,0,0.1);">${f.name}</td>
+            <td class="indicator-cell" style="position: sticky; left: 0; background: #f8fafc; z-index: 11; font-weight: 800; color: #1e293b; font-size: 12px; box-shadow: inset -2px 0 4px -2px rgba(0,0,0,0.1); white-space: nowrap;">${f.name}</td>
             <td>${b.managerName}</td>
             <td>${b.fundSize}</td>
             <td>${b.establishDate}</td>
@@ -4904,12 +4904,12 @@ renderCompareDetails() {
     }).join('');
 
     let basicTableHtml = `
-        <div style="overflow-x:auto; margin-top:20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; position:relative;">
+        <div style="overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 20px; background: #fff; border-radius: 12px; border: 1px solid #e2e8f0;">
             <div style="font-size:14px; font-weight:900; padding:12px; border-bottom:1px solid #e2e8f0; background:#f8fafc; border-radius:12px 12px 0 0;">ℹ️ 基金概况对比</div>
-            <table class="data-table perf-table" style="margin-bottom:0; border-radius:0; box-shadow:none;">
+            <table class="data-table perf-table" style="margin-bottom:0; border-radius:0; box-shadow:none; border-collapse: separate;">
                 <thead>
                     <tr>
-                        <th style="min-width:120px; position:sticky; left:0; background:#f8fafc; z-index:12; box-shadow: inset -2px -2px 4px -2px rgba(0,0,0,0.1);">基金名称</th>
+                        <th style="position: sticky; left: 0; top: 0; background: #f8fafc; z-index: 30; min-width: 120px; box-shadow: inset -2px -2px 4px -2px rgba(0,0,0,0.1); white-space: nowrap;">基金名称</th>
                         <th>现任经理</th>
                         <th>基金规模</th>
                         <th>成立日期</th>
@@ -4926,7 +4926,7 @@ renderCompareDetails() {
         </div>
     `;
 
-    // 5. 构建基金经理变动对比表 (加入首列绝对定位固定)
+    // 5. 构建基金经理变动对比表
     let historyTableRows = fundsData.map(f => {
         const h = f.history;
         let returnColor = '';
@@ -4935,7 +4935,7 @@ renderCompareDetails() {
             if (!isNaN(num)) returnColor = num >= 0 ? 'color:#f43f5e;font-weight:900;' : 'color:#10b981;font-weight:900;';
         }
         return `<tr>
-            <td style="font-size:12px; font-weight:800; color:#1e293b; position:sticky; left:0; background:#f8fafc; z-index:11; box-shadow: inset -2px 0 4px -2px rgba(0,0,0,0.1);">${f.name}</td>
+            <td class="indicator-cell" style="position: sticky; left: 0; background: #f8fafc; z-index: 11; font-weight: 800; color: #1e293b; font-size: 12px; box-shadow: inset -2px 0 4px -2px rgba(0,0,0,0.1); white-space: nowrap;">${f.name}</td>
             <td>${h.startDate}</td>
             <td>${h.endDate}</td>
             <td>${h.manager}</td>
@@ -4945,12 +4945,12 @@ renderCompareDetails() {
     }).join('');
 
     let historyTableHtml = `
-        <div style="overflow-x:auto; margin-top:20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; position:relative;">
+        <div style="overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 20px; background: #fff; border-radius: 12px; border: 1px solid #e2e8f0;">
             <div style="font-size:14px; font-weight:900; padding:12px; border-bottom:1px solid #e2e8f0; background:#f8fafc; border-radius:12px 12px 0 0;">👥 基金经理变动对比</div>
-            <table class="data-table perf-table" style="margin-bottom:0; border-radius:0; box-shadow:none;">
+            <table class="data-table perf-table" style="margin-bottom:0; border-radius:0; box-shadow:none; border-collapse: separate;">
                 <thead>
                     <tr>
-                        <th style="min-width:120px; position:sticky; left:0; background:#f8fafc; z-index:12; box-shadow: inset -2px -2px 4px -2px rgba(0,0,0,0.1);">基金名称</th>
+                        <th style="position: sticky; left: 0; top: 0; background: #f8fafc; z-index: 30; min-width: 120px; box-shadow: inset -2px -2px 4px -2px rgba(0,0,0,0.1); white-space: nowrap;">基金名称</th>
                         <th>起始期</th>
                         <th>截止期</th>
                         <th>基金经理</th>
@@ -4963,7 +4963,7 @@ renderCompareDetails() {
         </div>
     `;
 
-    // 6. 最终合并装载 UI (修改了滑动绑定事件为合法函数)
+    // 6. 最终合并装载 UI
     container.innerHTML = `
         <div style="font-size:12px; color:#94a3b8; text-align:right; margin-bottom:8px;">提示：若下方有信息显示为 '--'，请去「设置」页点击「批量更新」</div>
         <div style="font-size:14px; font-weight:900; margin-bottom:10px;">💼 十大持仓对比</div>

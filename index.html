@@ -1199,6 +1199,26 @@ const app = {
   targetMarketSecid: '',     // 新增：用于记录当前正在绑定分组的行情代码
   workerUrl: 'https://myworker.us.ci', // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
 
+  // 【新增】：横向卡片拖拽滑动控制状态与函数
+  scrollState: { isDown: false, startX: 0, scrollLeft: 0 },
+  ds_scroll(e, el) {
+      this.scrollState.isDown = true;
+      this.scrollState.startX = e.pageX - el.offsetLeft;
+      this.scrollState.scrollLeft = el.scrollLeft;
+      el.style.cursor = 'grabbing';
+  },
+  dm_scroll(e, el) {
+      if (!this.scrollState.isDown) return;
+      e.preventDefault();
+      const x = e.pageX - el.offsetLeft;
+      const walk = (x - this.scrollState.startX) * 1.5; // 滑动速度倍率
+      el.scrollLeft = this.scrollState.scrollLeft - walk;
+  },
+  de_scroll(el) {
+      this.scrollState.isDown = false;
+      el.style.cursor = 'grab';
+  },
+
   // 1. 确保这个金额格式化函数存在 (如果之前漏了，这次补上)
   formatFlowAmt(val) {
     if (val === undefined || val === '-' || isNaN(val)) return '--';
@@ -1225,74 +1245,92 @@ const app = {
   // 3. 通用辅助函数
   // ==========================================
 
-// 【优化版】：慢速求稳、边跑边存的批量更新器
+// 【优化版】：后台静默更新、具备24小时缓存判断的爬虫
 async batchUpdateFundBasicInfo() {
     const allCodes = new Set();
     this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
     const codes = Array.from(allCodes);
-    if (codes.length === 0) {
-        this.showToast('暂无基金数据', 'error');
-        return;
+    if (codes.length === 0) return this.showToast('暂无基金数据', 'error');
+
+    // 1. 过滤：跳过 24 小时内已经成功拉取过的基金
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const codesToUpdate = codes.filter(code => {
+        const cache = this.data.fundsCache[code]?.basicData;
+        return !cache || !cache.timestamp || (now - cache.timestamp > ONE_DAY);
+    });
+
+    if (codesToUpdate.length === 0) {
+        return this.showToast('✅ 库内所有基金均在 24 小时内更新过，无需重复获取');
     }
 
-    this.showToast(`开始获取 ${codes.length} 只基金的基本信息...`);
-    
-    const loadingModal = document.getElementById('modal-loading');
-    const titleText = document.getElementById('loading-modal-title');
-    const progressText = document.getElementById('loading-progress-text');
-    titleText.innerText = '正在使用防封锁策略拉取...';
-    loadingModal.style.display = 'flex';
-    progressText.innerText = `0 / ${codes.length}`;
+    this.showToast(`后台启动：有 ${codesToUpdate.length} 只基金需要更新基本信息`);
+
+    // 2. 动态创建右下角悬浮提示窗
+    let bgToast = document.getElementById('bg-task-toast');
+    if (!bgToast) {
+        bgToast = document.createElement('div');
+        bgToast.id = 'bg-task-toast';
+        bgToast.style.cssText = 'display:flex; position:fixed; bottom:20px; right:20px; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); box-shadow:0 10px 25px rgba(0,0,0,0.1); border-radius:12px; padding:12px 16px; z-index:9999; border:1px solid #e2e8f0; align-items:center; gap:12px; transition:all 0.3s; transform:translateY(100px); opacity:0;';
+        bgToast.innerHTML = `
+            <div class="loading-spinner" style="width:20px; height:20px; margin:0; border-width:3px;"></div>
+            <div>
+                <div style="font-size:12px; font-weight:900; color:#1e293b;" id="bg-task-title">后台静默更新中...</div>
+                <div style="font-size:11px; font-weight:bold; color:#0066ff;" id="bg-task-progress">0 / 0</div>
+            </div>
+        `;
+        document.body.appendChild(bgToast);
+    }
+
+    // 弹出悬浮窗（不会遮挡页面）
+    bgToast.style.display = 'flex';
+    setTimeout(() => { bgToast.style.transform = 'translateY(0)'; bgToast.style.opacity = '1'; }, 50);
+
+    const progressText = document.getElementById('bg-task-progress');
+    progressText.innerText = `0 / ${codesToUpdate.length}`;
 
     let updatedCount = 0;
     let failedCount = 0;
-    
-    // 【核心修复】：将 batchSize 改为 1，强行排队，一个一个慢慢跑
-    for (let i = 0; i < codes.length; i++) {
-        const code = codes[i];
-        
+
+    // 3. 适度加速抓取 (单线程)
+    for (let i = 0; i < codesToUpdate.length; i++) {
+        const code = codesToUpdate[i];
         try {
             const res = await this.extractFundBasicData(code);
             if (res) {
                 if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-                
                 this.data.fundsCache[code].basicData = res.basicData;
                 if (res.trade.sellConfirm !== undefined) this.data.fundsCache[code].sellConfirmDays = res.trade.sellConfirm;
                 if (res.trade.noSellFeeDays !== undefined) this.data.fundsCache[code].noSellFeeDays = res.trade.noSellFeeDays;
                 
                 updatedCount++;
-                
-                // 【核心修复】：每跑完 1 只，立刻静默保存到 IndexedDB！
-                // 这样就算中途崩溃或用户强行刷新，前面的进度也保住了（断点续传雏形）
+                // 边抓边存
                 await this.saveData(); 
             } else {
                 failedCount++;
             }
         } catch (err) {
             failedCount++;
-        } 
+        }
 
-        // 更新 UI 进度
-        progressText.innerText = `${i + 1} / ${codes.length}`;
+        progressText.innerText = `${i + 1} / ${codesToUpdate.length}`;
         
-        // 【核心修复】：每跑完 1 只，强制整个爬虫休眠 800 毫秒
-        // 东方财富的防火墙对缓慢请求极其宽容
-        if (i < codes.length - 1) {
-            await new Promise(r => setTimeout(r, 800));
+        // 【加速优化】：休眠 150 毫秒，加上内部 API 请求耗时，刚好凑满 1秒~1.5秒 一个
+        if (i < codesToUpdate.length - 1) {
+            await new Promise(r => setTimeout(r, 150));
         }
     }
 
-    loadingModal.style.display = 'none';
-    
+    // 隐藏悬浮窗
+    bgToast.style.transform = 'translateY(100px)';
+    bgToast.style.opacity = '0';
+    setTimeout(() => { bgToast.style.display = 'none'; }, 300);
+
     if (failedCount > 0) {
-        this.showToast(`✅ 更新完成，成功 ${updatedCount} 只，多次重试仍失败 ${failedCount} 只`, 'error');
+        this.showToast(`后台更新完毕，成功 ${updatedCount} 只，跳过/失败 ${failedCount} 只`, 'error');
     } else {
-        this.showToast(`✅ 所有基金基本信息更新成功`);
+        this.showToast(`✅ 所有过期基金基本信息更新完毕`);
     }
-    
-    // 刷新页面卡片状态
-    if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
-    if (document.getElementById('view-sector').classList.contains('active') && this.activeSector) this.renderSector();
 },
 
 // 批量抓取所有基金的持仓信息（优化版：支持缓存跳过、高并发、超时控制）
@@ -4848,11 +4886,11 @@ renderCompareDetails() {
         </div>`;
     }).join('');
 
-    // 4. 构建基金概况对比表 (横轴为指标，纵轴为基金，第一列基金名称悬浮固定)
+    // 4. 构建基金概况对比表 (加入首列绝对定位固定)
     let basicTableRows = fundsData.map(f => {
         const b = f.basic;
         return `<tr>
-            <td class="indicator-cell" style="font-size:12px; font-weight:800; color:#1e293b;">${f.name}</td>
+            <td style="font-size:12px; font-weight:800; color:#1e293b; position:sticky; left:0; background:#f8fafc; z-index:11; box-shadow: inset -2px 0 4px -2px rgba(0,0,0,0.1);">${f.name}</td>
             <td>${b.managerName}</td>
             <td>${b.fundSize}</td>
             <td>${b.establishDate}</td>
@@ -4866,12 +4904,12 @@ renderCompareDetails() {
     }).join('');
 
     let basicTableHtml = `
-        <div style="overflow-x:auto; margin-top:20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0;">
+        <div style="overflow-x:auto; margin-top:20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; position:relative;">
             <div style="font-size:14px; font-weight:900; padding:12px; border-bottom:1px solid #e2e8f0; background:#f8fafc; border-radius:12px 12px 0 0;">ℹ️ 基金概况对比</div>
             <table class="data-table perf-table" style="margin-bottom:0; border-radius:0; box-shadow:none;">
                 <thead>
                     <tr>
-                        <th style="min-width:120px;">基金名称</th>
+                        <th style="min-width:120px; position:sticky; left:0; background:#f8fafc; z-index:12; box-shadow: inset -2px -2px 4px -2px rgba(0,0,0,0.1);">基金名称</th>
                         <th>现任经理</th>
                         <th>基金规模</th>
                         <th>成立日期</th>
@@ -4888,7 +4926,7 @@ renderCompareDetails() {
         </div>
     `;
 
-    // 5. 构建基金经理变动对比表 (横轴为指标，纵轴为基金)
+    // 5. 构建基金经理变动对比表 (加入首列绝对定位固定)
     let historyTableRows = fundsData.map(f => {
         const h = f.history;
         let returnColor = '';
@@ -4897,7 +4935,7 @@ renderCompareDetails() {
             if (!isNaN(num)) returnColor = num >= 0 ? 'color:#f43f5e;font-weight:900;' : 'color:#10b981;font-weight:900;';
         }
         return `<tr>
-            <td class="indicator-cell" style="font-size:12px; font-weight:800; color:#1e293b;">${f.name}</td>
+            <td style="font-size:12px; font-weight:800; color:#1e293b; position:sticky; left:0; background:#f8fafc; z-index:11; box-shadow: inset -2px 0 4px -2px rgba(0,0,0,0.1);">${f.name}</td>
             <td>${h.startDate}</td>
             <td>${h.endDate}</td>
             <td>${h.manager}</td>
@@ -4907,12 +4945,12 @@ renderCompareDetails() {
     }).join('');
 
     let historyTableHtml = `
-        <div style="overflow-x:auto; margin-top:20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0;">
+        <div style="overflow-x:auto; margin-top:20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; position:relative;">
             <div style="font-size:14px; font-weight:900; padding:12px; border-bottom:1px solid #e2e8f0; background:#f8fafc; border-radius:12px 12px 0 0;">👥 基金经理变动对比</div>
             <table class="data-table perf-table" style="margin-bottom:0; border-radius:0; box-shadow:none;">
                 <thead>
                     <tr>
-                        <th style="min-width:120px;">基金名称</th>
+                        <th style="min-width:120px; position:sticky; left:0; background:#f8fafc; z-index:12; box-shadow: inset -2px -2px 4px -2px rgba(0,0,0,0.1);">基金名称</th>
                         <th>起始期</th>
                         <th>截止期</th>
                         <th>基金经理</th>
@@ -4925,11 +4963,11 @@ renderCompareDetails() {
         </div>
     `;
 
-    // 6. 最终合并装载 UI
+    // 6. 最终合并装载 UI (修改了滑动绑定事件为合法函数)
     container.innerHTML = `
-        <div style="font-size:12px; color:#94a3b8; text-align:right; margin-bottom:8px;">提示：若下方有信息显示为 '--'，请去「设置」页点击「批量更新基本信息」</div>
+        <div style="font-size:12px; color:#94a3b8; text-align:right; margin-bottom:8px;">提示：若下方有信息显示为 '--'，请去「设置」页点击「批量更新」</div>
         <div style="font-size:14px; font-weight:900; margin-bottom:10px;">💼 十大持仓对比</div>
-        <div class="compare-scroll-x" style="display:flex; gap:12px; padding-bottom:10px; cursor:grab;" onmousedown="app.ds_scroll(event, this)" onmouseleave="this.style.cursor='grab'" onmouseup="this.style.cursor='grab'" onmousemove="app.dm_scroll(event, this)">
+        <div class="compare-scroll-x" style="display:flex; gap:12px; padding-bottom:10px; cursor:grab;" onmousedown="app.ds_scroll(event, this)" onmouseleave="app.de_scroll(this)" onmouseup="app.de_scroll(this)" onmousemove="app.dm_scroll(event, this)">
             ${holdingsCardsHtml}
         </div>
         ${basicTableHtml}
@@ -7297,6 +7335,7 @@ async fetchFundRateHtml(code, retry = 2) {
           if (match) extractedBuyFee = match[0];
       }
 
+      // ... 前面的代码保持不变 ...
       const safeNum = (v) => (v !== undefined && v !== null && !isNaN(parseFloat(v))) ? parseFloat(v).toFixed(2) : '--';
 
       const basicData = {
@@ -7314,7 +7353,8 @@ async fetchFundRateHtml(code, retry = 2) {
           buyMin: trade.buyMin,
           sipMin: trade.sipMin,
           buyMax: trade.buyMax,
-          mgrHistoryFirstRow
+          mgrHistoryFirstRow,
+          timestamp: Date.now() // 【新增】：打上时间戳，方便后续 24 小时缓存跳过
       };
 
       return { basicData, trade, manager, evalData, managerTableHtml, isEvalValid: (evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v))) };

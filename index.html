@@ -7461,29 +7461,108 @@ if (sellRateHtml && sellRateHtml.includes('<table')) {
 async renderBasicInfoTab(code) {
   const container = document.getElementById('det-basicinfo-area');
   if (!container) return;
-  container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">加载基本信息与交易规则...</div>';
+  container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">数据深度抓取与解析中...</div>';
 
-  // 并行获取经理/评价 + 费率页面HTML
-  const [fullInfo, html] = await Promise.all([
+  // 新增：安全的 HTML 抓取器，自带防卡死超时功能
+  const fetchHTMLSafely = async (url) => {
+      try {
+          const controller = new AbortController();
+          const id = setTimeout(() => controller.abort(), 4000);
+          const res = await fetch(url, { signal: controller.signal });
+          clearTimeout(id);
+          if (res.ok) return await res.text();
+      } catch (e) {}
+      return null;
+  };
+
+  // 并行获取：基础数据接口、费率页面HTML、基金经理变动页面HTML
+  const [fullInfo, html, jjjlHtml] = await Promise.all([
     this.fetchFundFullInfo(code),
-    this.fetchFundRateHtml(code)
+    this.fetchFundRateHtml(code),
+    fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`)
   ]);
 
   const { manager, evalData, fundInfo } = fullInfo;
-  
-  // 提取基本字段
-  const fundSize = fundInfo ? (fundInfo.fundscale || fundInfo.fundSize || '--') : '--';
-  const establishDate = fundInfo ? (fundInfo.establishDate || '--') : '--';
-  const riskLevel = fundInfo ? (fundInfo.riskLevel || fundInfo.risklevel || '中高风险') : '--';
   const isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
 
-  // 解析交易规则（默认占位）
+  // ================= 1. 精准提取：基金规模与成立日期 =================
+  let fundSize = '--';
+  let establishDate = '--';
+  let riskLevel = fundInfo ? (fundInfo.riskLevel || fundInfo.risklevel || '中高风险') : '--';
+
+  // 优先从接口拿
+  if (fundInfo) {
+      if (fundInfo.fundscale) fundSize = fundInfo.fundscale;
+      else if (fundInfo.fundSize) fundSize = fundInfo.fundSize;
+      if (fundInfo.establishDate) establishDate = fundInfo.establishDate;
+  }
+  // 接口为空时，从基金经理网页顶部的概览区域用正则暴力抠出
+  if (fundSize === '--' && jjjlHtml) {
+      const sizeMatch = jjjlHtml.match(/(?:资产规模|净资产规模|基金规模)[：:]\s*([\d\.]+[万亿]元?)/);
+      if (sizeMatch) fundSize = sizeMatch[1];
+  }
+  if (establishDate === '--' && jjjlHtml) {
+      const dateMatch = jjjlHtml.match(/成立日期[：:]\s*(\d{4}-\d{2}-\d{2})/);
+      if (dateMatch) establishDate = dateMatch[1];
+  }
+
+  // ================= 2. 提取并清洗：基金经理变动一览表格 =================
+  let managerTableHtml = '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无历任基金经理数据</div>';
+  if (jjjlHtml) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(jjjlHtml, 'text/html');
+      const tables = doc.querySelectorAll('table');
+      
+      // 遍历寻找包含目标列名的表格
+      for (let t of tables) {
+          const headerText = t.textContent;
+          if (headerText.includes('起始期') && headerText.includes('截止期') && headerText.includes('基金经理')) {
+              // 剥离原网站样式，注入我们的表格样式类
+              t.className = 'rate-table';
+              t.style.width = '100%';
+              t.style.borderCollapse = 'collapse';
+              
+              // 深度美化表格内部元素
+              t.querySelectorAll('td, th').forEach(cell => {
+                  cell.style.padding = '8px 4px';
+                  cell.style.border = '1px solid #e2e8f0';
+                  cell.style.textAlign = 'center';
+                  
+                  // 处理带有链接的名字（禁用跳转，统一改蓝色）
+                  const a = cell.querySelector('a');
+                  if (a) {
+                      a.style.color = '#1677ff';
+                      a.style.fontWeight = 'bold';
+                      a.style.textDecoration = 'none';
+                      a.removeAttribute('href');
+                  }
+                  
+                  // 智能识别百分比，赋予红涨绿跌颜色
+                  const text = cell.textContent.trim();
+                  if (text.includes('%')) {
+                      const num = parseFloat(text);
+                      if (!isNaN(num)) {
+                          cell.style.color = num >= 0 ? '#f43f5e' : '#10b981';
+                          cell.style.fontWeight = '900';
+                      }
+                  }
+              });
+              
+              // 移除表头里碍事的小问号图标
+              t.querySelectorAll('.help').forEach(el => el.remove()); 
+              
+              managerTableHtml = `<div class="table-wrapper" style="overflow-x:auto;">${t.outerHTML}</div>`;
+              break;
+          }
+      }
+  }
+
+  // ================= 3. 解析交易规则与费率 =================
   let trade = {
     buyMin: '--', sipMin: '--', buyMax: '--', buyConfirm: '--', sellConfirm: '--',
     buyStatus: '--', sellStatus: '--', buyRateHtml: '<p>暂无数据</p>', sellRateHtml: '<p>暂无数据</p>',
     noSellFeeDays: null  
   };
-  
   if (html) {
     trade = this.parseFundRateHtml(html, code);
   } else {
@@ -7491,14 +7570,13 @@ async renderBasicInfoTab(code) {
     trade.sellRateHtml = '<p style="padding:12px; color:#f43f5e;">❌ 费率页面加载失败</p>';
   }
 
-  // 提取首个申购费率数值
+  // 提取首个申购费率数值用于概览
   let extractedBuyFee = '--';
   if (trade.buyRateHtml.includes('%')) {
       const match = trade.buyRateHtml.match(/(\d+(?:\.\d+)?)%/);
       if (match) extractedBuyFee = match[0];
   }
 
-  // 将交易规则缓存到 fundsCache 中，供首页卡片使用
   if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
   if (trade.sellConfirm !== undefined && trade.noSellFeeDays !== undefined) {
         this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
@@ -7507,7 +7585,6 @@ async renderBasicInfoTab(code) {
         this.updateFundCardDisplay(code);
   }
 
-  // 美化表格（添加横向滚动）
   const formatTable = (tableHtml) => {
     if (!tableHtml.includes('<table')) return tableHtml;
     let cleaned = tableHtml.replace(/ class="[^"]*"/gi, '')
@@ -7516,7 +7593,9 @@ async renderBasicInfoTab(code) {
     return `<div class="table-wrapper" style="overflow-x:auto; margin-top:6px;">${cleaned}</div>`;
   };
 
-  // ----- 1. 经理卡片 -----
+  // ================= 4. UI 模块组装 =================
+  
+  // 模块A: 现任经理简况
   let managerHtml = '';
   if (manager) {
     managerHtml = `
@@ -7531,7 +7610,7 @@ async renderBasicInfoTab(code) {
     `;
   }
 
-  // ----- 2. 综合评价卡片 -----
+  // 模块B: 综合评价雷达
   let evalHtml = '';
   if (isEvalValid) {
     let barHtml = '';
@@ -7556,11 +7635,10 @@ async renderBasicInfoTab(code) {
     `;
   }
 
-  // ====================== 3. 新增：基金与经理基本信息大卡片 ======================
+  // 模块C: 精简版基金概况 (取消了原有的深度无用数据)
   const basicInfoCardHtml = `
     <div class="card" style="padding:16px; margin-top:12px; margin-bottom:12px; border: 1px solid #e2e8f0;">
-      <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #f59e0b; padding-left:8px;">ℹ️ 基金与经理基本信息</h3>
-      
+      <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #f59e0b; padding-left:8px;">ℹ️ 基金概况</h3>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:13px; color:#475569; line-height:1.6;">
         <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">基金规模</span> <span style="font-weight:600; color:#1e293b;">${fundSize}</span></div>
         <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">成立日期</span> <span style="font-weight:600; color:#1e293b;">${establishDate}</span></div>
@@ -7568,23 +7646,20 @@ async renderBasicInfoTab(code) {
         <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购状态</span> <span style="font-weight:600; color:${trade.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'};">${trade.buyStatus}</span></div>
         <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购手续费</span> <span style="font-weight:600; color:#f43f5e;">${extractedBuyFee}</span></div>
       </div>
-      
-      <div style="height:1px; background:#e2e8f0; margin:14px 0;"></div>
-      
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:13px; color:#475569; line-height:1.6;">
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">基金经理</span> <span style="font-weight:600; color:#1677ff;">${manager ? manager.name : '--'}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">从业年限</span> <span style="font-weight:600; color:#1e293b;">${manager ? manager.workTime : '--'}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">年均回报</span> <span style="font-weight:600; color:#94a3b8;">--</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">本基金任期</span> <span style="font-weight:600; color:#94a3b8;">--</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">任期回报</span> <span style="font-weight:600; color:#94a3b8;">--</span></div>
-      </div>
     </div>
   `;
-  // ===============================================================================
 
-  // ----- 4. 申赎状态、金额规则、确认日 卡片 -----
+  // 模块D: 全新的基金经理变动一览卡片
+  const managerHistoryCardHtml = `
+    <div class="card" style="padding:16px; margin-bottom:12px; border: 1px solid #e2e8f0;">
+      <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #1677ff; padding-left:8px;">👥 基金经理变动一览</h3>
+      ${managerTableHtml}
+    </div>
+  `;
+
+  // 模块E: 申赎规则细则
   const tradeRowHtml = `
-    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-top:12px;">
+    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
       <div class="card" style="padding:10px;">
         <h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📌 申赎状态</h4>
         <div style="font-size:12px; line-height:1.5;">
@@ -7610,7 +7685,7 @@ async renderBasicInfoTab(code) {
     </div>
   `;
 
-  // ----- 5. 费率表格区域 -----
+  // 模块F: 费率明细表
   const feeHtml = `
     <div style="margin-top:12px;">
       <div class="card" style="padding:12px; margin-bottom:12px;">
@@ -7624,20 +7699,19 @@ async renderBasicInfoTab(code) {
     </div>
   `;
 
-  // 组装前两张顶部卡片
   let topRowHtml = '';
   if (managerHtml && evalHtml) {
-    topRowHtml = `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">${managerHtml}${evalHtml}</div>`;
+    topRowHtml = `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">${managerHtml}${evalHtml}</div>`;
   } else if (managerHtml) {
-    topRowHtml = `<div style="margin-bottom:12px;">${managerHtml}</div>`;
+    topRowHtml = `<div>${managerHtml}</div>`;
   } else if (evalHtml) {
-    topRowHtml = `<div style="margin-bottom:12px;">${evalHtml}</div>`;
+    topRowHtml = `<div>${evalHtml}</div>`;
   }
 
-  // ★ 最终插入页面的顺序：顶部经理评分卡片 -> 新增的基本信息卡片 -> 底部交易细则表格
-  container.innerHTML = topRowHtml + basicInfoCardHtml + tradeRowHtml + feeHtml;
+  // 最终按顺序组装并渲染到容器
+  container.innerHTML = topRowHtml + basicInfoCardHtml + managerHistoryCardHtml + tradeRowHtml + feeHtml;
 
-  // 动态注入表格样式
+  // 动态注入表格的基础样式
   if (!document.querySelector('#dynamic-rate-style')) {
     const style = document.createElement('style');
     style.id = 'dynamic-rate-style';

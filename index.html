@@ -1225,6 +1225,7 @@ const app = {
   // 3. 通用辅助函数
   // ==========================================
 
+// 【优化版】：慢速求稳、边跑边存的批量更新器
 async batchUpdateFundBasicInfo() {
     const allCodes = new Set();
     this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
@@ -1239,60 +1240,57 @@ async batchUpdateFundBasicInfo() {
     const loadingModal = document.getElementById('modal-loading');
     const titleText = document.getElementById('loading-modal-title');
     const progressText = document.getElementById('loading-progress-text');
-    titleText.innerText = '全网深度抓取基本信息中...';
+    titleText.innerText = '正在使用防封锁策略拉取...';
     loadingModal.style.display = 'flex';
     progressText.innerText = `0 / ${codes.length}`;
 
     let updatedCount = 0;
     let failedCount = 0;
-    let processedCount = 0;
-    const batchSize = 3; 
-
-    for (let i = 0; i < codes.length; i += batchSize) {
-        const chunk = codes.slice(i, i + batchSize);
+    
+    // 【核心修复】：将 batchSize 改为 1，强行排队，一个一个慢慢跑
+    for (let i = 0; i < codes.length; i++) {
+        const code = codes[i];
         
-        await Promise.all(chunk.map(async (code) => {
-            try {
-                // 直接调用我们刚才写的超级引擎
-                const res = await this.extractFundBasicData(code);
-                if (res) {
-                    if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-                    
-                    // 将提取出的所有结构化数据，存入 fundsCache[code].basicData
-                    this.data.fundsCache[code].basicData = res.basicData;
-                    
-                    // 同步兼容旧的首页卡片字段
-                    if (res.trade.sellConfirm !== undefined) this.data.fundsCache[code].sellConfirmDays = res.trade.sellConfirm;
-                    if (res.trade.noSellFeeDays !== undefined) this.data.fundsCache[code].noSellFeeDays = res.trade.noSellFeeDays;
-                    
-                    updatedCount++;
-                } else {
-                    failedCount++;
-                }
-            } catch (err) {
+        try {
+            const res = await this.extractFundBasicData(code);
+            if (res) {
+                if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+                
+                this.data.fundsCache[code].basicData = res.basicData;
+                if (res.trade.sellConfirm !== undefined) this.data.fundsCache[code].sellConfirmDays = res.trade.sellConfirm;
+                if (res.trade.noSellFeeDays !== undefined) this.data.fundsCache[code].noSellFeeDays = res.trade.noSellFeeDays;
+                
+                updatedCount++;
+                
+                // 【核心修复】：每跑完 1 只，立刻静默保存到 IndexedDB！
+                // 这样就算中途崩溃或用户强行刷新，前面的进度也保住了（断点续传雏形）
+                await this.saveData(); 
+            } else {
                 failedCount++;
-            } finally {
-                processedCount++;
             }
-        }));
+        } catch (err) {
+            failedCount++;
+        } 
 
-        progressText.innerText = `${processedCount} / ${codes.length}`;
+        // 更新 UI 进度
+        progressText.innerText = `${i + 1} / ${codes.length}`;
         
-        if (i + batchSize < codes.length) {
-            await new Promise(r => setTimeout(r, 400));
+        // 【核心修复】：每跑完 1 只，强制整个爬虫休眠 800 毫秒
+        // 东方财富的防火墙对缓慢请求极其宽容
+        if (i < codes.length - 1) {
+            await new Promise(r => setTimeout(r, 800));
         }
     }
 
-    // 更新完毕后一次性保存数据库
-    await this.saveData();
     loadingModal.style.display = 'none';
     
     if (failedCount > 0) {
-        this.showToast(`✅ 更新完成，成功 ${updatedCount} 只，失败 ${failedCount} 只`, 'error');
+        this.showToast(`✅ 更新完成，成功 ${updatedCount} 只，多次重试仍失败 ${failedCount} 只`, 'error');
     } else {
         this.showToast(`✅ 所有基金基本信息更新成功`);
     }
     
+    // 刷新页面卡片状态
     if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
     if (document.getElementById('view-sector').classList.contains('active') && this.activeSector) this.renderSector();
 },
@@ -7195,26 +7193,41 @@ async fetchFundRateHtml(code, retry = 2) {
   return null;
 },
 
-  // 【新增】：统一的数据抓取与结构化提取引擎
+// 【优化版】：带自动重试、防风控串行队列的数据抓取引擎
   async extractFundBasicData(code) {
-      const fetchHTMLSafely = async (url) => {
-          try {
-              const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
-              const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 8000); 
-              const res = await fetch(proxyUrl, { signal: controller.signal });
-              clearTimeout(id);
-              if (res.ok) return await res.text();
-          } catch (e) { }
-          return null;
+      // 内部带重试机制的抓取器
+      const fetchHTMLSafely = async (url, retries = 3) => {
+          for (let i = 0; i < retries; i++) {
+              try {
+                  const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
+                  const controller = new AbortController();
+                  // 批量抓取时放宽到 10 秒超时
+                  const id = setTimeout(() => controller.abort(), 10000); 
+                  const res = await fetch(proxyUrl, { signal: controller.signal });
+                  clearTimeout(id);
+                  if (res.ok) return await res.text();
+                  
+                  // 如果返回 500 或 403，说明被限流，休眠后重试
+                  await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+              } catch (e) { 
+                  // 超时也会进入这里，休眠后重试
+                  await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+              }
+          }
+          return null; // 重试3次全败才返回 null
       };
 
-      const [fullInfo, html, jjjlHtml, jbgkHtml] = await Promise.all([
-          this.fetchFundFullInfo(code),
-          this.fetchFundRateHtml(code),
-          fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`),
-          fetchHTMLSafely(`https://fundf10.eastmoney.com/jbgk_${code}.html`)
-      ]);
+      // 1. 获取基本 JSONP 数据（东方财富原生接口，不会跨域，速度极快）
+      const fullInfo = await this.fetchFundFullInfo(code);
+
+      // 2. 【核心修复】：取消 Promise.all 瞬间并发，改为串行排队拉取 HTML，给代理喘息时间
+      const html = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jjfl_${code}.html`);
+      await new Promise(r => setTimeout(r, 300)); // 呼吸 300 毫秒
+
+      const jjjlHtml = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`);
+      await new Promise(r => setTimeout(r, 300)); // 呼吸 300 毫秒
+
+      const jbgkHtml = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jbgk_${code}.html`);
 
       const { manager, evalData, fundInfo } = fullInfo;
       const cachedFund = this.data.fundsCache[code] || {};
@@ -7242,7 +7255,6 @@ async fetchFundRateHtml(code, retry = 2) {
           const tables = doc.querySelectorAll('table');
           for (let t of tables) {
               if (t.textContent.includes('起始期') && t.textContent.includes('截止期')) {
-                  // 提取最新一任经理的数据（供对比界面使用）
                   const rows = t.querySelectorAll('tr');
                   for (let i = 1; i < rows.length; i++) {
                       const cells = rows[i].querySelectorAll('td');
@@ -7258,7 +7270,6 @@ async fetchFundRateHtml(code, retry = 2) {
                       }
                   }
                   
-                  // 构建详情界面的 HTML 表格
                   t.className = 'rate-table'; t.style.width = '100%'; t.style.borderCollapse = 'collapse';
                   t.querySelectorAll('td, th').forEach(cell => {
                       cell.style.padding = '8px 4px'; cell.style.border = '1px solid #e2e8f0'; cell.style.textAlign = 'center';

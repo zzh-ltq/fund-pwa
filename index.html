@@ -776,7 +776,7 @@ canvas#compare-canvas {
         <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">🔄 数据更新</h3>
         <div style="display: flex; flex-wrap: wrap; gap: 10px;">
         <button class="btn-primary" style="background: var(--green); box-shadow: none;" onclick="app.refreshAll()">📊 全量刷新净值</button>
-        <button class="btn-primary" style="background: var(--blue); box-shadow: none;" onclick="app.batchUpdateSellConfirmInfo()">💰 赎率/到账更新</button>
+        <button class="btn-primary" style="background: var(--blue); box-shadow: none;" onclick="app.batchUpdateFundBasicInfo()">💰 基金基本信息更新</button>
         <button class="btn-primary" style="background: #8b5cf6; box-shadow: none;" onclick="app.batchFetchHoldings()">📦 批量抓取持仓</button>
         </div>
         <div style="font-size: 11px; color: var(--text-sub); margin-top: 8px;">
@@ -1225,7 +1225,7 @@ const app = {
   // 3. 通用辅助函数
   // ==========================================
 
-async batchUpdateSellConfirmInfo() {
+async batchUpdateFundBasicInfo() {
     const allCodes = new Set();
     this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
     const codes = Array.from(allCodes);
@@ -1234,20 +1234,18 @@ async batchUpdateSellConfirmInfo() {
         return;
     }
 
-    this.showToast(`开始获取 ${codes.length} 只基金的卖出确认信息...`);
+    this.showToast(`开始获取 ${codes.length} 只基金的基本信息...`);
     
     const loadingModal = document.getElementById('modal-loading');
     const titleText = document.getElementById('loading-modal-title');
     const progressText = document.getElementById('loading-progress-text');
-    titleText.innerText = '正在更新卖出确认信息...';
+    titleText.innerText = '全网深度抓取基本信息中...';
     loadingModal.style.display = 'flex';
     progressText.innerText = `0 / ${codes.length}`;
 
     let updatedCount = 0;
     let failedCount = 0;
     let processedCount = 0;
-
-    // 【优化1：降低并发】从 6 降到 3，避免 Cloudflare Worker 瞬间过载导致 500 报错
     const batchSize = 3; 
 
     for (let i = 0; i < codes.length; i += batchSize) {
@@ -1255,26 +1253,23 @@ async batchUpdateSellConfirmInfo() {
         
         await Promise.all(chunk.map(async (code) => {
             try {
-                const html = await this.fetchFundRateHtml(code);
-                if (html) {
-                    const trade = this.parseFundRateHtml(html, code);
+                // 直接调用我们刚才写的超级引擎
+                const res = await this.extractFundBasicData(code);
+                if (res) {
                     if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-                    let changed = false;
                     
-                    if (trade.sellConfirm && trade.sellConfirm !== '--' && this.data.fundsCache[code].sellConfirmDays !== trade.sellConfirm) {
-                        this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
-                        changed = true;
-                    }
-                    if (trade.noSellFeeDays !== undefined && this.data.fundsCache[code].noSellFeeDays !== trade.noSellFeeDays) {
-                        this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
-                        changed = true;
-                    }
-                    if (changed) updatedCount++;
+                    // 将提取出的所有结构化数据，存入 fundsCache[code].basicData
+                    this.data.fundsCache[code].basicData = res.basicData;
+                    
+                    // 同步兼容旧的首页卡片字段
+                    if (res.trade.sellConfirm !== undefined) this.data.fundsCache[code].sellConfirmDays = res.trade.sellConfirm;
+                    if (res.trade.noSellFeeDays !== undefined) this.data.fundsCache[code].noSellFeeDays = res.trade.noSellFeeDays;
+                    
+                    updatedCount++;
                 } else {
                     failedCount++;
                 }
             } catch (err) {
-                // 静默处理单次失败，保持控制台干净
                 failedCount++;
             } finally {
                 processedCount++;
@@ -1283,31 +1278,23 @@ async batchUpdateSellConfirmInfo() {
 
         progressText.innerText = `${processedCount} / ${codes.length}`;
         
-        // 【优化2：增加缓冲期】每批次请求完休息 300 毫秒，给代理节点喘息时间
         if (i + batchSize < codes.length) {
-            await new Promise(r => setTimeout(r, 300));
+            await new Promise(r => setTimeout(r, 400));
         }
     }
 
-    // 【优化3：仅保存本地】执行本地持久化存储
+    // 更新完毕后一次性保存数据库
     await this.saveData();
     loadingModal.style.display = 'none';
     
     if (failedCount > 0) {
-        this.showToast(`✅ 更新完成，成功 ${updatedCount} 只，失败/无数据 ${failedCount} 只`, 'error');
+        this.showToast(`✅ 更新完成，成功 ${updatedCount} 只，失败 ${failedCount} 只`, 'error');
     } else {
-        this.showToast(`✅ 所有基金卖出确认信息更新成功 (共 ${updatedCount} 只有变动)`);
+        this.showToast(`✅ 所有基金基本信息更新成功`);
     }
     
-    // 刷新当前激活的视图更新卡片
-    if (document.getElementById('view-home').classList.contains('active')) {
-        this.renderHome();
-    }
-    if (document.getElementById('view-sector').classList.contains('active') && this.activeSector) {
-        this.renderSector();
-    }
-    
-    // 【优化4：取消自动上传】已经删除了原有的 if(this.s3) { this.pushToCloud(); }
+    if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
+    if (document.getElementById('view-sector').classList.contains('active') && this.activeSector) this.renderSector();
 },
 
 // 批量抓取所有基金的持仓信息（优化版：支持缓存跳过、高并发、超时控制）
@@ -4734,31 +4721,7 @@ compareState: {
     
     // 预加载基本信息（异步，不影响图例显示）
     const selectedCodes = Array.from(this.compareState.selectedCodes);
-    try {
-        await Promise.all(selectedCodes.map(async (code) => {
-            if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-            if (!this.data.fundsCache[code].basicInfo || !this.data.fundsCache[code].managerInfo) {
-                const fullInfo = await this.fetchFundFullInfo(code);
-                const mgr = fullInfo.manager;
-                this.data.fundsCache[code].basicInfo = {
-                    size: fullInfo.fundInfo?.fundscale || '--',
-                    establishDate: fullInfo.fundInfo?.establishDate || '--',
-                    riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
-                };
-                const safeNum = (v) => (v !== undefined && v !== null && !isNaN(parseFloat(v))) ? parseFloat(v).toFixed(2) : '--';
-                this.data.fundsCache[code].managerInfo = {
-                    name: mgr?.name || '--',
-                    years: mgr?.workTime || '--',
-                    avgReturn: safeNum(mgr?.power?.avr),
-                    tenureReturn: safeNum(mgr?.tenureReturn),
-                    maxDrawdown: safeNum(mgr?.maxDrawdown)
-                };
-                await this.saveData();
-                // 重新渲染详情（因为信息已更新）
-                await this.renderCompareDetails();
-            }
-        }));
-    } catch(e) { console.error('预加载详情失败', e); }
+
 },
 
   renderCompareFundList() {
@@ -4794,7 +4757,7 @@ compareState: {
     this.renderCompareLegend();   // 新增：更新图例
 },
 
-async renderCompareDetails() {
+renderCompareDetails() {
     const container = document.getElementById('compare-dynamic-container');
     if (!container) return;
     
@@ -4805,85 +4768,50 @@ async renderCompareDetails() {
     }
     const detailsArea = document.getElementById('compare-details-area');
     detailsArea.style.display = 'block';
-    container.innerHTML = '';
     
-    // 获取所有选中基金的完整数据
-    const fundsData = await Promise.all(selectedFunds.map(async (fund) => {
+    // 1. 直接同步从缓存中获取刚才预存的数据（如果没存过，显示提示并用 -- 兜底）
+    const fundsData = selectedFunds.map(fund => {
         const code = fund.code;
-        let cached = this.data.fundsCache[code] || {};
-        
-        const fmtNum = (val, digits = 2) => {
-            if (val === undefined || val === null || val === '--') return '--';
-            const num = parseFloat(val);
-            return isNaN(num) ? '--' : num.toFixed(digits);
-        };
-        
-        // 【修复点 1】：强制等待接口返回基本信息，防止渲染出 --
-        if (!cached.basicInfo || !cached.managerInfo) {
-            const fullInfo = await this.fetchFundFullInfo(code);
-            const mgr = fullInfo.manager || {};
-            cached.basicInfo = {
-                size: fullInfo.fundInfo?.fundscale || '--',
-                establishDate: fullInfo.fundInfo?.establishDate || '--',
-                riskLevel: fullInfo.fundInfo?.riskLevel || '中高风险'
-            };
-            const safeNum = (v) => (v !== undefined && v !== null && !isNaN(parseFloat(v))) ? parseFloat(v).toFixed(2) : '--';
-            cached.managerInfo = {
-                name: mgr.name || '--',
-                years: mgr.workTime || '--', 
-                avgReturn: safeNum(mgr.power?.avr),
-                fundCount: '--', 
-                scale: mgr.fundSize || '--', 
-                tenureDays: mgr.workTime || '--', 
-                tenureReturn: safeNum(mgr.tenureReturn)
-            };
-            this.data.fundsCache[code] = cached;
-        }
-
-        let size = cached.basicInfo.size;
-        let establishDate = cached.basicInfo.establishDate;
-        let riskLevel = cached.basicInfo.riskLevel;
-        const mgr = cached.managerInfo;
-        
-        // 【修复点 2】：更精准的正则，专门寻找表格里的 >数字|数字< 结构，防止抓到 600
-        let rankText = '--';
-        try {
-            const rankHtml = await this.fetchArchiveTable('jdzf', 'apidata', code);
-            const match = rankHtml.match(/>\s*(\d+)\s*\|\s*(\d+)\s*</);
-            if (match) rankText = `${match[1]}/${match[2]}`;
-        } catch(e) {}
-        
-        let buyStatus = '开放申购', buyFee = '0.00%';
-        if (cached.tradeInfo) {
-            buyStatus = cached.tradeInfo.buyStatus;
-            buyFee = cached.tradeInfo.buyFee;
-        } else {
-            const html = await this.fetchFundRateHtml(code);
-            if (html) {
-                const trade = this.parseFundRateHtml(html, code);
-                buyStatus = trade.buyStatus || '开放申购';
-                const feeMatch = trade.buyRateHtml.match(/(\d+(?:\.\d+)?)%/);
-                buyFee = feeMatch ? feeMatch[1] + '%' : '0.00%';
-                cached.tradeInfo = { buyStatus, buyFee };
-            }
-        }
+        const cached = this.data.fundsCache[code] || {};
+        const bd = cached.basicData || {};
         
         let holdings = [];
-        const hc = cached.holdingsCache;
-        if (hc && hc.stocks && hc.stocks.length) {
-            holdings = hc.stocks.map(s => ({ name: s.name, ratio: parseFloat(s.ratio) }));
+        if (cached.holdingsCache && cached.holdingsCache.stocks) {
+            holdings = cached.holdingsCache.stocks.map(s => ({ name: s.name, ratio: parseFloat(s.ratio) }));
+        }
+
+        let arrivalInfo = '--';
+        if (cached.sellConfirmDays) {
+            arrivalInfo = cached.arrivalTime ? cached.arrivalTime : 'T+1';
+            if (cached.noSellFeeDays === 7) arrivalInfo += ' (7天无)';
+            else if (cached.noSellFeeDays === 30) arrivalInfo += ' (30天无)';
         }
         
-        return { 
-            code, name: fund.name, size, establishDate, riskLevel, rank: rankText, 
-            manager: { name: mgr.name, years: mgr.years, avgReturn: mgr.avgReturn !== '--' ? fmtNum(mgr.avgReturn) : '--', 
-                       fundCount: mgr.fundCount, scale: mgr.scale, tenureDays: mgr.tenureDays, tenureReturn: mgr.tenureReturn !== '--' ? fmtNum(mgr.tenureReturn) : '--' }, 
-            holdings, tradeStatus: buyStatus, tradeFee: buyFee 
+        return {
+            name: fund.name,
+            holdings: holdings,
+            basic: {
+                managerName: bd.managerName || '--',
+                fundSize: bd.fundSize || '--',
+                establishDate: bd.establishDate || '--',
+                managerScore: bd.managerScore || '--',
+                managerYears: bd.managerYears || '--',
+                managerScale: bd.managerScale || '--',
+                arrivalInfo: arrivalInfo,
+                buyFee: bd.buyFee || '--',
+                buyStatus: bd.buyStatus || '--'
+            },
+            history: {
+                startDate: bd.mgrHistoryFirstRow?.startDate || '--',
+                endDate: bd.mgrHistoryFirstRow?.endDate || '--',
+                manager: bd.mgrHistoryFirstRow?.manager || '--',
+                days: bd.mgrHistoryFirstRow?.days || '--',
+                return: bd.mgrHistoryFirstRow?.return || '--'
+            }
         };
-    }));
-    
-    // 【算法重构】：处理10行重仓股的对齐逻辑
-    // 1. 统计所有股票出现频率
+    });
+
+    // 2. 依然保留高级的持仓对齐算法
     const stockFreq = {};
     fundsData.forEach(f => {
         f.holdings.forEach(s => {
@@ -4892,170 +4820,123 @@ async renderCompareDetails() {
             stockFreq[s.name].totalRatio += s.ratio;
         });
     });
-    // 2. 按出现次数降序，找出最常重复的股票作为基准排前面
     const sortedGlobalStocks = Object.keys(stockFreq).sort((a, b) => {
         if (stockFreq[b].count !== stockFreq[a].count) return stockFreq[b].count - stockFreq[a].count;
         return stockFreq[b].totalRatio - stockFreq[a].totalRatio;
     }).slice(0, 10);
 
-    // 3. 为每只基金构建 10 行显示数据
     fundsData.forEach(f => {
         f.displayHoldings = new Array(10).fill(null);
         let usedStocks = new Set();
-        
-        // 第一步：先按全局高频股票站位对齐
         for(let i = 0; i < sortedGlobalStocks.length; i++) {
             let match = f.holdings.find(s => s.name === sortedGlobalStocks[i]);
-            if (match) {
-                f.displayHoldings[i] = match;
-                usedStocks.add(match.name);
-            }
+            if (match) { f.displayHoldings[i] = match; usedStocks.add(match.name); }
         }
-        
-        // 第二步：空位用该基金特有的其他股票补齐
         let remaining = f.holdings.filter(s => !usedStocks.has(s.name));
         for(let i = 0; i < 10; i++) {
-            if (!f.displayHoldings[i] && remaining.length > 0) {
-                f.displayHoldings[i] = remaining.shift();
-            }
+            if (!f.displayHoldings[i] && remaining.length > 0) f.displayHoldings[i] = remaining.shift();
         }
     });
 
-    // 构建标签栏容器
-    const tabsWrapper = document.createElement('div');
-    tabsWrapper.className = 'compare-scroll-x compare-tabs-sticky';
-    tabsWrapper.style.overflowX = 'auto'; // 确保顶部可以滚动
-    tabsWrapper.innerHTML = `<div id="compare-fund-tabs" style="display: inline-flex;"></div>`;
-    container.appendChild(tabsWrapper);
-    
-    // 卡片容器
-    const cardsWrapper = document.createElement('div');
-    cardsWrapper.className = 'compare-scroll-x';
-    cardsWrapper.style.overflowX = 'auto';
-    cardsWrapper.style.cursor = 'grab';
-    cardsWrapper.innerHTML = `<div id="compare-cards-wrapper" class="compare-cards-wrapper"></div>`;
-    container.appendChild(cardsWrapper);
-    
-    const tabsDiv = document.getElementById('compare-fund-tabs');
-    const cardsDiv = document.getElementById('compare-cards-wrapper');
-    
-    // 填充内容
-    for (let i = 0; i < fundsData.length; i++) {
-        const f = fundsData[i];
-        // 渲染顶部 Tab
-        const tab = document.createElement('div');
-        tab.className = 'compare-fund-tab';
-        if (i === 0) tab.classList.add('active');
-        tab.innerText = f.name;
-        tab.onclick = () => {
-            const card = document.getElementById(`compare-card-${i}`);
-            if (card) card.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
-        };
-        tabsDiv.appendChild(tab);
-        
-        // 生成持仓 HTML
-        const holdingsHtml = f.displayHoldings.map(s => {
-            if (s) return `<div class="info-row"><span class="label">${s.name}</span><span class="value">${s.ratio.toFixed(2)}%</span></div>`;
-            return `<div class="info-row"><span class="label">--</span><span class="value">--</span></div>`;
+    // 3. 构建十大持仓卡片 (横向滚动)
+    let holdingsCardsHtml = fundsData.map(f => {
+        const rows = f.displayHoldings.map(s => {
+            if (s) return `<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #f1f5f9; font-size:12px;"><span style="color:#1e293b;">${s.name}</span><span style="font-weight:bold; color:#64748b;">${s.ratio.toFixed(2)}%</span></div>`;
+            return `<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #f1f5f9; font-size:12px;"><span style="color:#cbd5e1;">--</span><span>--</span></div>`;
         }).join('');
+        return `<div class="card" style="min-width:200px; flex-shrink:0; padding:10px;">
+            <div style="font-weight:800; font-size:13px; text-align:center; margin-bottom:8px; padding-bottom:8px; border-bottom:2px solid #e2e8f0; color:#0066ff;">${f.name.length>10?f.name.slice(0,10)+'...':f.name}</div>
+            ${rows}
+        </div>`;
+    }).join('');
 
-        // 渲染底部垂直卡片
-        const card = document.createElement('div');
-        card.className = 'compare-detail-card';
-        card.id = `compare-card-${i}`;
-        card.innerHTML = `
-            <div class="card-section">
-                <div class="section-title">📊 基金信息</div>
-                <div class="info-vertical">
-                    <div class="info-row"><span class="label">持有排名</span><span class="value">${f.rank}</span></div>
-                    <div class="info-row"><span class="label">基金规模</span><span class="value">${f.size}</span></div>
-                    <div class="info-row"><span class="label">成立日期</span><span class="value">${f.establishDate}</span></div>
-                </div>
-            </div>
-            <div class="card-section">
-                <div class="section-title">💼 十大重仓股</div>
-                <div class="info-vertical">${holdingsHtml}</div>
-            </div>
-            <div class="card-section">
-                <div class="section-title">👨‍💼 基金经理</div>
-                <div class="info-vertical">
-                    <div class="info-row"><span class="label">姓名</span><span class="value">${f.manager.name}</span></div>
-                    <div class="info-row"><span class="label">从业年限</span><span class="value">${f.manager.years}</span></div>
-                    <div class="info-row"><span class="label">年均回报</span><span class="value ${parseFloat(f.manager.avgReturn) >= 0 ? 'red' : 'green'}">${f.manager.avgReturn}%</span></div>
-                    <div class="info-row"><span class="label">在管基金数</span><span class="value">${f.manager.fundCount}</span></div>
-                    <div class="info-row"><span class="label">管理规模</span><span class="value">${f.manager.scale}</span></div>
-                    <div class="info-row"><span class="label">本基金任期</span><span class="value">${f.manager.tenureDays}</span></div>
-                    <div class="info-row"><span class="label">任期回报</span><span class="value ${parseFloat(f.manager.tenureReturn) >= 0 ? 'red' : 'green'}">${f.manager.tenureReturn}%</span></div>
-                </div>
-            </div>
-            <div class="card-section">
-                <div class="section-title">⚙️ 其他信息</div>
-                <div class="info-vertical">
-                    <div class="info-row"><span class="label">风险等级</span><span class="value">${f.riskLevel}</span></div>
-                    <div class="info-row"><span class="label">申购状态</span><span class="value">${f.tradeStatus}</span></div>
-                    <div class="info-row"><span class="label">申购手续费</span><span class="value">${f.tradeFee}</span></div>
-                </div>
-            </div>
-        `;
-        cardsDiv.appendChild(card);
-    }
-    
-    // 【联动修正】：双向绑定 Tabs 和 Cards 的滚动
-    let isSyncingLeft = false;
-    let isSyncingRight = false;
+    // 4. 构建基金概况对比表 (横轴为指标，纵轴为基金，第一列基金名称悬浮固定)
+    let basicTableRows = fundsData.map(f => {
+        const b = f.basic;
+        return `<tr>
+            <td class="indicator-cell" style="font-size:12px; font-weight:800; color:#1e293b;">${f.name}</td>
+            <td>${b.managerName}</td>
+            <td>${b.fundSize}</td>
+            <td>${b.establishDate}</td>
+            <td>${b.managerScore}</td>
+            <td>${b.managerYears}</td>
+            <td>${b.managerScale}</td>
+            <td>${b.arrivalInfo}</td>
+            <td style="color:#f43f5e; font-weight:bold;">${b.buyFee}</td>
+            <td style="color:${b.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'}; font-weight:bold;">${b.buyStatus}</td>
+        </tr>`;
+    }).join('');
 
-    tabsWrapper.addEventListener('scroll', () => {
-        if (!isSyncingLeft) {
-            isSyncingRight = true;
-            cardsWrapper.scrollLeft = tabsWrapper.scrollLeft;
+    let basicTableHtml = `
+        <div style="overflow-x:auto; margin-top:20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0;">
+            <div style="font-size:14px; font-weight:900; padding:12px; border-bottom:1px solid #e2e8f0; background:#f8fafc; border-radius:12px 12px 0 0;">ℹ️ 基金概况对比</div>
+            <table class="data-table perf-table" style="margin-bottom:0; border-radius:0; box-shadow:none;">
+                <thead>
+                    <tr>
+                        <th style="min-width:120px;">基金名称</th>
+                        <th>现任经理</th>
+                        <th>基金规模</th>
+                        <th>成立日期</th>
+                        <th>综合评分</th>
+                        <th>任职时长</th>
+                        <th>管理规模</th>
+                        <th>预计到账</th>
+                        <th>申购费率</th>
+                        <th>申购状态</th>
+                    </tr>
+                </thead>
+                <tbody>${basicTableRows}</tbody>
+            </table>
+        </div>
+    `;
+
+    // 5. 构建基金经理变动对比表 (横轴为指标，纵轴为基金)
+    let historyTableRows = fundsData.map(f => {
+        const h = f.history;
+        let returnColor = '';
+        if (h.return !== '--') {
+            const num = parseFloat(h.return);
+            if (!isNaN(num)) returnColor = num >= 0 ? 'color:#f43f5e;font-weight:900;' : 'color:#10b981;font-weight:900;';
         }
-        isSyncingLeft = false;
-    });
+        return `<tr>
+            <td class="indicator-cell" style="font-size:12px; font-weight:800; color:#1e293b;">${f.name}</td>
+            <td>${h.startDate}</td>
+            <td>${h.endDate}</td>
+            <td>${h.manager}</td>
+            <td>${h.days}</td>
+            <td style="${returnColor}">${h.return}</td>
+        </tr>`;
+    }).join('');
 
-    const updateActiveTab = () => {
-        const scrollLeft = cardsWrapper.scrollLeft;
-        const cards = document.querySelectorAll('.compare-detail-card');
-        let activeIndex = 0;
-        for (let i = 0; i < cards.length; i++) {
-            if (cards[i].offsetLeft <= scrollLeft + 50) activeIndex = i;
-            else break;
-        }
-        document.querySelectorAll('.compare-fund-tab').forEach((tab, idx) => {
-            idx === activeIndex ? tab.classList.add('active') : tab.classList.remove('active');
-        });
-    };
+    let historyTableHtml = `
+        <div style="overflow-x:auto; margin-top:20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0;">
+            <div style="font-size:14px; font-weight:900; padding:12px; border-bottom:1px solid #e2e8f0; background:#f8fafc; border-radius:12px 12px 0 0;">👥 基金经理变动对比</div>
+            <table class="data-table perf-table" style="margin-bottom:0; border-radius:0; box-shadow:none;">
+                <thead>
+                    <tr>
+                        <th style="min-width:120px;">基金名称</th>
+                        <th>起始期</th>
+                        <th>截止期</th>
+                        <th>基金经理</th>
+                        <th>任职期间</th>
+                        <th>任职回报</th>
+                    </tr>
+                </thead>
+                <tbody>${historyTableRows}</tbody>
+            </table>
+        </div>
+    `;
 
-    cardsWrapper.addEventListener('scroll', () => {
-        if (!isSyncingRight) {
-            isSyncingLeft = true;
-            tabsWrapper.scrollLeft = cardsWrapper.scrollLeft;
-        }
-        isSyncingRight = false;
-        updateActiveTab();
-    });
-
-    // 鼠标拖拽卡片逻辑
-    let isDragging = false, startX = 0, scrollLeftStart = 0;
-    cardsWrapper.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
-        isDragging = true; startX = e.clientX; scrollLeftStart = cardsWrapper.scrollLeft;
-        cardsWrapper.style.cursor = 'grabbing'; e.preventDefault();
-    });
-    document.addEventListener('mousemove', (e) => {
-        if (!isDragging) return; e.preventDefault();
-        cardsWrapper.scrollLeft = scrollLeftStart - (e.clientX - startX);
-    });
-    document.addEventListener('mouseup', () => { isDragging = false; cardsWrapper.style.cursor = 'grab'; });
-    
-    // 移动端触摸逻辑
-    cardsWrapper.addEventListener('touchstart', (e) => {
-        isDragging = true; startX = e.touches[0].clientX; scrollLeftStart = cardsWrapper.scrollLeft;
-    });
-    cardsWrapper.addEventListener('touchmove', (e) => {
-        if (!isDragging) return;
-        cardsWrapper.scrollLeft = scrollLeftStart - (e.touches[0].clientX - startX);
-    });
-    cardsWrapper.addEventListener('touchend', () => { isDragging = false; });
+    // 6. 最终合并装载 UI
+    container.innerHTML = `
+        <div style="font-size:12px; color:#94a3b8; text-align:right; margin-bottom:8px;">提示：若下方有信息显示为 '--'，请去「设置」页点击「批量更新基本信息」</div>
+        <div style="font-size:14px; font-weight:900; margin-bottom:10px;">💼 十大持仓对比</div>
+        <div class="compare-scroll-x" style="display:flex; gap:12px; padding-bottom:10px; cursor:grab;" onmousedown="app.ds_scroll(event, this)" onmouseleave="this.style.cursor='grab'" onmouseup="this.style.cursor='grab'" onmousemove="app.dm_scroll(event, this)">
+            ${holdingsCardsHtml}
+        </div>
+        ${basicTableHtml}
+        ${historyTableHtml}
+    `;
 },
 
   updateComparePeriod() {
@@ -7314,6 +7195,120 @@ async fetchFundRateHtml(code, retry = 2) {
   return null;
 },
 
+  // 【新增】：统一的数据抓取与结构化提取引擎
+  async extractFundBasicData(code) {
+      const fetchHTMLSafely = async (url) => {
+          try {
+              const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
+              const controller = new AbortController();
+              const id = setTimeout(() => controller.abort(), 8000); 
+              const res = await fetch(proxyUrl, { signal: controller.signal });
+              clearTimeout(id);
+              if (res.ok) return await res.text();
+          } catch (e) { }
+          return null;
+      };
+
+      const [fullInfo, html, jjjlHtml, jbgkHtml] = await Promise.all([
+          this.fetchFundFullInfo(code),
+          this.fetchFundRateHtml(code),
+          fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`),
+          fetchHTMLSafely(`https://fundf10.eastmoney.com/jbgk_${code}.html`)
+      ]);
+
+      const { manager, evalData, fundInfo } = fullInfo;
+      const cachedFund = this.data.fundsCache[code] || {};
+      let fundSize = cachedFund.size || '--';
+      let establishDate = '--';
+      let riskLevel = fundInfo ? (fundInfo.riskLevel || fundInfo.risklevel || '中高风险') : '--';
+
+      if (fundInfo && fundInfo.establishDate) establishDate = fundInfo.establishDate;
+      
+      if (jjjlHtml && fundSize === '--') {
+          const sizeMatch = jjjlHtml.match(/(?:资产规模|净资产规模|基金规模)[：:]\s*(?:<a[^>]*>)?([\d\.]+[万亿]元?)/);
+          if (sizeMatch) fundSize = sizeMatch[1];
+      }
+      if (establishDate === '--' && jbgkHtml) {
+          const dateMatch = jbgkHtml.match(/(\d{4})年(\d{2})月(\d{2})日/);
+          if (dateMatch) establishDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+      }
+
+      let mgrHistoryFirstRow = { startDate: '--', endDate: '--', manager: '--', days: '--', return: '--' };
+      let managerTableHtml = '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无历任基金经理数据</div>';
+      
+      if (jjjlHtml) {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(jjjlHtml, 'text/html');
+          const tables = doc.querySelectorAll('table');
+          for (let t of tables) {
+              if (t.textContent.includes('起始期') && t.textContent.includes('截止期')) {
+                  // 提取最新一任经理的数据（供对比界面使用）
+                  const rows = t.querySelectorAll('tr');
+                  for (let i = 1; i < rows.length; i++) {
+                      const cells = rows[i].querySelectorAll('td');
+                      if (cells.length >= 5) {
+                          mgrHistoryFirstRow = {
+                              startDate: cells[0].textContent.trim(),
+                              endDate: cells[1].textContent.trim(),
+                              manager: cells[2].textContent.trim(),
+                              days: cells[3].textContent.trim(),
+                              return: cells[4].textContent.trim()
+                          };
+                          break;
+                      }
+                  }
+                  
+                  // 构建详情界面的 HTML 表格
+                  t.className = 'rate-table'; t.style.width = '100%'; t.style.borderCollapse = 'collapse';
+                  t.querySelectorAll('td, th').forEach(cell => {
+                      cell.style.padding = '8px 4px'; cell.style.border = '1px solid #e2e8f0'; cell.style.textAlign = 'center';
+                      const a = cell.querySelector('a');
+                      if (a) { a.style.color = '#1677ff'; a.style.fontWeight = 'bold'; a.style.textDecoration = 'none'; a.removeAttribute('href'); }
+                      const text = cell.textContent.trim();
+                      if (text.includes('%')) {
+                          const num = parseFloat(text);
+                          if (!isNaN(num)) { cell.style.color = num >= 0 ? '#f43f5e' : '#10b981'; cell.style.fontWeight = '900'; }
+                      }
+                  });
+                  t.querySelectorAll('.help').forEach(el => el.remove()); 
+                  managerTableHtml = `<div class="table-wrapper" style="overflow-x:auto;">${t.outerHTML}</div>`;
+                  break;
+              }
+          }
+      }
+
+      let trade = { buyMin: '--', sipMin: '--', buyMax: '--', buyConfirm: '--', sellConfirm: '--', buyStatus: '--', sellStatus: '--', buyRateHtml: '<p>暂无数据</p>', sellRateHtml: '<p>暂无数据</p>', noSellFeeDays: null };
+      if (html) trade = this.parseFundRateHtml(html, code);
+
+      let extractedBuyFee = '--';
+      if (trade.buyRateHtml.includes('%')) {
+          const match = trade.buyRateHtml.match(/(\d+(?:\.\d+)?)%/);
+          if (match) extractedBuyFee = match[0];
+      }
+
+      const safeNum = (v) => (v !== undefined && v !== null && !isNaN(parseFloat(v))) ? parseFloat(v).toFixed(2) : '--';
+
+      const basicData = {
+          fundSize,
+          establishDate,
+          riskLevel,
+          managerName: manager?.name || '--',
+          managerYears: manager?.workTime || '--',
+          managerScale: manager?.fundSize || fundSize || '--',
+          managerScore: safeNum(manager?.power?.avr),
+          buyStatus: trade.buyStatus,
+          sellStatus: trade.sellStatus,
+          buyFee: extractedBuyFee,
+          buyConfirm: trade.buyConfirm,
+          buyMin: trade.buyMin,
+          sipMin: trade.sipMin,
+          buyMax: trade.buyMax,
+          mgrHistoryFirstRow
+      };
+
+      return { basicData, trade, manager, evalData, managerTableHtml, isEvalValid: (evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v))) };
+  },
+
 parseFundRateHtml(html, code) {
   if (!html || typeof html !== 'string' || html.trim() === '') {
         return {
@@ -7431,152 +7426,41 @@ parseFundRateHtml(html, code) {
 async renderBasicInfoTab(code) {
   const container = document.getElementById('det-basicinfo-area');
   if (!container) return;
-  container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">数据深度抓取与解析中...</div>';
+  container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">数据提取与解析中...</div>';
 
-  // 使用你升级好的通用 Worker 代理
-  const fetchHTMLSafely = async (url) => {
-      try {
-          const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
-          const controller = new AbortController();
-          const id = setTimeout(() => controller.abort(), 8000); 
-          const res = await fetch(proxyUrl, { signal: controller.signal });
-          clearTimeout(id);
-          if (res.ok) return await res.text();
-      } catch (e) {
-          console.warn("代理拉取页面失败:", e);
-      }
-      return null;
-  };
-
-  // 【新增】：加入了 jbgk (基本概况) 页面的并行抓取
-  const [fullInfo, html, jjjlHtml, jbgkHtml] = await Promise.all([
-    this.fetchFundFullInfo(code),
-    this.fetchFundRateHtml(code),
-    fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`),
-    fetchHTMLSafely(`https://fundf10.eastmoney.com/jbgk_${code}.html`)
-  ]);
-
-  const { manager, evalData, fundInfo } = fullInfo;
-  const isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
-
-  // ================= 1. 精准提取：基金规模与成立日期 =================
-  const cachedFund = this.data.fundsCache[code] || {};
-  let fundSize = cachedFund.size || '--';
-  let establishDate = '--';
-  let riskLevel = fundInfo ? (fundInfo.riskLevel || fundInfo.risklevel || '中高风险') : '--';
-
-  if (fundInfo && fundInfo.establishDate) {
-      establishDate = fundInfo.establishDate;
+  const res = await this.extractFundBasicData(code);
+  if (!res) {
+      container.innerHTML = '<div style="text-align:center; padding:20px; color:red;">抓取失败，请检查网络或稍后重试</div>';
+      return;
   }
+
+  // 1. 获取成功后，立刻持久化写入本地缓存，这样对比界面立刻就能读到
+  if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+  this.data.fundsCache[code].basicData = res.basicData;
+  if (res.trade.sellConfirm !== undefined) this.data.fundsCache[code].sellConfirmDays = res.trade.sellConfirm;
+  if (res.trade.noSellFeeDays !== undefined) this.data.fundsCache[code].noSellFeeDays = res.trade.noSellFeeDays;
+  this.saveData();
+  this.updateFundCardDisplay(code);
+
+  const { basicData, trade, evalData, managerTableHtml, isEvalValid } = res;
   
-  // 综合页面数据进行兜底填充
-  if (jjjlHtml && fundSize === '--') {
-      const sizeMatch = jjjlHtml.match(/(?:资产规模|净资产规模|基金规模)[：:]\s*(?:<a[^>]*>)?([\d\.]+[万亿]元?)/);
-      if (sizeMatch) fundSize = sizeMatch[1];
-  }
-  
-  // 【新增】：如果之前没取到成立日期，从 jbgk 页面提取 (格式通常为：2023年05月12日)
-  if (establishDate === '--' && jbgkHtml) {
-      const dateMatch = jbgkHtml.match(/(\d{4})年(\d{2})月(\d{2})日/);
-      if (dateMatch) {
-          establishDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
-      }
-  }
-
-  // ================= 2. 提取并清洗：基金经理变动一览表格 =================
-  let managerTableHtml = '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无历任基金经理数据</div>';
-  if (jjjlHtml) {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(jjjlHtml, 'text/html');
-      const tables = doc.querySelectorAll('table');
-      
-      for (let t of tables) {
-          const headerText = t.textContent;
-          if (headerText.includes('起始期') && headerText.includes('截止期') && headerText.includes('基金经理')) {
-              t.className = 'rate-table';
-              t.style.width = '100%';
-              t.style.borderCollapse = 'collapse';
-              
-              t.querySelectorAll('td, th').forEach(cell => {
-                  cell.style.padding = '8px 4px';
-                  cell.style.border = '1px solid #e2e8f0';
-                  cell.style.textAlign = 'center';
-                  
-                  const a = cell.querySelector('a');
-                  if (a) {
-                      a.style.color = '#1677ff';
-                      a.style.fontWeight = 'bold';
-                      a.style.textDecoration = 'none';
-                      a.removeAttribute('href');
-                  }
-                  
-                  const text = cell.textContent.trim();
-                  if (text.includes('%')) {
-                      const num = parseFloat(text);
-                      if (!isNaN(num)) {
-                          cell.style.color = num >= 0 ? '#f43f5e' : '#10b981';
-                          cell.style.fontWeight = '900';
-                      }
-                  }
-              });
-              
-              t.querySelectorAll('.help').forEach(el => el.remove()); 
-              managerTableHtml = `<div class="table-wrapper" style="overflow-x:auto;">${t.outerHTML}</div>`;
-              break;
-          }
-      }
-  }
-
-  // ================= 3. 解析交易规则与费率 =================
-  let trade = {
-    buyMin: '--', sipMin: '--', buyMax: '--', buyConfirm: '--', sellConfirm: '--',
-    buyStatus: '--', sellStatus: '--', buyRateHtml: '<p>暂无数据</p>', sellRateHtml: '<p>暂无数据</p>',
-    noSellFeeDays: null  
-  };
-  if (html) {
-    trade = this.parseFundRateHtml(html, code);
-  } else {
-    trade.buyRateHtml = '<p style="padding:12px; color:#f43f5e;">❌ 费率页面加载失败，请检查网络</p>';
-    trade.sellRateHtml = '<p style="padding:12px; color:#f43f5e;">❌ 费率页面加载失败</p>';
-  }
-
-  let extractedBuyFee = '--';
-  if (trade.buyRateHtml.includes('%')) {
-      const match = trade.buyRateHtml.match(/(\d+(?:\.\d+)?)%/);
-      if (match) extractedBuyFee = match[0];
-  }
-
-  // 更新缓存（如果 noSellFeeDays 是 null，也会正确覆盖掉以前错误的 7）
-  if (trade.sellConfirm !== undefined) {
-        this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
-        // 强制覆盖免息天数
-        this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
-        this.saveData();
-        this.updateFundCardDisplay(code);
-  }
-
   const formatTable = (tableHtml) => {
     if (!tableHtml.includes('<table')) return tableHtml;
-    let cleaned = tableHtml.replace(/ class="[^"]*"/gi, '')
-                           .replace(/ style="[^"]*"/gi, '')
-                           .replace(/<table/gi, '<table class="rate-table" style="width:100%; border-collapse:collapse; font-size:12px;"');
+    let cleaned = tableHtml.replace(/ class="[^"]*"/gi, '').replace(/ style="[^"]*"/gi, '').replace(/<table/gi, '<table class="rate-table" style="width:100%; border-collapse:collapse; font-size:12px;"');
     return `<div class="table-wrapper" style="overflow-x:auto; margin-top:6px;">${cleaned}</div>`;
   };
 
-  // ================= 4. UI 模块组装 =================
-  let managerHtml = '';
-  if (manager) {
-    managerHtml = `
+  // 2. 利用刚刚存好的 basicData 迅速构建 UI
+  let managerHtml = `
       <div class="card" style="padding:12px; height:100%;">
-        <h3 style="margin:0 0 10px 0; color:#1677ff; font-size:15px;">👨‍💼 现任经理: ${manager.name}</h3>
+        <h3 style="margin:0 0 10px 0; color:#1677ff; font-size:15px;">👨‍💼 现任经理: ${basicData.managerName}</h3>
         <div style="font-size:12px; color:#475569; line-height:1.6;">
-          <div>任职时长：${manager.workTime || '--'}</div>
-          <div>管理规模：${manager.fundSize || fundSize || '--'}</div>
-          <div>综合评分：<span style="color:#f43f5e; font-weight:900;">${manager.power ? manager.power.avr : '--'} 分</span></div>
+          <div>任职时长：${basicData.managerYears}</div>
+          <div>管理规模：${basicData.managerScale}</div>
+          <div>综合评分：<span style="color:#f43f5e; font-weight:900;">${basicData.managerScore} 分</span></div>
         </div>
       </div>
-    `;
-  }
+  `;
 
   let evalHtml = '';
   if (isEvalValid) {
@@ -7584,105 +7468,47 @@ async renderBasicInfoTab(code) {
     for (let i = 0; i < evalData.categories.length; i++) {
       const valNum = evalData.data[i] !== null ? evalData.data[i] : 0;
       const valText = evalData.data[i] !== null ? evalData.data[i] : '--';
-      barHtml += `
-        <div style="margin-bottom:6px; display:flex; align-items:center;">
+      barHtml += `<div style="margin-bottom:6px; display:flex; align-items:center;">
           <span style="width:70px; font-size:11px; color:#475569;">${evalData.categories[i]}</span>
-          <div style="flex:1; background:#e2e8f0; height:4px; border-radius:4px; margin:0 8px;">
-            <div style="width:${valNum}%; background:#3b82f6; height:4px;"></div>
-          </div>
+          <div style="flex:1; background:#e2e8f0; height:4px; border-radius:4px; margin:0 8px;"><div style="width:${valNum}%; background:#3b82f6; height:4px;"></div></div>
           <span style="width:30px; font-size:11px; color:#3b82f6;">${valText}</span>
-        </div>
-      `;
+        </div>`;
     }
-    evalHtml = `
-      <div class="card" style="padding:12px; height:100%;">
-        <h3 style="margin:0 0 10px 0; font-size:14px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right;">${evalData.avr || '--'} 分</span></h3>
-        ${barHtml}
-      </div>
-    `;
+    evalHtml = `<div class="card" style="padding:12px; height:100%;"><h3 style="margin:0 0 10px 0; font-size:14px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right;">${evalData.avr || '--'} 分</span></h3>${barHtml}</div>`;
   }
 
   const basicInfoCardHtml = `
     <div class="card" style="padding:16px; margin-top:12px; margin-bottom:12px; border: 1px solid #e2e8f0;">
       <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #f59e0b; padding-left:8px;">ℹ️ 基金概况</h3>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:13px; color:#475569; line-height:1.6;">
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">基金规模</span> <span style="font-weight:600; color:#1e293b;">${fundSize}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">成立日期</span> <span style="font-weight:600; color:#1e293b;">${establishDate}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">风险等级</span> <span style="font-weight:600; color:#1e293b;">${riskLevel}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购状态</span> <span style="font-weight:600; color:${trade.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'};">${trade.buyStatus}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购手续费</span> <span style="font-weight:600; color:#f43f5e;">${extractedBuyFee}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">基金规模</span> <span style="font-weight:600; color:#1e293b;">${basicData.fundSize}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">成立日期</span> <span style="font-weight:600; color:#1e293b;">${basicData.establishDate}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">风险等级</span> <span style="font-weight:600; color:#1e293b;">${basicData.riskLevel}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购状态</span> <span style="font-weight:600; color:${basicData.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'};">${basicData.buyStatus}</span></div>
+        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购手续费</span> <span style="font-weight:600; color:#f43f5e;">${basicData.buyFee}</span></div>
       </div>
     </div>
   `;
 
-  const managerHistoryCardHtml = `
-    <div class="card" style="padding:16px; margin-bottom:12px; border: 1px solid #e2e8f0;">
-      <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #1677ff; padding-left:8px;">👥 基金经理变动一览</h3>
-      ${managerTableHtml}
-    </div>
-  `;
+  const managerHistoryCardHtml = `<div class="card" style="padding:16px; margin-bottom:12px; border: 1px solid #e2e8f0;"><h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #1677ff; padding-left:8px;">👥 基金经理变动一览</h3>${managerTableHtml}</div>`;
 
   const tradeRowHtml = `
     <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
-      <div class="card" style="padding:10px;">
-        <h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📌 申赎状态</h4>
-        <div style="font-size:12px; line-height:1.5;">
-          <div>申购：<strong style="color:${trade.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'}">${trade.buyStatus}</strong></div>
-          <div>赎回：<strong style="color:${trade.sellStatus === '开放赎回' ? '#10b981' : '#f43f5e'}">${trade.sellStatus}</strong></div>
-        </div>
-      </div>
-      <div class="card" style="padding:10px;">
-        <h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">💰 金额规则</h4>
-        <div style="font-size:12px; line-height:1.5;">
-          <div>申购起点：${trade.buyMin}</div>
-          <div>定投起点：${trade.sipMin}</div>
-          <div>日累计限额：${trade.buyMax}</div>
-        </div>
-      </div>
-      <div class="card" style="padding:10px;">
-        <h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📅 确认日</h4>
-        <div style="font-size:12px; line-height:1.5;">
-          <div>买入确认：${trade.buyConfirm}</div>
-          <div>卖出确认：${trade.sellConfirm}</div>
-        </div>
-      </div>
+      <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📌 申赎状态</h4><div style="font-size:12px; line-height:1.5;"><div>申购：<strong style="color:${basicData.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'}">${basicData.buyStatus}</strong></div><div>赎回：<strong style="color:${basicData.sellStatus === '开放赎回' ? '#10b981' : '#f43f5e'}">${basicData.sellStatus}</strong></div></div></div>
+      <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">💰 金额规则</h4><div style="font-size:12px; line-height:1.5;"><div>申购起点：${basicData.buyMin}</div><div>定投起点：${basicData.sipMin}</div><div>日累计限额：${basicData.buyMax}</div></div></div>
+      <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📅 确认日</h4><div style="font-size:12px; line-height:1.5;"><div>买入确认：${basicData.buyConfirm}</div><div>卖出确认：${trade.sellConfirm}</div></div></div>
     </div>
   `;
 
   const feeHtml = `
     <div style="margin-top:12px;">
-      <div class="card" style="padding:12px; margin-bottom:12px;">
-        <h4 style="margin:0 0 8px 0; font-size:14px;">📈 申购费率（前端）</h4>
-        ${formatTable(trade.buyRateHtml)}
-      </div>
-      <div class="card" style="padding:12px;">
-        <h4 style="margin:0 0 8px 0; font-size:14px;">📉 赎回费率</h4>
-        ${formatTable(trade.sellRateHtml)}
-      </div>
+      <div class="card" style="padding:12px; margin-bottom:12px;"><h4 style="margin:0 0 8px 0; font-size:14px;">📈 申购费率（前端）</h4>${formatTable(trade.buyRateHtml)}</div>
+      <div class="card" style="padding:12px;"><h4 style="margin:0 0 8px 0; font-size:14px;">📉 赎回费率</h4>${formatTable(trade.sellRateHtml)}</div>
     </div>
   `;
 
-  let topRowHtml = '';
-  if (managerHtml && evalHtml) {
-    topRowHtml = `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">${managerHtml}${evalHtml}</div>`;
-  } else if (managerHtml) {
-    topRowHtml = `<div>${managerHtml}</div>`;
-  } else if (evalHtml) {
-    topRowHtml = `<div>${evalHtml}</div>`;
-  }
-
+  let topRowHtml = `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">${managerHtml}${evalHtml}</div>`;
   container.innerHTML = topRowHtml + basicInfoCardHtml + managerHistoryCardHtml + tradeRowHtml + feeHtml;
-
-  if (!document.querySelector('#dynamic-rate-style')) {
-    const style = document.createElement('style');
-    style.id = 'dynamic-rate-style';
-    style.textContent = `
-      .rate-table th, .rate-table td { border: 1px solid #e2e8f0; padding: 6px 4px; font-size: 12px; text-align: center; background-color: #fff; }
-      .rate-table th { background-color: #f8fafc; font-weight: 600; color: #1e293b; }
-      .table-wrapper { overflow-x: auto; border-radius: 8px; }
-    `;
-    document.head.appendChild(style);
-  }
 }
 
   

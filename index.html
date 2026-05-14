@@ -7315,38 +7315,29 @@ async fetchFundRateHtml(code, retry = 2) {
 },
 
 parseFundRateHtml(html, code) {
-
   if (!html || typeof html !== 'string' || html.trim() === '') {
-        // 返回默认值，避免抛出异常
         return {
             buyMin: '--', sipMin: '--', buyMax: '--', buyConfirm: '--',
             sellConfirm: '--', buyStatus: '--', sellStatus: '--', noSellFeeDays: null,
             buyRateHtml: '<p>暂无数据</p>', sellRateHtml: '<p>暂无数据</p>'
         };
-    }
+  }
   
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
-  // ----- 仿照 index1.html 的提取函数 extractCellData -----
   const extractCellData = (keywordList, defaultValue = '--') => {
     const ths = Array.from(doc.querySelectorAll('th, td.item, .textr, .info_td'));
     for (let th of ths) {
       const text = th.textContent.replace(/\s+/g, '');
       if (keywordList.some(kw => text.includes(kw))) {
-        // 优先找下一个兄弟元素
         let nextEl = th.nextElementSibling;
-        if (nextEl && (nextEl.tagName === 'TD' || nextEl.tagName === 'TH')) {
-          return nextEl.textContent.trim();
-        }
-        // 如果在同一行内，取同一行后面的 td
+        if (nextEl && (nextEl.tagName === 'TD' || nextEl.tagName === 'TH')) return nextEl.textContent.trim();
         const parentRow = th.closest('tr');
         if (parentRow) {
           const cells = parentRow.querySelectorAll('td');
           for (let i = 0; i < cells.length; i++) {
-            if (cells[i] === th && i + 1 < cells.length) {
-              return cells[i + 1].textContent.trim();
-            }
+            if (cells[i] === th && i + 1 < cells.length) return cells[i + 1].textContent.trim();
           }
         }
       }
@@ -7354,7 +7345,6 @@ parseFundRateHtml(html, code) {
     return defaultValue;
   };
 
-  // ----- 申购与赎回金额 -----
   const buyMin = extractCellData(['申购起点', '起购金额', '首次购买额', '最小申购金额'], '10.00元');
   const sipMin = extractCellData(['定投起点', '定投起购金额', '定投最低金额'], '10.00元');
   const buyMax = extractCellData(['日累计申购限额', '单日单账户', '申购限额'], '无限制');
@@ -7363,7 +7353,6 @@ parseFundRateHtml(html, code) {
   const buyStatus = extractCellData(['申购状态'], '开放申购');
   const sellStatus = extractCellData(['赎回状态'], '开放赎回');
 
-  // ----- 申购费率表格（精确避免认购费率）-----
   let buyRateHtml = '<p style="padding:12px; color:#94a3b8;">暂无申购费率数据</p>';
   const titles = doc.querySelectorAll('h4.t, .box h4, h3, .tit, .info_title, div.tit, strong');
   for (let title of titles) {
@@ -7372,87 +7361,65 @@ parseFundRateHtml(html, code) {
       let next = title.nextElementSibling;
       let depth = 0;
       while (next && depth < 5) {
-        if (next.tagName === 'TABLE') {
-          buyRateHtml = next.outerHTML;
-          break;
-        }
+        if (next.tagName === 'TABLE') { buyRateHtml = next.outerHTML; break; }
         const innerTable = next.querySelector('table');
-        if (innerTable) {
-          buyRateHtml = innerTable.outerHTML;
-          break;
-        }
-        next = next.nextElementSibling;
-        depth++;
+        if (innerTable) { buyRateHtml = innerTable.outerHTML; break; }
+        next = next.nextElementSibling; depth++;
       }
       if (buyRateHtml !== '<p style="padding:12px; color:#94a3b8;">暂无申购费率数据</p>') break;
     }
   }
 
-  // ----- 赎回费率表格 -----
   let sellRateHtml = '<p style="padding:12px; color:#94a3b8;">暂无赎回费率数据</p>';
   for (let title of titles) {
     if (title.textContent.includes('赎回费率')) {
       let next = title.nextElementSibling;
       let depth = 0;
       while (next && depth < 5) {
-        if (next.tagName === 'TABLE') {
-          sellRateHtml = next.outerHTML;
-          break;
-        }
+        if (next.tagName === 'TABLE') { sellRateHtml = next.outerHTML; break; }
         const innerTable = next.querySelector('table');
-        if (innerTable) {
-          sellRateHtml = innerTable.outerHTML;
-          break;
-        }
-        next = next.nextElementSibling;
-        depth++;
+        if (innerTable) { sellRateHtml = innerTable.outerHTML; break; }
+        next = next.nextElementSibling; depth++;
       }
       if (sellRateHtml !== '<p style="padding:12px; color:#94a3b8;">暂无赎回费率数据</p>') break;
     }
   }
 
-  // 清理表格中的多余竖线（如“原费率|”）
   const cleanTable = (html) => {
     if (!html.includes('<table')) return html;
-    // 移除“原费率|”这种文本
     let cleaned = html.replace(/原费率\s*\|/g, '');
-    // 移除多余的空格和换行
     cleaned = cleaned.replace(/\|\s*\|/g, '|');
     return cleaned;
   };
 
-// =================== 替换以下这块代码 ===================
-// 解析免赎回费的最短持有天数（7天或30天）
-let noSellFeeDays = null;
-if (sellRateHtml && sellRateHtml.includes('<table')) {
-  const parser = new DOMParser();
-  const rateDoc = parser.parseFromString(sellRateHtml, 'text/html');
-  const rows = rateDoc.querySelectorAll('table tr');
-  
-  for (let row of rows) {
-    // 清理空格，将整行文本压缩在一起，如："大于等于7天,小于365天0.50%"
-    const text = row.textContent.replace(/\s+/g, '');
-    
-    // 【修复点】：只有在确信这一行是 0.00% 的情况下，才去提取这一行的天数
-    if (text.includes('0.00%') || (text.includes('0%') && !text.includes('10%'))) {
+  // 【彻底重写】：按行严谨解析赎回免手续费天数
+  let noSellFeeDays = null;
+  if (sellRateHtml && sellRateHtml.includes('<table')) {
+      const rateDoc = parser.parseFromString(sellRateHtml, 'text/html');
+      const rows = rateDoc.querySelectorAll('table tr');
       
-      // 提取这一行的具体天数要求
-      let match = text.match(/(?:大于等于|≥|>=)(\d+)天/);
-      if (match) {
-        const days = parseInt(match[1]);
-        
-        // 只有确切是 7天 或 30天 免费，才给徽章。如果是 1460天 则忽略。
-        if (days === 7 || days === 30) {
-          noSellFeeDays = days;
-        }
-        
-        // 既然已经找到了 0% 费率的行，就不需要再往下遍历其他行了
-        break;
+      for (let row of rows) {
+          const cells = row.querySelectorAll('td, th');
+          if (cells.length >= 2) {
+              const condition = cells[0].textContent.replace(/\s+/g, '');
+              // 费率一般在最后一个单元格
+              const rate = cells[cells.length - 1].textContent.replace(/\s+/g, '');
+              
+              // 必须是在 0% 的同一行，再去提取条件天数
+              if (rate === '0%' || rate === '0.00%') {
+                  let match = condition.match(/(?:大于等于|≥|>=)(\d+)天/);
+                  if (match) {
+                      const days = parseInt(match[1]);
+                      // 严格限制：只有刚好是 7 或 30 才打上卡片标签。1460天这种会被安全忽略为 null
+                      if (days === 7 || days === 30) {
+                          noSellFeeDays = days;
+                      }
+                  }
+                  break; // 只要找到0%的行，解析完毕，直接跳出循环
+              }
+          }
       }
-    }
   }
-}
-// ========================================================
 
   return {
     buyMin, sipMin, buyMax, buyConfirm, sellConfirm, buyStatus, sellStatus, noSellFeeDays,
@@ -7466,13 +7433,12 @@ async renderBasicInfoTab(code) {
   if (!container) return;
   container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">数据深度抓取与解析中...</div>';
 
- // 【核心修复】：使用你私有的高可用通用 Worker 代理
+  // 使用你升级好的通用 Worker 代理
   const fetchHTMLSafely = async (url) => {
       try {
-          // 直接调用我们刚升级的通用代理接口
           const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
           const controller = new AbortController();
-          const id = setTimeout(() => controller.abort(), 8000); // 配合 Worker 8秒超时迟
+          const id = setTimeout(() => controller.abort(), 8000); 
           const res = await fetch(proxyUrl, { signal: controller.signal });
           clearTimeout(id);
           if (res.ok) return await res.text();
@@ -7482,18 +7448,18 @@ async renderBasicInfoTab(code) {
       return null;
   };
 
-  // 并行获取：基础数据接口、费率页面HTML(走你的CF Worker)、基金经理变动页面HTML(走公共代理)
-  const [fullInfo, html, jjjlHtml] = await Promise.all([
+  // 【新增】：加入了 jbgk (基本概况) 页面的并行抓取
+  const [fullInfo, html, jjjlHtml, jbgkHtml] = await Promise.all([
     this.fetchFundFullInfo(code),
     this.fetchFundRateHtml(code),
-    fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`)
+    fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`),
+    fetchHTMLSafely(`https://fundf10.eastmoney.com/jbgk_${code}.html`)
   ]);
 
   const { manager, evalData, fundInfo } = fullInfo;
   const isEvalValid = evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v));
 
   // ================= 1. 精准提取：基金规模与成立日期 =================
-  // 基金规模直接从本地高精度缓存读取（这是最准的）
   const cachedFund = this.data.fundsCache[code] || {};
   let fundSize = cachedFund.size || '--';
   let establishDate = '--';
@@ -7502,15 +7468,18 @@ async renderBasicInfoTab(code) {
   if (fundInfo && fundInfo.establishDate) {
       establishDate = fundInfo.establishDate;
   }
-  // 接口为空时，利用代理拉回来的 HTML，用加强版正则（无视 a 标签）暴力抠出日期和规模
-  if (jjjlHtml) {
-      if (establishDate === '--') {
-          const dateMatch = jjjlHtml.match(/成立日期[：:]\s*(\d{4}-\d{2}-\d{2})/);
-          if (dateMatch) establishDate = dateMatch[1];
-      }
-      if (fundSize === '--') {
-          const sizeMatch = jjjlHtml.match(/(?:资产规模|净资产规模|基金规模)[：:]\s*(?:<a[^>]*>)?([\d\.]+[万亿]元?)/);
-          if (sizeMatch) fundSize = sizeMatch[1];
+  
+  // 综合页面数据进行兜底填充
+  if (jjjlHtml && fundSize === '--') {
+      const sizeMatch = jjjlHtml.match(/(?:资产规模|净资产规模|基金规模)[：:]\s*(?:<a[^>]*>)?([\d\.]+[万亿]元?)/);
+      if (sizeMatch) fundSize = sizeMatch[1];
+  }
+  
+  // 【新增】：如果之前没取到成立日期，从 jbgk 页面提取 (格式通常为：2023年05月12日)
+  if (establishDate === '--' && jbgkHtml) {
+      const dateMatch = jbgkHtml.match(/(\d{4})年(\d{2})月(\d{2})日/);
+      if (dateMatch) {
+          establishDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
       }
   }
 
@@ -7577,8 +7546,10 @@ async renderBasicInfoTab(code) {
       if (match) extractedBuyFee = match[0];
   }
 
-  if (trade.sellConfirm !== undefined && trade.noSellFeeDays !== undefined) {
+  // 更新缓存（如果 noSellFeeDays 是 null，也会正确覆盖掉以前错误的 7）
+  if (trade.sellConfirm !== undefined) {
         this.data.fundsCache[code].sellConfirmDays = trade.sellConfirm;
+        // 强制覆盖免息天数
         this.data.fundsCache[code].noSellFeeDays = trade.noSellFeeDays;
         this.saveData();
         this.updateFundCardDisplay(code);

@@ -7065,24 +7065,24 @@ ds(e, i) {
   });
 },
   
-// 【极速版】：抛弃不稳定的 script 标签，使用纯 fetch + 正则提取，自带 3 次极速重试
+// 【终极极速版】：通过通用 Worker 代理拉取基础接口，无视跨域，自带 3 次极速重试
   async fetchFundFullInfo(code) {
       for (let attempt = 0; attempt < 3; attempt++) {
           try {
               const controller = new AbortController();
-              // 极速超时，2.5秒拿不到直接重试，绝不卡死
-              const id = setTimeout(() => controller.abort(), 2500); 
-              // 加上随机数后缀，强制绕过浏览器缓存和CDN拦截
-              const res = await fetch(`https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}_${Math.random()}`, { 
-                  signal: controller.signal,
-                  headers: { 'Accept': '*/*' } 
-              });
+              const id = setTimeout(() => controller.abort(), 4000); // 4秒超时
+              
+              // 【核心修复】：将目标接口拼接好，交给我们的通用代理去请求！彻底绕过 CORS
+              const targetUrl = `https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}_${Math.random()}`;
+              const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(targetUrl)}`;
+              
+              const res = await fetch(proxyUrl, { signal: controller.signal });
               clearTimeout(id);
               
               if (res.ok) {
                   const text = await res.text();
                   
-                  // 使用高性能正则直接从 JS 文本中抠出 JSON 数据，比 eval() 更快更安全
+                  // 使用高性能正则直接从 JS 文本中抠出 JSON 数据
                   const extractJSON = (varName) => {
                       const match = text.match(new RegExp(`var\\s+${varName}\\s*=\\s*(\\[.*?\\]|\\{.*?\\});`));
                       if (match) {
@@ -7098,11 +7098,10 @@ ds(e, i) {
                   };
               }
           } catch (e) {
-              // 遇到 Connection Closed 或超时，休息 200 毫秒立刻重试
-              await new Promise(r => setTimeout(r, 200));
+              // 遇到超时或限流，休息 300 毫秒后自动重试
+              await new Promise(r => setTimeout(r, 300));
           }
       }
-      // 3 次全败才返回空，极其稳健
       return { manager: null, evalData: null, fundInfo: null };
   },
  
@@ -7552,38 +7551,44 @@ async renderBasicInfoTab(code) {
     evalHtml = `<div class="card" style="padding:12px; height:100%;"><h3 style="margin:0 0 10px 0; font-size:14px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right;">${evalData.avr || '--'} 分</span></h3>${barHtml}</div>`;
   }
 
-  const basicInfoCardHtml = `
-    <div class="card" style="padding:16px; margin-top:12px; margin-bottom:12px; border: 1px solid #e2e8f0;">
-      <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #f59e0b; padding-left:8px;">ℹ️ 基金概况</h3>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:13px; color:#475569; line-height:1.6;">
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">基金规模</span> <span style="font-weight:600; color:#1e293b;">${basicData.fundSize}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">成立日期</span> <span style="font-weight:600; color:#1e293b;">${basicData.establishDate}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">风险等级</span> <span style="font-weight:600; color:#1e293b;">${basicData.riskLevel}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购状态</span> <span style="font-weight:600; color:${basicData.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'};">${basicData.buyStatus}</span></div>
-        <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购手续费</span> <span style="font-weight:600; color:#f43f5e;">${basicData.buyFee}</span></div>
-      </div>
-    </div>
-  `;
+        // 【核心修复】：加入旧缓存兼容兜底，防止出现 undefined
+      const safeManagerTableHtml = bd.managerTableHtml || '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无历任基金经理数据 (请强制刷新重载)</div>';
 
-  const managerHistoryCardHtml = `<div class="card" style="padding:16px; margin-bottom:12px; border: 1px solid #e2e8f0;"><h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #1677ff; padding-left:8px;">👥 基金经理变动一览</h3>${managerTableHtml}</div>`;
+      const basicInfoCardHtml = `
+          <div class="card" style="padding:16px; margin-top:12px; margin-bottom:12px; border: 1px solid #e2e8f0;">
+            <h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #f59e0b; padding-left:8px;">ℹ️ 基金概况</h3>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; font-size:13px; color:#475569; line-height:1.6;">
+              <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">基金规模</span> <span style="font-weight:600; color:#1e293b;">${bd.fundSize || '--'}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">成立日期</span> <span style="font-weight:600; color:#1e293b;">${bd.establishDate || '--'}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">风险等级</span> <span style="font-weight:600; color:#1e293b;">${bd.riskLevel || '--'}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购状态</span> <span style="font-weight:600; color:${bd.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'};">${bd.buyStatus || '--'}</span></div>
+              <div style="display:flex; justify-content:space-between;"><span style="color:#94a3b8;">申购手续费</span> <span style="font-weight:600; color:#f43f5e;">${bd.buyFee || '--'}</span></div>
+            </div>
+          </div>
+      `;
 
-  const tradeRowHtml = `
-    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
-      <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📌 申赎状态</h4><div style="font-size:12px; line-height:1.5;"><div>申购：<strong style="color:${basicData.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'}">${basicData.buyStatus}</strong></div><div>赎回：<strong style="color:${basicData.sellStatus === '开放赎回' ? '#10b981' : '#f43f5e'}">${basicData.sellStatus}</strong></div></div></div>
-      <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">💰 金额规则</h4><div style="font-size:12px; line-height:1.5;"><div>申购起点：${basicData.buyMin}</div><div>定投起点：${basicData.sipMin}</div><div>日累计限额：${basicData.buyMax}</div></div></div>
-      <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📅 确认日</h4><div style="font-size:12px; line-height:1.5;"><div>买入确认：${basicData.buyConfirm}</div><div>卖出确认：${trade.sellConfirm}</div></div></div>
-    </div>
-  `;
+      const managerHistoryCardHtml = `<div class="card" style="padding:16px; margin-bottom:12px; border: 1px solid #e2e8f0;"><h3 style="margin:0 0 12px 0; font-size:15px; color:#1e293b; border-left:4px solid #1677ff; padding-left:8px;">👥 基金经理变动一览</h3>${safeManagerTableHtml}</div>`;
 
-  const feeHtml = `
-    <div style="margin-top:12px;">
-      <div class="card" style="padding:12px; margin-bottom:12px;"><h4 style="margin:0 0 8px 0; font-size:14px;">📈 申购费率（前端）</h4>${formatTable(trade.buyRateHtml)}</div>
-      <div class="card" style="padding:12px;"><h4 style="margin:0 0 8px 0; font-size:14px;">📉 赎回费率</h4>${formatTable(trade.sellRateHtml)}</div>
-    </div>
-  `;
+      const tradeRowHtml = `
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px;">
+            <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📌 申赎状态</h4><div style="font-size:12px; line-height:1.5;"><div>申购：<strong style="color:${bd.buyStatus === '开放申购' ? '#10b981' : '#f43f5e'}">${bd.buyStatus || '--'}</strong></div><div>赎回：<strong style="color:${bd.sellStatus === '开放赎回' ? '#10b981' : '#f43f5e'}">${bd.sellStatus || '--'}</strong></div></div></div>
+            <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">💰 金额规则</h4><div style="font-size:12px; line-height:1.5;"><div>申购起点：${bd.buyMin || '--'}</div><div>定投起点：${bd.sipMin || '--'}</div><div>日累计限额：${bd.buyMax || '--'}</div></div></div>
+            <div class="card" style="padding:10px;"><h4 style="margin:0 0 6px 0; font-size:13px; color:#1e293b;">📅 确认日</h4><div style="font-size:12px; line-height:1.5;"><div>买入确认：${bd.buyConfirm || '--'}</div><div>卖出确认：${this.data.fundsCache[code]?.sellConfirmDays || '--'}</div></div></div>
+          </div>
+      `;
 
-  let topRowHtml = `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">${managerHtml}${evalHtml}</div>`;
-  container.innerHTML = topRowHtml + basicInfoCardHtml + managerHistoryCardHtml + tradeRowHtml + feeHtml;
+      const safeBuyRateHtml = bd.buyRateHtml || '<p style="padding:12px; color:#94a3b8;">暂无数据</p>';
+      const safeSellRateHtml = bd.sellRateHtml || '<p style="padding:12px; color:#94a3b8;">暂无数据</p>';
+
+      const feeHtml = `
+          <div style="margin-top:12px;">
+            <div class="card" style="padding:12px; margin-bottom:12px;"><h4 style="margin:0 0 8px 0; font-size:14px;">📈 申购费率（前端）</h4>${formatTable(safeBuyRateHtml)}</div>
+            <div class="card" style="padding:12px;"><h4 style="margin:0 0 8px 0; font-size:14px;">📉 赎回费率</h4>${formatTable(safeSellRateHtml)}</div>
+          </div>
+      `;
+
+      let topRowHtml = `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">${managerHtml}${evalHtml}</div>`;
+      container.innerHTML = topRowHtml + basicInfoCardHtml + managerHistoryCardHtml + tradeRowHtml + feeHtml;
 }
 
   

@@ -772,17 +772,27 @@ canvas#compare-canvas {
         <button class="btn-primary btn-success" onclick="app.pullFromCloud()">📥 从云端拉取最新数据</button>
         <button class="btn-primary" style="background:#fff; color:var(--blue); border:2px solid var(--blue-light); margin-top:8px; box-shadow:none;" onclick="app.pushToCloud()">☁️ 强制覆盖上传到云端</button>
       </div>
+      
+      <!-- 【核心更新】：数据更新模块 UI -->
       <div class="card" style="margin-bottom: 12px;">
-        <h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">🔄 数据更新</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h3 style="margin:0; color:var(--text-main); font-size: 14px;">🔄 数据深度更新</h3>
+            <label style="font-size:12px; font-weight:bold; color:var(--red); display:flex; align-items:center; gap:4px; cursor:pointer;">
+                <input type="checkbox" id="force-refresh-checkbox" style="width:14px; height:14px; accent-color:var(--red); margin:0;">
+                强制刷新 (无视缓存)
+            </label>
+        </div>
+        
         <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-        <button class="btn-primary" style="background: var(--green); box-shadow: none;" onclick="app.refreshAll()">📊 全量刷新净值</button>
-        <button class="btn-primary" style="background: var(--blue); box-shadow: none;" onclick="app.batchUpdateFundBasicInfo()">💰 基金基本信息更新</button>
-        <button class="btn-primary" style="background: #8b5cf6; box-shadow: none;" onclick="app.batchFetchHoldings()">📦 批量抓取持仓</button>
+            <button class="btn-primary" style="background: var(--green); box-shadow: none; margin-bottom:0;" onclick="app.refreshAll()">📊 刷新历史净值</button>
+            <button class="btn-primary" style="background: var(--blue); box-shadow: none; margin-bottom:0;" onclick="app.batchUpdateFundBasicInfo()">💰 抓取基本信息</button>
+            <button class="btn-primary" style="background: #8b5cf6; box-shadow: none; margin-bottom:0;" onclick="app.batchFetchHoldings()">📦 抓取最新持仓</button>
         </div>
-        <div style="font-size: 11px; color: var(--text-sub); margin-top: 8px;">
-        💡 提示：批量抓取持仓会保存到本地，上传云端时一并备份。
+        <div style="font-size: 11px; color: var(--text-sub); margin-top: 10px; line-height:1.5;">
+        💡 提示：基本信息与持仓默认存在 <b>30天</b> 缓存保护期。如有最新变动，请勾选右上角“强制刷新”后再点击抓取按钮。以上操作均会在后台静默执行。
         </div>
-    </div>
+      </div>
+
       <div class="card"><h3 style="margin-top:0; color:var(--text-main); font-size: 14px;">数据管理</h3>
         <button class="btn-primary" style="background:#fff1f2; color:var(--red); box-shadow:none; margin-bottom:0;" onclick="app.clearFundData()">🗑️ 清空本地所有基金(保留配置)</button>
       </div>
@@ -1244,55 +1254,57 @@ const app = {
   // ==========================================
   // 3. 通用辅助函数
   // ==========================================
-
-// 【优化版】：后台静默更新、具备24小时缓存判断的爬虫
+// ==============================================================
+// 1. 批量抓取：基本信息 (后台静默 + 30天缓存防重)
+// ==============================================================
 async batchUpdateFundBasicInfo() {
     const allCodes = new Set();
     this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
     const codes = Array.from(allCodes);
     if (codes.length === 0) return this.showToast('暂无基金数据', 'error');
 
-    // 1. 过滤：跳过 24 小时内已经成功拉取过的基金
-    const ONE_DAY = 24 * 60 * 60 * 1000;
+    // 检测强制刷新复选框状态
+    const isForce = document.getElementById('force-refresh-checkbox')?.checked || false;
+    
+    // 30天缓存保护 (30 * 24 * 60 * 60 * 1000 毫秒)
+    const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; 
     const now = Date.now();
-    const codesToUpdate = codes.filter(code => {
+    
+    const codesToUpdate = isForce ? codes : codes.filter(code => {
         const cache = this.data.fundsCache[code]?.basicData;
-        return !cache || !cache.timestamp || (now - cache.timestamp > ONE_DAY);
+        return !cache || !cache.timestamp || (now - cache.timestamp > CACHE_TTL);
     });
 
     if (codesToUpdate.length === 0) {
-        return this.showToast('✅ 库内所有基金均在 24 小时内更新过，无需重复获取');
+        return this.showToast('✅ 库内所有基本信息均在近30天内更新过，无需重复获取');
     }
 
-    this.showToast(`后台启动：有 ${codesToUpdate.length} 只基金需要更新基本信息`);
+    this.showToast(`🚀 后台启动：正在更新 ${codesToUpdate.length} 只基金基本信息`);
 
-    // 2. 动态创建右下角悬浮提示窗
     let bgToast = document.getElementById('bg-task-toast');
     if (!bgToast) {
         bgToast = document.createElement('div');
         bgToast.id = 'bg-task-toast';
         bgToast.style.cssText = 'display:flex; position:fixed; bottom:20px; right:20px; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); box-shadow:0 10px 25px rgba(0,0,0,0.1); border-radius:12px; padding:12px 16px; z-index:9999; border:1px solid #e2e8f0; align-items:center; gap:12px; transition:all 0.3s; transform:translateY(100px); opacity:0;';
         bgToast.innerHTML = `
-            <div class="loading-spinner" style="width:20px; height:20px; margin:0; border-width:3px;"></div>
+            <div class="loading-spinner" style="width:20px; height:20px; margin:0; border-width:3px; border-top-color:#0066ff;"></div>
             <div>
-                <div style="font-size:12px; font-weight:900; color:#1e293b;" id="bg-task-title">后台静默更新中...</div>
+                <div style="font-size:12px; font-weight:900; color:#1e293b;" id="bg-task-title">基本信息更新中...</div>
                 <div style="font-size:11px; font-weight:bold; color:#0066ff;" id="bg-task-progress">0 / 0</div>
             </div>
         `;
         document.body.appendChild(bgToast);
     }
 
-    // 弹出悬浮窗（不会遮挡页面）
+    document.getElementById('bg-task-title').innerText = '基本信息提取中...';
     bgToast.style.display = 'flex';
     setTimeout(() => { bgToast.style.transform = 'translateY(0)'; bgToast.style.opacity = '1'; }, 50);
 
     const progressText = document.getElementById('bg-task-progress');
     progressText.innerText = `0 / ${codesToUpdate.length}`;
 
-    let updatedCount = 0;
-    let failedCount = 0;
+    let updatedCount = 0, failedCount = 0;
 
-    // 3. 适度加速抓取 (单线程)
     for (let i = 0; i < codesToUpdate.length; i++) {
         const code = codesToUpdate[i];
         try {
@@ -1304,97 +1316,107 @@ async batchUpdateFundBasicInfo() {
                 if (res.trade.noSellFeeDays !== undefined) this.data.fundsCache[code].noSellFeeDays = res.trade.noSellFeeDays;
                 
                 updatedCount++;
-                // 边抓边存
                 await this.saveData(); 
             } else {
                 failedCount++;
             }
-        } catch (err) {
-            failedCount++;
-        }
+        } catch (err) { failedCount++; }
 
         progressText.innerText = `${i + 1} / ${codesToUpdate.length}`;
-        
-        // 【加速优化】：休眠 150 毫秒，加上内部 API 请求耗时，刚好凑满 1秒~1.5秒 一个
-        if (i < codesToUpdate.length - 1) {
-            await new Promise(r => setTimeout(r, 150));
-        }
+        if (i < codesToUpdate.length - 1) await new Promise(r => setTimeout(r, 150));
     }
 
-    // 隐藏悬浮窗
     bgToast.style.transform = 'translateY(100px)';
     bgToast.style.opacity = '0';
     setTimeout(() => { bgToast.style.display = 'none'; }, 300);
 
-    if (failedCount > 0) {
-        this.showToast(`后台更新完毕，成功 ${updatedCount} 只，跳过/失败 ${failedCount} 只`, 'error');
-    } else {
-        this.showToast(`✅ 所有过期基金基本信息更新完毕`);
-    }
-},
-
-// 批量抓取所有基金的持仓信息（优化版：支持缓存跳过、高并发、超时控制）
-async batchFetchHoldings(forceRefresh = false) {
-    const allCodes = Object.keys(this.data.fundsCache);
-    if (allCodes.length === 0) {
-        this.showToast('暂无基金数据', 'error');
-        return;
-    }
+    if (failedCount > 0) this.showToast(`后台更新完毕，成功 ${updatedCount} 只，失败 ${failedCount} 只`, 'error');
+    else this.showToast(`✅ 所选基本信息已后台更新完毕`);
     
-    // 过滤出需要抓取的基金（24小时内有缓存且未强制刷新则跳过）
-    const now = Date.now();
-    const CACHE_TTL = 24 * 60 * 60 * 1000; // 24小时
-    let codesToFetch = allCodes;
-    if (!forceRefresh) {
-        codesToFetch = allCodes.filter(code => {
-            const cache = this.data.fundsCache[code]?.holdingsCache;
-            return !cache || (now - cache.timestamp) > CACHE_TTL;
-        });
-    }
-    
-    if (codesToFetch.length === 0) {
-        this.showToast('所有基金持仓缓存均为最新，无需重复抓取', 'success');
-        return;
-    }
-    
-    this.showToast(`开始抓取 ${codesToFetch.length} 只基金的持仓（跳过 ${allCodes.length - codesToFetch.length} 只已缓存）...`);
-    
-    const loadingModal = document.getElementById('modal-loading');
-    const titleText = document.getElementById('loading-modal-title');
-    const progressText = document.getElementById('loading-progress-text');
-    titleText.innerText = '正在抓取持仓数据...';
-    loadingModal.style.display = 'flex';
-    progressText.innerText = `0 / ${codesToFetch.length}`;
-    
-    let successCount = 0;
-    let processed = 0;
-    
-    // 最大并发数 6，使用队列控制
-    const BATCH_SIZE = 6;
-    for (let i = 0; i < codesToFetch.length; i += BATCH_SIZE) {
-        const chunk = codesToFetch.slice(i, i + BATCH_SIZE);
-        const promises = chunk.map(async (code) => {
-            try {
-                // 带超时的抓取任务
-                await this._fetchSingleFundHoldingsWithTimeout(code, 8000);
-                successCount++;
-            } catch (e) {
-                // 静默失败
-            }
-            processed++;
-            progressText.innerText = `${processed} / ${codesToFetch.length}`;
-        });
-        await Promise.all(promises);
-        if (i + BATCH_SIZE < codesToFetch.length) {
-            await new Promise(r => setTimeout(r, 200)); // 减少等待时间
-        }
-    }
-    
-    await this.saveData();
-    loadingModal.style.display = 'none';
-    this.showToast(`✅ 持仓抓取完成，成功 ${successCount} 只，失败/无数据 ${codesToFetch.length - successCount} 只`);
     if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
 },
+
+
+// ==============================================================
+// 2. 批量抓取：持仓信息 (后台静默 + 30天缓存防重)
+// ==============================================================
+async batchFetchHoldings() {
+    const allCodes = new Set();
+    this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
+    const codes = Array.from(allCodes);
+    if (codes.length === 0) return this.showToast('暂无基金数据', 'error');
+
+    // 检测强制刷新复选框状态
+    const isForce = document.getElementById('force-refresh-checkbox')?.checked || false;
+    
+    const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; 
+    const now = Date.now();
+    
+    const codesToUpdate = isForce ? codes : codes.filter(code => {
+        const cache = this.data.fundsCache[code]?.holdingsCache;
+        return !cache || !cache.timestamp || (now - cache.timestamp > CACHE_TTL);
+    });
+
+    if (codesToUpdate.length === 0) {
+        return this.showToast('✅ 库内所有持仓均在近30天内更新过，无需重复获取');
+    }
+
+    this.showToast(`🚀 后台启动：正在抓取 ${codesToUpdate.length} 只基金持仓`);
+
+    let bgToast = document.getElementById('bg-task-toast');
+    if (!bgToast) {
+        // ... (复用上面的悬浮窗创建逻辑，如果已存在直接修改标题)
+        bgToast = document.createElement('div');
+        bgToast.id = 'bg-task-toast';
+        bgToast.style.cssText = 'display:flex; position:fixed; bottom:20px; right:20px; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); box-shadow:0 10px 25px rgba(0,0,0,0.1); border-radius:12px; padding:12px 16px; z-index:9999; border:1px solid #e2e8f0; align-items:center; gap:12px; transition:all 0.3s; transform:translateY(100px); opacity:0;';
+        bgToast.innerHTML = `
+            <div class="loading-spinner" style="width:20px; height:20px; margin:0; border-width:3px; border-top-color:#8b5cf6;"></div>
+            <div>
+                <div style="font-size:12px; font-weight:900; color:#1e293b;" id="bg-task-title">深度查仓中...</div>
+                <div style="font-size:11px; font-weight:bold; color:#8b5cf6;" id="bg-task-progress">0 / 0</div>
+            </div>
+        `;
+        document.body.appendChild(bgToast);
+    }
+    
+    // 如果复用了上面的 DOM，更新颜色和文字
+    document.getElementById('bg-task-title').innerText = '深度查仓中...';
+    document.getElementById('bg-task-progress').style.color = '#8b5cf6';
+    bgToast.querySelector('.loading-spinner').style.borderTopColor = '#8b5cf6';
+    
+    bgToast.style.display = 'flex';
+    setTimeout(() => { bgToast.style.transform = 'translateY(0)'; bgToast.style.opacity = '1'; }, 50);
+
+    const progressText = document.getElementById('bg-task-progress');
+    progressText.innerText = `0 / ${codesToUpdate.length}`;
+
+    let successCount = 0, failedCount = 0;
+
+    for (let i = 0; i < codesToUpdate.length; i++) {
+        const code = codesToUpdate[i];
+        try {
+            // 设置单次抓取最大超时，防止挂死
+            await this._fetchSingleFundHoldingsWithTimeout(code, 6000);
+            successCount++;
+            await this.saveData(); 
+        } catch (e) {
+            failedCount++;
+        }
+        
+        progressText.innerText = `${i + 1} / ${codesToUpdate.length}`;
+        if (i < codesToUpdate.length - 1) await new Promise(r => setTimeout(r, 150));
+    }
+
+    bgToast.style.transform = 'translateY(100px)';
+    bgToast.style.opacity = '0';
+    setTimeout(() => { bgToast.style.display = 'none'; }, 300);
+
+    if (failedCount > 0) this.showToast(`查仓结束，成功 ${successCount} 只，无数据/失败 ${failedCount} 只`, 'error');
+    else this.showToast(`✅ 所选基金持仓已全部后台更新完毕`);
+},
+
+
+
 
 // 为单只基金抓取持仓增加超时控制
 _fetchSingleFundHoldingsWithTimeout(code, timeoutMs) {
@@ -7495,10 +7517,39 @@ async renderBasicInfoTab(code) {
 
   const { basicData, trade, evalData, managerTableHtml, isEvalValid } = res;
   
+  // 【极强清理版】：无情剥离原网站样式，强制接管布局
   const formatTable = (tableHtml) => {
     if (!tableHtml.includes('<table')) return tableHtml;
-    let cleaned = tableHtml.replace(/ class="[^"]*"/gi, '').replace(/ style="[^"]*"/gi, '').replace(/<table/gi, '<table class="rate-table" style="width:100%; border-collapse:collapse; font-size:12px;"');
-    return `<div class="table-wrapper" style="overflow-x:auto; margin-top:6px;">${cleaned}</div>`;
+    
+    // 创建一个虚拟 DOM 来进行外科手术级别的清理
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(tableHtml, 'text/html');
+    const table = doc.querySelector('table');
+    
+    if (table) {
+        // 1. 赋予全局统一样式
+        table.className = 'rate-table';
+        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;';
+        
+        // 2. 清理所有的 th 和 td 内部样式，防止宽度比例被破坏
+        table.querySelectorAll('th, td').forEach(cell => {
+            cell.removeAttribute('style');
+            cell.removeAttribute('width');
+            cell.removeAttribute('height');
+            cell.removeAttribute('bgcolor');
+            cell.style.cssText = 'border: 1px solid #e2e8f0; padding: 10px 4px; text-align: center; word-wrap: break-word;';
+            
+            // 对包含百分号的费率进行颜色高亮
+            const text = cell.textContent.trim();
+            if (text.includes('%') && text !== '0.00%') {
+                cell.style.color = '#f43f5e';
+                cell.style.fontWeight = 'bold';
+            }
+        });
+        
+        return `<div class="table-wrapper" style="overflow-x: auto; margin-top: 10px; border-radius: 8px; border: 1px solid #e2e8f0;">${table.outerHTML}</div>`;
+    }
+    return tableHtml;
   };
 
   // 2. 利用刚刚存好的 basicData 迅速构建 UI

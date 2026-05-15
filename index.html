@@ -1207,7 +1207,7 @@ const app = {
   marketSortRule: 'chg',     // 默认改为按涨跌幅排序
   marketSortDir: 'desc',     // 降序
   targetMarketSecid: '',     // 新增：用于记录当前正在绑定分组的行情代码
-  workerUrl: 'https://myworker.us.ci', // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
+  workerUrl: 'https://myworker.indevs.in', // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
 
   // 【新增】：横向卡片拖拽滑动控制状态与函数
   scrollState: { isDown: false, startX: 0, scrollLeft: 0 },
@@ -7253,29 +7253,39 @@ async fetchFundRateHtml(code, retry = 2) {
   return null;
 },
 
-// 【优化版】：统一数据提取引擎（串行排队防卡死 + 完整数据缓存）
+// 【优化版】：带自动重试、防风控串行队列的数据抓取引擎
   async extractFundBasicData(code) {
-      const fetchHTMLSafely = async (url) => {
-          try {
-              const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
-              const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 8000); 
-              const res = await fetch(proxyUrl, { signal: controller.signal });
-              clearTimeout(id);
-              if (res.ok) return await res.text();
-          } catch (e) { }
-          return null;
+      // 内部带重试机制的抓取器
+      const fetchHTMLSafely = async (url, retries = 3) => {
+          for (let i = 0; i < retries; i++) {
+              try {
+                  const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
+                  const controller = new AbortController();
+                  // 批量抓取时放宽到 10 秒超时
+                  const id = setTimeout(() => controller.abort(), 10000); 
+                  const res = await fetch(proxyUrl, { signal: controller.signal });
+                  clearTimeout(id);
+                  if (res.ok) return await res.text();
+                  
+                  // 如果返回 500 或 403，说明被限流，休眠后重试
+                  await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+              } catch (e) { 
+                  // 超时也会进入这里，休眠后重试
+                  await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+              }
+          }
+          return null; // 重试3次全败才返回 null
       };
 
-      // 1. JSONP 原生接口拉取（速度极快，不走代理）
+      // 1. 获取基本 JSONP 数据（东方财富原生接口，不会跨域，速度极快）
       const fullInfo = await this.fetchFundFullInfo(code);
 
-      // 2. 【核心修复】：取消 Promise.all，改为“串行排队”，防止浏览器并发阻塞代理节点
-      const html = await this.fetchFundRateHtml(code);
-      await new Promise(r => setTimeout(r, 150)); // 喘息 150 毫秒
+      // 2. 【核心修复】：取消 Promise.all 瞬间并发，改为串行排队拉取 HTML，给代理喘息时间
+      const html = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jjfl_${code}.html`);
+      await new Promise(r => setTimeout(r, 300)); // 呼吸 300 毫秒
 
       const jjjlHtml = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`);
-      await new Promise(r => setTimeout(r, 150)); // 喘息 150 毫秒
+      await new Promise(r => setTimeout(r, 300)); // 呼吸 300 毫秒
 
       const jbgkHtml = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jbgk_${code}.html`);
 
@@ -7320,10 +7330,17 @@ async fetchFundRateHtml(code, retry = 2) {
                       }
                   }
                   
-                  // 温和地处理表格，保留原生结构（防止错乱）
-                  t.className = 'history-table'; 
-                  t.style.width = '100%'; 
-                  t.style.borderCollapse = 'collapse';
+                  t.className = 'rate-table'; t.style.width = '100%'; t.style.borderCollapse = 'collapse';
+                  t.querySelectorAll('td, th').forEach(cell => {
+                      cell.style.padding = '8px 4px'; cell.style.border = '1px solid #e2e8f0'; cell.style.textAlign = 'center';
+                      const a = cell.querySelector('a');
+                      if (a) { a.style.color = '#1677ff'; a.style.fontWeight = 'bold'; a.style.textDecoration = 'none'; a.removeAttribute('href'); }
+                      const text = cell.textContent.trim();
+                      if (text.includes('%')) {
+                          const num = parseFloat(text);
+                          if (!isNaN(num)) { cell.style.color = num >= 0 ? '#f43f5e' : '#10b981'; cell.style.fontWeight = '900'; }
+                      }
+                  });
                   t.querySelectorAll('.help').forEach(el => el.remove()); 
                   managerTableHtml = `<div class="table-wrapper" style="overflow-x:auto;">${t.outerHTML}</div>`;
                   break;
@@ -7340,29 +7357,29 @@ async fetchFundRateHtml(code, retry = 2) {
           if (match) extractedBuyFee = match[0];
       }
 
+      // ... 前面的代码保持不变 ...
       const safeNum = (v) => (v !== undefined && v !== null && !isNaN(parseFloat(v))) ? parseFloat(v).toFixed(2) : '--';
 
-      // 组装并返回包含所有 HTML 碎片的完整大对象
       const basicData = {
-          fundSize, establishDate, riskLevel,
+          fundSize,
+          establishDate,
+          riskLevel,
           managerName: manager?.name || '--',
           managerYears: manager?.workTime || '--',
           managerScale: manager?.fundSize || fundSize || '--',
           managerScore: safeNum(manager?.power?.avr),
-          buyStatus: trade.buyStatus, sellStatus: trade.sellStatus,
-          buyFee: extractedBuyFee, buyConfirm: trade.buyConfirm,
-          buyMin: trade.buyMin, sipMin: trade.sipMin, buyMax: trade.buyMax,
+          buyStatus: trade.buyStatus,
+          sellStatus: trade.sellStatus,
+          buyFee: extractedBuyFee,
+          buyConfirm: trade.buyConfirm,
+          buyMin: trade.buyMin,
+          sipMin: trade.sipMin,
+          buyMax: trade.buyMax,
           mgrHistoryFirstRow,
-          
-          // 【核心新增】：将表格HTML原封不动存入缓存，供 UI 秒速渲染
-          evalData: evalData,
-          managerTableHtml: managerTableHtml,
-          buyRateHtml: trade.buyRateHtml,
-          sellRateHtml: trade.sellRateHtml,
-          timestamp: Date.now()
+          timestamp: Date.now() // 【新增】：打上时间戳，方便后续 24 小时缓存跳过
       };
 
-      return { basicData, trade };
+      return { basicData, trade, manager, evalData, managerTableHtml, isEvalValid: (evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v))) };
   },
 
 parseFundRateHtml(html, code) {
@@ -7500,10 +7517,39 @@ async renderBasicInfoTab(code) {
 
   const { basicData, trade, evalData, managerTableHtml, isEvalValid } = res;
   
+  // 【极强清理版】：无情剥离原网站样式，强制接管布局
   const formatTable = (tableHtml) => {
     if (!tableHtml.includes('<table')) return tableHtml;
-    let cleaned = tableHtml.replace(/ class="[^"]*"/gi, '').replace(/ style="[^"]*"/gi, '').replace(/<table/gi, '<table class="rate-table" style="width:100%; border-collapse:collapse; font-size:12px;"');
-    return `<div class="table-wrapper" style="overflow-x:auto; margin-top:6px;">${cleaned}</div>`;
+    
+    // 创建一个虚拟 DOM 来进行外科手术级别的清理
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(tableHtml, 'text/html');
+    const table = doc.querySelector('table');
+    
+    if (table) {
+        // 1. 赋予全局统一样式
+        table.className = 'rate-table';
+        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;';
+        
+        // 2. 清理所有的 th 和 td 内部样式，防止宽度比例被破坏
+        table.querySelectorAll('th, td').forEach(cell => {
+            cell.removeAttribute('style');
+            cell.removeAttribute('width');
+            cell.removeAttribute('height');
+            cell.removeAttribute('bgcolor');
+            cell.style.cssText = 'border: 1px solid #e2e8f0; padding: 10px 4px; text-align: center; word-wrap: break-word;';
+            
+            // 对包含百分号的费率进行颜色高亮
+            const text = cell.textContent.trim();
+            if (text.includes('%') && text !== '0.00%') {
+                cell.style.color = '#f43f5e';
+                cell.style.fontWeight = 'bold';
+            }
+        });
+        
+        return `<div class="table-wrapper" style="overflow-x: auto; margin-top: 10px; border-radius: 8px; border: 1px solid #e2e8f0;">${table.outerHTML}</div>`;
+    }
+    return tableHtml;
   };
 
   // 2. 利用刚刚存好的 basicData 迅速构建 UI

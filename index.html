@@ -7065,58 +7065,46 @@ ds(e, i) {
   });
 },
   
-async fetchFundFullInfo(code) {
-    return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = `https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}`;
-        script.onload = () => {
-            const manager = window.Data_currentFundManager?.[0] || null;
-            const evalData = window.Data_performanceEvaluation || null;
-            const fundInfo = window.Data_fundInfo || null;
-            const feeList = window.Data_flxx || null;
-            const buyRule = window.Data_sgxx || null;
-            const sellRule = window.Data_shxx || null;
-            
-            // 提取更完整的基金信息
-            let fundScale = '--';
-            let establishDate = '--';
-            let riskLevel = '中高风险';
-            if (fundInfo) {
-                fundScale = fundInfo.fundscale || fundInfo.fundSize || '--';
-                if (fundInfo.establishDate) {
-                    const d = new Date(fundInfo.establishDate);
-                    if (!isNaN(d.getTime())) establishDate = `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
-                }
-                riskLevel = fundInfo.riskLevel || fundInfo.risklevel || '中高风险';
-            }
-            
-            // 清理全局变量
-            setTimeout(() => {
-                window.Data_currentFundManager = null;
-                window.Data_performanceEvaluation = null;
-                window.Data_fundInfo = null;
-                window.Data_flxx = null;
-                window.Data_sgxx = null;
-                window.Data_shxx = null;
-            }, 100);
-            
-            resolve({ 
-                manager, 
-                evalData, 
-                fundInfo: {
-                    fundscale: fundScale,
-                    establishDate: establishDate,
-                    riskLevel: riskLevel
-                }, 
-                feeList, 
-                buyRule, 
-                sellRule 
-            });
-        };
-        script.onerror = () => resolve({ manager: null, evalData: null, fundInfo: null, feeList: null, buyRule: null, sellRule: null });
-        document.head.appendChild(script);
-    });
-},
+// 【极速版】：抛弃不稳定的 script 标签，使用纯 fetch + 正则提取，自带 3 次极速重试
+  async fetchFundFullInfo(code) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+              const controller = new AbortController();
+              // 极速超时，2.5秒拿不到直接重试，绝不卡死
+              const id = setTimeout(() => controller.abort(), 2500); 
+              // 加上随机数后缀，强制绕过浏览器缓存和CDN拦截
+              const res = await fetch(`https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}_${Math.random()}`, { 
+                  signal: controller.signal,
+                  headers: { 'Accept': '*/*' } 
+              });
+              clearTimeout(id);
+              
+              if (res.ok) {
+                  const text = await res.text();
+                  
+                  // 使用高性能正则直接从 JS 文本中抠出 JSON 数据，比 eval() 更快更安全
+                  const extractJSON = (varName) => {
+                      const match = text.match(new RegExp(`var\\s+${varName}\\s*=\\s*(\\[.*?\\]|\\{.*?\\});`));
+                      if (match) {
+                          try { return JSON.parse(match[1]); } catch(e) { return null; }
+                      }
+                      return null;
+                  };
+                  
+                  return {
+                      manager: extractJSON('Data_currentFundManager')?.[0] || null,
+                      evalData: extractJSON('Data_performanceEvaluation') || null,
+                      fundInfo: extractJSON('Data_fundInfo') || null
+                  };
+              }
+          } catch (e) {
+              // 遇到 Connection Closed 或超时，休息 200 毫秒立刻重试
+              await new Promise(r => setTimeout(r, 200));
+          }
+      }
+      // 3 次全败才返回空，极其稳健
+      return { manager: null, evalData: null, fundInfo: null };
+  },
  
 
 
@@ -7253,59 +7241,54 @@ async fetchFundRateHtml(code, retry = 2) {
   return null;
 },
 
-// 【优化版】：带自动重试、防风控串行队列的数据抓取引擎
+// 【极速提取引擎】：恢复并行获取 + 懒加载策略
   async extractFundBasicData(code) {
-      // 内部带重试机制的抓取器
-      const fetchHTMLSafely = async (url, retries = 3) => {
-          for (let i = 0; i < retries; i++) {
-              try {
-                  const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
-                  const controller = new AbortController();
-                  // 批量抓取时放宽到 10 秒超时
-                  const id = setTimeout(() => controller.abort(), 10000); 
-                  const res = await fetch(proxyUrl, { signal: controller.signal });
-                  clearTimeout(id);
-                  if (res.ok) return await res.text();
-                  
-                  // 如果返回 500 或 403，说明被限流，休眠后重试
-                  await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-              } catch (e) { 
-                  // 超时也会进入这里，休眠后重试
-                  await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-              }
-          }
-          return null; // 重试3次全败才返回 null
+      const fetchHTMLSafely = async (url) => {
+          try {
+              const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
+              const controller = new AbortController();
+              const id = setTimeout(() => controller.abort(), 5000); // html抓取超时设为5秒
+              const res = await fetch(proxyUrl, { signal: controller.signal });
+              clearTimeout(id);
+              if (res.ok) return await res.text();
+          } catch (e) { }
+          return null;
       };
 
-      // 1. 获取基本 JSONP 数据（东方财富原生接口，不会跨域，速度极快）
-      const fullInfo = await this.fetchFundFullInfo(code);
-
-      // 2. 【核心修复】：取消 Promise.all 瞬间并发，改为串行排队拉取 HTML，给代理喘息时间
-      const html = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jjfl_${code}.html`);
-      await new Promise(r => setTimeout(r, 300)); // 呼吸 300 毫秒
-
-      const jjjlHtml = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`);
-      await new Promise(r => setTimeout(r, 300)); // 呼吸 300 毫秒
-
-      const jbgkHtml = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jbgk_${code}.html`);
+      // 1. 高速并行获取核心数据（3个请求同时发出）
+      const [fullInfo, html, jjjlHtml] = await Promise.all([
+          this.fetchFundFullInfo(code),
+          this.fetchFundRateHtml(code),
+          fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`)
+      ]);
 
       const { manager, evalData, fundInfo } = fullInfo;
       const cachedFund = this.data.fundsCache[code] || {};
+      
       let fundSize = cachedFund.size || '--';
       let establishDate = '--';
       let riskLevel = fundInfo ? (fundInfo.riskLevel || fundInfo.risklevel || '中高风险') : '--';
 
-      if (fundInfo && fundInfo.establishDate) establishDate = fundInfo.establishDate;
+      if (fundInfo && fundInfo.establishDate) {
+          establishDate = fundInfo.establishDate;
+      }
       
+      // 2. 补全缺失数据
       if (jjjlHtml && fundSize === '--') {
           const sizeMatch = jjjlHtml.match(/(?:资产规模|净资产规模|基金规模)[：:]\s*(?:<a[^>]*>)?([\d\.]+[万亿]元?)/);
           if (sizeMatch) fundSize = sizeMatch[1];
       }
-      if (establishDate === '--' && jbgkHtml) {
-          const dateMatch = jbgkHtml.match(/(\d{4})年(\d{2})月(\d{2})日/);
-          if (dateMatch) establishDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+      
+      // 【懒加载优化】：只有当 JSON 接口没返回成立日期时，才去单独抓取概况页 (节约 33% 的网络耗时)
+      if (establishDate === '--') {
+          const jbgkHtml = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jbgk_${code}.html`);
+          if (jbgkHtml) {
+              const dateMatch = jbgkHtml.match(/(\d{4})年(\d{2})月(\d{2})日/);
+              if (dateMatch) establishDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+          }
       }
 
+      // 3. 解析历任经理表格
       let mgrHistoryFirstRow = { startDate: '--', endDate: '--', manager: '--', days: '--', return: '--' };
       let managerTableHtml = '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无历任基金经理数据</div>';
       
@@ -7330,17 +7313,9 @@ async fetchFundRateHtml(code, retry = 2) {
                       }
                   }
                   
-                  t.className = 'rate-table'; t.style.width = '100%'; t.style.borderCollapse = 'collapse';
-                  t.querySelectorAll('td, th').forEach(cell => {
-                      cell.style.padding = '8px 4px'; cell.style.border = '1px solid #e2e8f0'; cell.style.textAlign = 'center';
-                      const a = cell.querySelector('a');
-                      if (a) { a.style.color = '#1677ff'; a.style.fontWeight = 'bold'; a.style.textDecoration = 'none'; a.removeAttribute('href'); }
-                      const text = cell.textContent.trim();
-                      if (text.includes('%')) {
-                          const num = parseFloat(text);
-                          if (!isNaN(num)) { cell.style.color = num >= 0 ? '#f43f5e' : '#10b981'; cell.style.fontWeight = '900'; }
-                      }
-                  });
+                  t.className = 'history-table'; 
+                  t.style.width = '100%'; 
+                  t.style.borderCollapse = 'collapse';
                   t.querySelectorAll('.help').forEach(el => el.remove()); 
                   managerTableHtml = `<div class="table-wrapper" style="overflow-x:auto;">${t.outerHTML}</div>`;
                   break;
@@ -7348,6 +7323,7 @@ async fetchFundRateHtml(code, retry = 2) {
           }
       }
 
+      // 4. 解析费率与规则
       let trade = { buyMin: '--', sipMin: '--', buyMax: '--', buyConfirm: '--', sellConfirm: '--', buyStatus: '--', sellStatus: '--', buyRateHtml: '<p>暂无数据</p>', sellRateHtml: '<p>暂无数据</p>', noSellFeeDays: null };
       if (html) trade = this.parseFundRateHtml(html, code);
 
@@ -7357,29 +7333,26 @@ async fetchFundRateHtml(code, retry = 2) {
           if (match) extractedBuyFee = match[0];
       }
 
-      // ... 前面的代码保持不变 ...
       const safeNum = (v) => (v !== undefined && v !== null && !isNaN(parseFloat(v))) ? parseFloat(v).toFixed(2) : '--';
 
       const basicData = {
-          fundSize,
-          establishDate,
-          riskLevel,
+          fundSize, establishDate, riskLevel,
           managerName: manager?.name || '--',
           managerYears: manager?.workTime || '--',
           managerScale: manager?.fundSize || fundSize || '--',
           managerScore: safeNum(manager?.power?.avr),
-          buyStatus: trade.buyStatus,
-          sellStatus: trade.sellStatus,
-          buyFee: extractedBuyFee,
-          buyConfirm: trade.buyConfirm,
-          buyMin: trade.buyMin,
-          sipMin: trade.sipMin,
-          buyMax: trade.buyMax,
+          buyStatus: trade.buyStatus, sellStatus: trade.sellStatus,
+          buyFee: extractedBuyFee, buyConfirm: trade.buyConfirm,
+          buyMin: trade.buyMin, sipMin: trade.sipMin, buyMax: trade.buyMax,
           mgrHistoryFirstRow,
-          timestamp: Date.now() // 【新增】：打上时间戳，方便后续 24 小时缓存跳过
+          evalData: evalData,
+          managerTableHtml: managerTableHtml,
+          buyRateHtml: trade.buyRateHtml,
+          sellRateHtml: trade.sellRateHtml,
+          timestamp: Date.now()
       };
 
-      return { basicData, trade, manager, evalData, managerTableHtml, isEvalValid: (evalData && evalData.data && evalData.data.some(v => v !== null && !isNaN(v))) };
+      return { basicData, trade };
   },
 
 parseFundRateHtml(html, code) {

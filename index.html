@@ -659,13 +659,14 @@ canvas#compare-canvas {
             <option value="15日">15日累计</option><option value="20日">20日累计</option>
             <option value="1月">近1月</option><option value="3月">近3月</option>
             <option value="6月">近6月</option><option value="1年">近1年</option>
-            <option value="maxDropYear">近1年回撤</option>
+            <option value="maxDrawdown" style="display:none;">最大回撤</option>
+            <option value="sharpe" style="display:none;">夏普比率</option>
           </select>
           <div class="view-toggle" style="margin-left: auto;">
-            <span id="period-1month" class="period-pill" onclick="app.setListPeriod('近1月')">近1月</span>
-            <span id="period-3month" class="period-pill" onclick="app.setListPeriod('近3月')">近3月</span>
-            <span id="period-6month" class="period-pill" onclick="app.setListPeriod('近6月')">近6月</span>
-            <span id="period-1year" class="period-pill active" onclick="app.setListPeriod('近1年')">近1年</span>
+            <span class="period-pill" onclick="app.setListPeriod('近1月')">近1月</span>
+            <span class="period-pill" onclick="app.setListPeriod('近3月')">近3月</span>
+            <span class="period-pill" onclick="app.setListPeriod('近6月')">近6月</span>
+            <span class="period-pill active" onclick="app.setListPeriod('近1年')">近1年</span>
           </div>
         </div>
       </div>
@@ -1261,19 +1262,21 @@ const app = {
   periodDaysMap: { '近1月': 21, '近3月': 63, '近6月': 126, '近1年': 250 },
   
   setListPeriod(period) {
-  if (this.listPeriod === period) return; // 相同周期不重复渲染
+  if (this.listPeriod === period) return;
   this.listPeriod = period;
-  // 更新 UI 高亮
-  document.querySelectorAll('.period-pill').forEach(el => el.classList.remove('active'));
-  const targetId = `period-${period.replace('近', '').toLowerCase()}`;
-  const targetEl = document.getElementById(targetId);
-  if (targetEl) targetEl.classList.add('active');
-  // 重新渲染当前视图（列表模式）
+  // 更新所有周期按钮的高亮状态
+  document.querySelectorAll('.period-pill').forEach(el => {
+    if (el.innerText === period) {
+      el.classList.add('active');
+    } else {
+      el.classList.remove('active');
+    }
+  });
+  // 重新渲染首页（列表模式）
   if (this.viewMode === 'list') {
     this.renderHome();
   } else {
-    // 卡片模式不需要显示周期指标，但为了数据一致性也重新渲染（可选）
-    this.renderHome();
+    this.renderHome(); // 卡片模式也可刷新，以便下次切换到列表时数据正确
   }
 },
  /**
@@ -2555,6 +2558,16 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
   const selectId = isSector ? 'sec-sort-rule' : 'sort-rule'; 
   const select = document.getElementById(selectId); 
   
+  // 确保 select 中存在该选项（如果没有则动态添加一个隐藏的 option）
+  let option = Array.from(select.options).find(opt => opt.value === colName);
+  if (!option) {
+    option = document.createElement('option');
+    option.value = colName;
+    option.textContent = colName;
+    option.style.display = 'none'; // 隐藏，保持界面整洁
+    select.appendChild(option);
+  }
+  
   if (select.value === colName) { 
     // 同一列，切换排序方向
     if (isSector) {
@@ -2572,11 +2585,13 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     }
   } 
   
+  // 更新排序方向按钮的显示文字
   const btnId = isSector ? 'sec-sort-dir-btn' : 'sort-dir-btn'; 
   const curDir = isSector ? this.secSortDir : this.sortDir; 
   const btn = document.getElementById(btnId);
   if (btn) btn.innerText = curDir === 'desc' ? '降序 ↓' : '升序 ↑'; 
   
+  // 重新渲染列表
   if (isSector) this.renderSector(); 
   else this.renderHome(); 
 },

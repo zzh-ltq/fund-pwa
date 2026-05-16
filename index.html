@@ -7065,32 +7065,24 @@ ds(e, i) {
   });
 },
   
-// 【终极极速版】：通过通用 Worker 代理拉取基础接口，无视跨域，自带 3 次极速重试
+// 【直连 Hack 版】：无视跨域，直接请求原生接口，自带重试
   async fetchFundFullInfo(code) {
       for (let attempt = 0; attempt < 3; attempt++) {
           try {
               const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 4000); // 4秒超时
+              const id = setTimeout(() => controller.abort(), 4000); 
               
-              // 【核心修复】：将目标接口拼接好，交给我们的通用代理去请求！彻底绕过 CORS
-              const targetUrl = `https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}_${Math.random()}`;
-              const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(targetUrl)}`;
-              
-              const res = await fetch(proxyUrl, { signal: controller.signal });
+              // 剥离代理，直连东方财富
+              const res = await fetch(`https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}_${Math.random()}`, { signal: controller.signal });
               clearTimeout(id);
               
               if (res.ok) {
                   const text = await res.text();
-                  
-                  // 使用高性能正则直接从 JS 文本中抠出 JSON 数据
                   const extractJSON = (varName) => {
                       const match = text.match(new RegExp(`var\\s+${varName}\\s*=\\s*(\\[.*?\\]|\\{.*?\\});`));
-                      if (match) {
-                          try { return JSON.parse(match[1]); } catch(e) { return null; }
-                      }
+                      if (match) { try { return JSON.parse(match[1]); } catch(e) { return null; } }
                       return null;
                   };
-                  
                   return {
                       manager: extractJSON('Data_currentFundManager')?.[0] || null,
                       evalData: extractJSON('Data_performanceEvaluation') || null,
@@ -7098,8 +7090,7 @@ ds(e, i) {
                   };
               }
           } catch (e) {
-              // 遇到超时或限流，休息 300 毫秒后自动重试
-              await new Promise(r => setTimeout(r, 300));
+              await new Promise(r => setTimeout(r, 200));
           }
       }
       return { manager: null, evalData: null, fundInfo: null };
@@ -7208,53 +7199,48 @@ async renderPerformanceTab(code) {
   if (activeBtn) activeBtn.classList.add('active');
 },
 
-async fetchFundRateHtml(code, retry = 2) {
-  // 【修改】：适配全新通用代理，直接拼接并编码完整的目标 URL
-  const targetHtmlUrl = `https://fundf10.eastmoney.com/jjfl_${code}.html`;
-  const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(targetHtmlUrl)}`;
-  
-  for (let attempt = 0; attempt <= retry; attempt++) {
-    try {
-      const response = await fetch(proxyUrl, {
-        method: 'GET',
-        cache: 'no-cache'
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const html = await response.text();
-      // 简单校验返回内容是否包含费率表格特征
-      if (html && (html.includes('申购费率') || html.includes('jjfl') || html.includes('赎回费率'))) {
-        return html;
-      }
-      // 内容不匹配触发重试
-      if (attempt < retry) await new Promise(r => setTimeout(r, 800));
-    } catch (err) {
-      // 捕获 500 错误，不再打印 console.warn 刷屏
-      // 如果报错，说明节点拥堵，强制休眠 800 毫秒后重试
-      if (attempt < retry) {
-          await new Promise(r => setTimeout(r, 800));
-      }
-    }
-  }
-  return null;
-},
+// 【直连 Hack 版】：直连抓取费率页面
+  async fetchFundRateHtml(code, retry = 2) {
+      const targetHtmlUrl = `https://fundf10.eastmoney.com/jjfl_${code}.html`;
+      
+      for (let attempt = 0; attempt <= retry; attempt++) {
+          try {
+              const controller = new AbortController();
+              const id = setTimeout(() => controller.abort(), 4000);
+              
+              // 剥离代理，直接 fetch 目标网址
+              const response = await fetch(targetHtmlUrl, { signal: controller.signal });
+              clearTimeout(id);
 
-// 【极速提取引擎】：恢复并行获取 + 懒加载策略
-  async extractFundBasicData(code) {
+              if (response.ok) {
+                  const html = await response.text();
+                  if (html && (html.includes('申购费率') || html.includes('赎回费率') || html.includes('暂无数据'))) {
+                      return html;
+                  }
+              }
+              if (attempt < retry) await new Promise(r => setTimeout(r, 500));
+          } catch (err) {
+              if (attempt < retry) await new Promise(r => setTimeout(r, 500));
+          }
+      }
+      return null;
+  },
+
+async extractFundBasicData(code) {
+      // 【直连 Hack 版】：剥离所有代理包装，让浏览器直接冲
       const fetchHTMLSafely = async (url) => {
           try {
-              const proxyUrl = `${this.workerUrl}?url=${encodeURIComponent(url)}`;
               const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 5000); // html抓取超时设为5秒
-              const res = await fetch(proxyUrl, { signal: controller.signal });
+              const id = setTimeout(() => controller.abort(), 5000); 
+              // 直接请求目标 URL
+              const res = await fetch(url, { signal: controller.signal });
               clearTimeout(id);
               if (res.ok) return await res.text();
           } catch (e) { }
           return null;
       };
 
-      // 1. 高速并行获取核心数据（3个请求同时发出）
+      // 1. 高速并行获取核心数据（3个请求同时直连发出）
       const [fullInfo, html, jjjlHtml] = await Promise.all([
           this.fetchFundFullInfo(code),
           this.fetchFundRateHtml(code),

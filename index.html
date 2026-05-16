@@ -7461,91 +7461,75 @@ parseFundRateHtml(html, code) {
   };
 },
 
-async renderBasicInfoTab(code) {
-  const container = document.getElementById('det-basicinfo-area');
-  if (!container) return;
-  container.innerHTML = '<div style="text-align:center; padding:20px; color:#94a3b8;">数据提取与解析中...</div>';
+// 【完整稳定版】：缓存优先秒开渲染，兼容旧缓存，修复表格错乱
+  async renderBasicInfoTab(code) {
+      const container = document.getElementById('det-basicinfo-area');
+      if (!container) return;
 
-  const res = await this.extractFundBasicData(code);
-  if (!res) {
-      container.innerHTML = '<div style="text-align:center; padding:20px; color:red;">抓取失败，请检查网络或稍后重试</div>';
-      return;
-  }
+      const cachedData = this.data.fundsCache[code]?.basicData;
+      const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; 
 
-  // 1. 获取成功后，立刻持久化写入本地缓存，这样对比界面立刻就能读到
-  if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-  this.data.fundsCache[code].basicData = res.basicData;
-  if (res.trade.sellConfirm !== undefined) this.data.fundsCache[code].sellConfirmDays = res.trade.sellConfirm;
-  if (res.trade.noSellFeeDays !== undefined) this.data.fundsCache[code].noSellFeeDays = res.trade.noSellFeeDays;
-  this.saveData();
-  this.updateFundCardDisplay(code);
+      let bd = null; // 声明核心数据变量
 
-  const { basicData, trade, evalData, managerTableHtml, isEvalValid } = res;
-  
-  // 【极强清理版】：无情剥离原网站样式，强制接管布局
-  const formatTable = (tableHtml) => {
-    if (!tableHtml.includes('<table')) return tableHtml;
-    
-    // 创建一个虚拟 DOM 来进行外科手术级别的清理
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(tableHtml, 'text/html');
-    const table = doc.querySelector('table');
-    
-    if (table) {
-        // 1. 赋予全局统一样式
-        table.className = 'rate-table';
-        table.style.cssText = 'width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;';
-        
-        // 2. 清理所有的 th 和 td 内部样式，防止宽度比例被破坏
-        table.querySelectorAll('th, td').forEach(cell => {
-            cell.removeAttribute('style');
-            cell.removeAttribute('width');
-            cell.removeAttribute('height');
-            cell.removeAttribute('bgcolor');
-            cell.style.cssText = 'border: 1px solid #e2e8f0; padding: 10px 4px; text-align: center; word-wrap: break-word;';
-            
-            // 对包含百分号的费率进行颜色高亮
-            const text = cell.textContent.trim();
-            if (text.includes('%') && text !== '0.00%') {
-                cell.style.color = '#f43f5e';
-                cell.style.fontWeight = 'bold';
-            }
-        });
-        
-        return `<div class="table-wrapper" style="overflow-x: auto; margin-top: 10px; border-radius: 8px; border: 1px solid #e2e8f0;">${table.outerHTML}</div>`;
-    }
-    return tableHtml;
-  };
+      // 1. 缓存秒开判定：如果有缓存且未过期，直接取用
+      if (cachedData && cachedData.buyRateHtml && (Date.now() - cachedData.timestamp < CACHE_TTL)) {
+          bd = cachedData;
+      } else {
+          // 2. 缓存失效，展示 Loading 并现场抓取
+          container.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#94a3b8;"><div class="loading-spinner" style="margin:0 auto 15px;"></div>正在深度提取基金概况与费率信息...</div>';
+          
+          const res = await this.extractFundBasicData(code);
+          if (!res) {
+              container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--red);">网络请求超时，请检查网络或重试</div>';
+              return;
+          }
 
-  // 2. 利用刚刚存好的 basicData 迅速构建 UI
-  let managerHtml = `
-      <div class="card" style="padding:12px; height:100%;">
-        <h3 style="margin:0 0 10px 0; color:#1677ff; font-size:15px;">👨‍💼 现任经理: ${basicData.managerName}</h3>
-        <div style="font-size:12px; color:#475569; line-height:1.6;">
-          <div>任职时长：${basicData.managerYears}</div>
-          <div>管理规模：${basicData.managerScale}</div>
-          <div>综合评分：<span style="color:#f43f5e; font-weight:900;">${basicData.managerScore} 分</span></div>
-        </div>
-      </div>
-  `;
+          // 获取成功，存入 IndexedDB
+          if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+          this.data.fundsCache[code].basicData = res.basicData;
+          if (res.trade.sellConfirm !== undefined) this.data.fundsCache[code].sellConfirmDays = res.trade.sellConfirm;
+          if (res.trade.noSellFeeDays !== undefined) this.data.fundsCache[code].noSellFeeDays = res.trade.noSellFeeDays;
+          this.saveData();
+          this.updateFundCardDisplay(code);
 
-  let evalHtml = '';
-  if (isEvalValid) {
-    let barHtml = '';
-    for (let i = 0; i < evalData.categories.length; i++) {
-      const valNum = evalData.data[i] !== null ? evalData.data[i] : 0;
-      const valText = evalData.data[i] !== null ? evalData.data[i] : '--';
-      barHtml += `<div style="margin-bottom:6px; display:flex; align-items:center;">
-          <span style="width:70px; font-size:11px; color:#475569;">${evalData.categories[i]}</span>
-          <div style="flex:1; background:#e2e8f0; height:4px; border-radius:4px; margin:0 8px;"><div style="width:${valNum}%; background:#3b82f6; height:4px;"></div></div>
-          <span style="width:30px; font-size:11px; color:#3b82f6;">${valText}</span>
-        </div>`;
-    }
-    evalHtml = `<div class="card" style="padding:12px; height:100%;"><h3 style="margin:0 0 10px 0; font-size:14px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right;">${evalData.avr || '--'} 分</span></h3>${barHtml}</div>`;
-  }
+          bd = res.basicData;
+      }
 
-        // 【核心修复】：加入旧缓存兼容兜底，防止出现 undefined
-      const safeManagerTableHtml = bd.managerTableHtml || '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无历任基金经理数据 (请强制刷新重载)</div>';
+      // 强力格式化表格
+      const formatTable = (tableHtml) => {
+          if (!tableHtml.includes('<table')) return tableHtml;
+          let cleaned = tableHtml.replace(/<table[^>]*>/i, '<table class="rate-table" style="width:100%; border-collapse:collapse; font-size:12px;">');
+          return `<div class="table-wrapper" style="overflow-x:auto; margin-top:6px;">${cleaned}</div>`;
+      };
+
+      let managerHtml = `
+          <div class="card" style="padding:12px; height:100%;">
+            <h3 style="margin:0 0 10px 0; color:#1677ff; font-size:15px;">👨‍💼 现任经理: ${bd.managerName || '--'}</h3>
+            <div style="font-size:12px; color:#475569; line-height:1.6;">
+              <div>任职时长：${bd.managerYears || '--'}</div>
+              <div>管理规模：${bd.managerScale || '--'}</div>
+              <div>综合评分：<span style="color:#f43f5e; font-weight:900;">${bd.managerScore || '--'} 分</span></div>
+            </div>
+          </div>
+      `;
+
+      let evalHtml = '';
+      if (bd.evalData && bd.evalData.data && bd.evalData.data.some(v => v !== null && !isNaN(v))) {
+          let barHtml = '';
+          for (let i = 0; i < bd.evalData.categories.length; i++) {
+              const valNum = bd.evalData.data[i] !== null ? bd.evalData.data[i] : 0;
+              const valText = bd.evalData.data[i] !== null ? bd.evalData.data[i] : '--';
+              barHtml += `<div style="margin-bottom:6px; display:flex; align-items:center;">
+                  <span style="width:70px; font-size:11px; color:#475569;">${bd.evalData.categories[i]}</span>
+                  <div style="flex:1; background:#e2e8f0; height:4px; border-radius:4px; margin:0 8px;"><div style="width:${valNum}%; background:#3b82f6; height:4px;"></div></div>
+                  <span style="width:30px; font-size:11px; color:#3b82f6;">${valText}</span>
+              </div>`;
+          }
+          evalHtml = `<div class="card" style="padding:12px; height:100%;"><h3 style="margin:0 0 10px 0; font-size:14px; color:#1e293b;">📊 基金综合评价 <span style="color:#f43f5e; float:right;">${bd.evalData.avr || '--'} 分</span></h3>${barHtml}</div>`;
+      }
+
+      // 兼容旧缓存
+      const safeManagerTableHtml = bd.managerTableHtml || '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无历任基金经理数据 (请点右下角后台强制刷新)</div>';
 
       const basicInfoCardHtml = `
           <div class="card" style="padding:16px; margin-top:12px; margin-bottom:12px; border: 1px solid #e2e8f0;">
@@ -7582,7 +7566,25 @@ async renderBasicInfoTab(code) {
 
       let topRowHtml = `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">${managerHtml}${evalHtml}</div>`;
       container.innerHTML = topRowHtml + basicInfoCardHtml + managerHistoryCardHtml + tradeRowHtml + feeHtml;
-}
+
+      if (!document.querySelector('#dynamic-rate-style')) {
+          const style = document.createElement('style');
+          style.id = 'dynamic-rate-style';
+          style.textContent = `
+            .rate-table th, .rate-table td, .history-table th, .history-table td {
+                border: 1px solid #e2e8f0 !important;
+                padding: 10px 6px !important;
+                font-size: 12px !important;
+                text-align: center !important;
+                color: #1e293b !important;
+                background: #fff !important;
+            }
+            .rate-table th, .history-table th { background-color: #f8fafc !important; font-weight: bold !important; }
+            .rate-table del { color: #94a3b8; text-decoration: line-through; }
+          `;
+          document.head.appendChild(style);
+      }
+  }
 
   
 };

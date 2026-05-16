@@ -562,6 +562,21 @@ canvas#compare-canvas {
     background: #fff;
     z-index: 1;
 }
+
+    .period-pill {
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: 600;
+}
+.period-pill.active {
+  background: #fff;
+  color: var(--blue);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
     
 /* ========== 智投专属样式 ========== */
     .invest-sub-tabs { display: flex; gap: 8px; margin-bottom: 10px; background: #f1f5f9; padding: 4px; border-radius: 12px; }
@@ -645,6 +660,12 @@ canvas#compare-canvas {
             <option value="6月">近6月</option><option value="1年">近1年</option>
             <option value="maxDropYear">近1年回撤</option>
           </select>
+          <div class="view-toggle" style="margin-left: auto;">
+            <span id="period-1month" class="period-pill" onclick="app.setListPeriod('近1月')">近1月</span>
+            <span id="period-3month" class="period-pill" onclick="app.setListPeriod('近3月')">近3月</span>
+            <span id="period-6month" class="period-pill" onclick="app.setListPeriod('近6月')">近6月</span>
+            <span id="period-1year" class="period-pill active" onclick="app.setListPeriod('近1年')">近1年</span>
+          </div>
         </div>
       </div>
       <div id="home-list"></div>
@@ -1230,8 +1251,74 @@ const app = {
 
   marketSortRule: 'chg',     // 默认改为按涨跌幅排序
   marketSortDir: 'desc',     // 降序
+  
   targetMarketSecid: '',     // 新增：用于记录当前正在绑定分组的行情代码
   workerUrl: 'https://myworker.indevs.in', // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
+
+   // 列表周期状态（用于动态最大回撤和夏普比率）
+  listPeriod: '近1年',   // 可选 '近1月', '近3月', '近6月', '近1年'
+  periodDaysMap: { '近1月': 21, '近3月': 63, '近6月': 126, '近1年': 250 },
+  setListPeriod(period) {
+  this.listPeriod = period;
+  // 更新 UI 高亮
+  document.querySelectorAll('.period-pill').forEach(el => el.classList.remove('active'));
+  document.getElementById(`period-${period.replace('近', '').toLowerCase()}`).classList.add('active');
+  // 重新渲染首页（列表模式）
+  if (this.viewMode === 'list') this.renderHome();
+  else this.renderHome();   // 卡片模式不显示新列，但周期切换也会触发重绘，可保持一致
+},
+  /**
+ * 根据净值序列计算指定周期内的最大回撤（绝对值，负百分比）
+ * @param {Array} netWorth  [{x: timestamp, y: value}] 按时间升序
+ * @param {number} days 交易日天数
+ * @returns {string|null} 例如 "-15.23" 或 null（数据不足）
+ */
+computeMaxDrawdown(netWorth, days) {
+  if (!netWorth || netWorth.length < 2) return null;
+  const slice = netWorth.slice(-Math.min(days, netWorth.length));
+  if (slice.length < 2) return null;
+  let peak = slice[0].y;
+  let maxDrawdown = 0;
+  for (let i = 1; i < slice.length; i++) {
+    const current = slice[i].y;
+    if (current > peak) peak = current;
+    const drawdown = (peak - current) / peak;
+    if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+  }
+  return maxDrawdown === 0 ? null : (-maxDrawdown * 100).toFixed(2);
+},
+
+/**
+ * 计算夏普比率（年化）
+ * @param {Array} netWorth 净值序列
+ * @param {number} days 周期天数（交易日）
+ * @returns {string|null} 例如 "1.25" 或 null
+ */
+computeSharpeRatio(netWorth, days) {
+  if (!netWorth || netWorth.length < 2) return null;
+  const slice = netWorth.slice(-Math.min(days, netWorth.length));
+  if (slice.length < 2) return null;
+  // 计算日收益率
+  const returns = [];
+  for (let i = 1; i < slice.length; i++) {
+    const prev = slice[i-1].y;
+    const curr = slice[i].y;
+    if (prev > 0) returns.push((curr - prev) / prev);
+  }
+  if (returns.length < 2) return null;
+  const mean = returns.reduce((a,b) => a+b, 0) / returns.length;
+  let sumSq = 0;
+  for (let r of returns) sumSq += (r - mean) ** 2;
+  const std = Math.sqrt(sumSq / (returns.length - 1));
+  if (std === 0) return null;
+  // 年化夏普比率 = (日均收益率 * 252 - 无风险年化) / (日波动率 * sqrt(252))
+  const rfAnnual = 0.025; // 假设无风险利率 2.5%
+  const rfDaily = rfAnnual / 252;
+  const annualizedMean = mean * 252;
+  const annualizedStd = std * Math.sqrt(252);
+  const sharpe = (annualizedMean - rfAnnual) / annualizedStd;
+  return sharpe.toFixed(2);
+},
 
   // 【新增】：横向卡片拖拽滑动控制状态与函数
   scrollState: { isDown: false, startX: 0, scrollLeft: 0 },
@@ -2103,6 +2190,18 @@ rtManualRefreshMarket() {
     
     this.calculateMedals(loadedFunds); 
     this.calculateSuperScoreMedals(loadedFunds); 
+
+    // 在 funds 排序之前，为每个基金计算当前周期下的最大回撤和夏普比率
+    const days = this.periodDaysMap[this.listPeriod];
+    for (let f of loadedFunds) {
+      if (f.isLoad && f.netWorth) {
+        f.dynamicMaxDrawdown = this.computeMaxDrawdown(f.netWorth, days);
+        f.dynamicSharpe = this.computeSharpeRatio(f.netWorth, days);
+      } else {
+        f.dynamicMaxDrawdown = null;
+        f.dynamicSharpe = null;
+      }
+    }
     
     const sortVal = document.getElementById('sort-rule').value; 
     this.assignMedals(loadedFunds, sortVal); 
@@ -2124,10 +2223,13 @@ rtManualRefreshMarket() {
   } else if (sortVal === 'super') { 
     va = a.superScore || 0; 
     vb = b.superScore || 0; 
-  } else if (sortVal === 'maxDropYear') {   // 新增分支
-    va = parseFloat(a.maxDropInYear) || 0; 
-    vb = parseFloat(b.maxDropInYear) || 0; 
-  } else { 
+  } else if (sortVal === 'maxDrawdown') {
+    va = parseFloat(a.dynamicMaxDrawdown) || 0;
+    vb = parseFloat(b.dynamicMaxDrawdown) || 0;
+  } else if (sortVal === 'sharpe') {
+    va = parseFloat(a.dynamicSharpe) || -99999;
+    vb = parseFloat(b.dynamicSharpe) || -99999;
+} else { 
     const ra = a.listRates.find(r => r.label === sortVal); 
     const rb = b.listRates.find(r => r.label === sortVal); 
     va = parseFloat(ra?.val)|| -99999; 
@@ -2294,9 +2396,11 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
   
   let headers = ['3日','5日','7日','10日','15日','20日','1月','3月','6月','1年']; 
   // 在 headers 后单独添加“近1年回撤”列，不放入循环以便单独控制样式
-  let extraHeader = `<div class="l-col-rate th" onclick="app.handleListSortClick('maxDropYear', ${isSector})">近1年回撤</div>`;
-  
-  let header = `<div class="l-header"><div class="l-col-name th">基金名称</div>${renderTh('盘中估算', 'rt')}${renderTh('最新实盘', 'daily')}${headers.map(h => renderTh(h, h)).join('')}${extraHeader}</div>`; 
+  // 替换原来的 extraHeader 部分
+  let maxDrawdownHeader = `<div class="l-col-rate th" onclick="app.handleListSortClick('maxDrawdown', ${isSector})">最大回撤</div>`;
+  let sharpeHeader = `<div class="l-col-rate th" onclick="app.handleListSortClick('sharpe', ${isSector})">夏普比率</div>`;
+
+  let header = `<div class="l-header"><div class="l-col-name th">基金名称</div>${renderTh('盘中估算', 'rt')}${renderTh('最新实盘', 'daily')}${headers.map(h => renderTh(h, h)).join('')}${maxDrawdownHeader}${sharpeHeader}</div>`; 
   
   let rows = funds.map(f => { 
     if(!f.isLoad) { 
@@ -2305,11 +2409,17 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     
     let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join(''); 
     
-    // 新增：近一年回撤单元格
-    let maxDropYearHtml = '<div class="l-col-rate green">--</div>';
-    if (f.maxDropInYear !== null && f.maxDropInYear !== '--') {
-      let val = f.maxDropInYear;
-      maxDropYearHtml = `<div class="l-col-rate green">${val}%</div>`;
+    // 最大回撤单元格
+    let maxDrawdownHtml = '<div class="l-col-rate green">--</div>';
+    if (f.dynamicMaxDrawdown !== null) {
+      maxDrawdownHtml = `<div class="l-col-rate green">${f.dynamicMaxDrawdown}%</div>`;
+    }
+    // 夏普比率单元格
+    let sharpeHtml = '<div class="l-col-rate">--</div>';
+    if (f.dynamicSharpe !== null && !isNaN(f.dynamicSharpe)) {
+      const sharpeNum = parseFloat(f.dynamicSharpe);
+      const sharpeColor = sharpeNum > 0 ? 'red' : (sharpeNum < 0 ? 'green' : '');
+      sharpeHtml = `<div class="l-col-rate ${sharpeColor}">${f.dynamicSharpe}</div>`;
     }
     
     let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : ''; 
@@ -2334,7 +2444,8 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
         <div class="${f.change>=0?'red':'green'}" style="font-size:11px; margin-top:2px;">${f.change>0?'+':''}${f.change}%</div>
       </div>
       ${rates}
-      ${maxDropYearHtml}
+      ${maxDrawdownHtml}
+      ${sharpeHtml}
     </div>`; 
   }).join(''); 
   
@@ -5280,6 +5391,18 @@ renderCompareDetails() {
     let loadedFunds = funds.filter(f => f.isLoad); 
     this.calculateMedals(loadedFunds); 
     this.calculateSuperScoreMedals(loadedFunds); 
+
+    // 在 funds 排序之前，为每个基金计算当前周期下的最大回撤和夏普比率
+    const days = this.periodDaysMap[this.listPeriod];
+    for (let f of loadedFunds) {
+       if (f.isLoad && f.netWorth) {
+        f.dynamicMaxDrawdown = this.computeMaxDrawdown(f.netWorth, days);
+        f.dynamicSharpe = this.computeSharpeRatio(f.netWorth, days);
+      } else {
+        f.dynamicMaxDrawdown = null;
+        f.dynamicSharpe = null;
+      }
+    }
     
     const sortVal = document.getElementById('sec-sort-rule').value; 
     this.assignMedals(loadedFunds, sortVal); 
@@ -5300,9 +5423,12 @@ renderCompareDetails() {
       } else if (sortVal === 'super') { 
         va = a.superScore || 0; 
         vb = b.superScore || 0; 
-      } else if (sortVal === 'maxDropYear') {   // 新增分支
-        va = parseFloat(a.maxDropInYear) || 0; 
-        vb = parseFloat(b.maxDropInYear) || 0; 
+      } else if (sortVal === 'maxDrawdown') {
+        va = parseFloat(a.dynamicMaxDrawdown) || 0;
+        vb = parseFloat(b.dynamicMaxDrawdown) || 0;
+      } else if (sortVal === 'sharpe') {
+        va = parseFloat(a.dynamicSharpe) || -99999;
+        vb = parseFloat(b.dynamicSharpe) || -99999;
       } else { 
         const ra = a.listRates.find(r => r.label === sortVal); 
         const rb = b.listRates.find(r => r.label === sortVal); 

@@ -563,7 +563,7 @@ canvas#compare-canvas {
     z-index: 1;
 }
 
-    .period-pill {
+.period-pill {
   padding: 4px 12px;
   font-size: 12px;
   border-radius: 6px;
@@ -571,6 +571,7 @@ canvas#compare-canvas {
   cursor: pointer;
   transition: all 0.3s;
   font-weight: 600;
+  user-select: none;
 }
 .period-pill.active {
   background: #fff;
@@ -1258,20 +1259,25 @@ const app = {
    // 列表周期状态（用于动态最大回撤和夏普比率）
   listPeriod: '近1年',   // 可选 '近1月', '近3月', '近6月', '近1年'
   periodDaysMap: { '近1月': 21, '近3月': 63, '近6月': 126, '近1年': 250 },
+  
   setListPeriod(period) {
+  if (this.listPeriod === period) return; // 相同周期不重复渲染
   this.listPeriod = period;
   // 更新 UI 高亮
   document.querySelectorAll('.period-pill').forEach(el => el.classList.remove('active'));
-  document.getElementById(`period-${period.replace('近', '').toLowerCase()}`).classList.add('active');
-  // 重新渲染首页（列表模式）
-  if (this.viewMode === 'list') this.renderHome();
-  else this.renderHome();   // 卡片模式不显示新列，但周期切换也会触发重绘，可保持一致
+  const targetId = `period-${period.replace('近', '').toLowerCase()}`;
+  const targetEl = document.getElementById(targetId);
+  if (targetEl) targetEl.classList.add('active');
+  // 重新渲染当前视图（列表模式）
+  if (this.viewMode === 'list') {
+    this.renderHome();
+  } else {
+    // 卡片模式不需要显示周期指标，但为了数据一致性也重新渲染（可选）
+    this.renderHome();
+  }
 },
-  /**
- * 根据净值序列计算指定周期内的最大回撤（绝对值，负百分比）
- * @param {Array} netWorth  [{x: timestamp, y: value}] 按时间升序
- * @param {number} days 交易日天数
- * @returns {string|null} 例如 "-15.23" 或 null（数据不足）
+ /**
+ * 计算指定周期内的最大回撤（返回负百分比字符串）
  */
 computeMaxDrawdown(netWorth, days) {
   if (!netWorth || netWorth.length < 2) return null;
@@ -1290,9 +1296,6 @@ computeMaxDrawdown(netWorth, days) {
 
 /**
  * 计算夏普比率（年化）
- * @param {Array} netWorth 净值序列
- * @param {number} days 周期天数（交易日）
- * @returns {string|null} 例如 "1.25" 或 null
  */
 computeSharpeRatio(netWorth, days) {
   if (!netWorth || netWorth.length < 2) return null;
@@ -1311,8 +1314,7 @@ computeSharpeRatio(netWorth, days) {
   for (let r of returns) sumSq += (r - mean) ** 2;
   const std = Math.sqrt(sumSq / (returns.length - 1));
   if (std === 0) return null;
-  // 年化夏普比率 = (日均收益率 * 252 - 无风险年化) / (日波动率 * sqrt(252))
-  const rfAnnual = 0.025; // 假设无风险利率 2.5%
+  const rfAnnual = 0.025; // 无风险利率 2.5%
   const rfDaily = rfAnnual / 252;
   const annualizedMean = mean * 252;
   const annualizedStd = std * Math.sqrt(252);
@@ -1708,6 +1710,9 @@ async _fetchSingleFundHoldings(code) {
     this.renderHomeGroups();
     this.renderHome();
     this.enablePCMouseScroll();
+    
+    // 在 app.init() 末尾或适合的地方调用
+    this.setListPeriod('近1年');
     
     // 【核心修复】：删除了原先的 setTimeout refreshAll(true)
     // 杜绝每次打开网页就在后台偷偷狂刷几百条网络请求的行为，全面依赖本地 IndexedDB 缓存！
@@ -2184,66 +2189,65 @@ rtManualRefreshMarket() {
   },
   
   renderHome() { 
-    const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0]; 
-    let funds = group.fundCodes.map(c => this.formatFund(c)); 
-    let loadedFunds = funds.filter(f => f.isLoad); 
-    
-    this.calculateMedals(loadedFunds); 
-    this.calculateSuperScoreMedals(loadedFunds); 
-
-    // 在 funds 排序之前，为每个基金计算当前周期下的最大回撤和夏普比率
-    const days = this.periodDaysMap[this.listPeriod];
-    for (let f of loadedFunds) {
-      if (f.isLoad && f.netWorth) {
-        f.dynamicMaxDrawdown = this.computeMaxDrawdown(f.netWorth, days);
-        f.dynamicSharpe = this.computeSharpeRatio(f.netWorth, days);
-      } else {
-        f.dynamicMaxDrawdown = null;
-        f.dynamicSharpe = null;
-      }
+  const group = this.data.groups.find(g => g.id === this.currentGroupId) || this.data.groups[0]; 
+  let funds = group.fundCodes.map(c => this.formatFund(c)); 
+  let loadedFunds = funds.filter(f => f.isLoad); 
+  
+  // 根据当前周期计算每个基金的最大回撤和夏普比率
+  const days = this.periodDaysMap[this.listPeriod];
+  for (let f of loadedFunds) {
+    if (f.netWorth && f.netWorth.length > 1) {
+      f.dynamicMaxDrawdown = this.computeMaxDrawdown(f.netWorth, days);
+      f.dynamicSharpe = this.computeSharpeRatio(f.netWorth, days);
+    } else {
+      f.dynamicMaxDrawdown = null;
+      f.dynamicSharpe = null;
     }
-    
-    const sortVal = document.getElementById('sort-rule').value; 
-    this.assignMedals(loadedFunds, sortVal); 
-    
-    funds.sort((a,b) => { 
-  if(!a.isLoad) return 1; 
-  if(!b.isLoad) return -1; 
-  let va = -99999, vb = -99999; 
+  }
   
-  if(sortVal === 'daily') { 
-    va = parseFloat(a.change)||0; 
-    vb = parseFloat(b.change)||0; 
-  } else if (sortVal === 'rt') { 
-    va = this.rtData[a.code] ? this.rtData[a.code].gszzl : -99999; 
-    vb = this.rtData[b.code] ? this.rtData[b.code].gszzl : -99999; 
-  } else if (sortVal === 'medal') { 
-    va = a.medalScore || 0; 
-    vb = b.medalScore || 0; 
-  } else if (sortVal === 'super') { 
-    va = a.superScore || 0; 
-    vb = b.superScore || 0; 
-  } else if (sortVal === 'maxDrawdown') {
-    va = parseFloat(a.dynamicMaxDrawdown) || 0;
-    vb = parseFloat(b.dynamicMaxDrawdown) || 0;
-  } else if (sortVal === 'sharpe') {
-    va = parseFloat(a.dynamicSharpe) || -99999;
-    vb = parseFloat(b.dynamicSharpe) || -99999;
-} else { 
-    const ra = a.listRates.find(r => r.label === sortVal); 
-    const rb = b.listRates.find(r => r.label === sortVal); 
-    va = parseFloat(ra?.val)|| -99999; 
-    vb = parseFloat(rb?.val)|| -99999; 
-  } 
-  if(va === vb) return 0; 
-  return this.sortDir === 'desc' ? vb - va : va - vb; 
-});
+  this.calculateMedals(loadedFunds); 
+  this.calculateSuperScoreMedals(loadedFunds); 
+  
+  const sortVal = document.getElementById('sort-rule').value; 
+  this.assignMedals(loadedFunds, sortVal); 
+  
+  funds.sort((a,b) => { 
+    if (!a.isLoad) return 1; 
+    if (!b.isLoad) return -1; 
+    let va = -99999, vb = -99999; 
+    
+    if (sortVal === 'daily') { 
+      va = parseFloat(a.change)||0; 
+      vb = parseFloat(b.change)||0; 
+    } else if (sortVal === 'rt') { 
+      va = this.rtData[a.code] ? this.rtData[a.code].gszzl : -99999; 
+      vb = this.rtData[b.code] ? this.rtData[b.code].gszzl : -99999; 
+    } else if (sortVal === 'medal') { 
+      va = a.medalScore || 0; 
+      vb = b.medalScore || 0; 
+    } else if (sortVal === 'super') { 
+      va = a.superScore || 0; 
+      vb = b.superScore || 0; 
+    } else if (sortVal === 'maxDrawdown') {
+      va = parseFloat(a.dynamicMaxDrawdown) || 0;
+      vb = parseFloat(b.dynamicMaxDrawdown) || 0;
+    } else if (sortVal === 'sharpe') {
+      va = parseFloat(a.dynamicSharpe) || -99999;
+      vb = parseFloat(b.dynamicSharpe) || -99999;
+    } else { 
+      const ra = a.listRates.find(r => r.label === sortVal); 
+      const rb = b.listRates.find(r => r.label === sortVal); 
+      va = parseFloat(ra?.val)|| -99999; 
+      vb = parseFloat(rb?.val)|| -99999; 
+    } 
+    if (va === vb) return 0; 
+    return this.sortDir === 'desc' ? vb - va : va - vb; 
+  }); 
 
-    const container = document.getElementById('home-list'); 
+  const container = document.getElementById('home-list'); 
+  if (!container) return;
   container.className = this.viewMode === 'card' ? 'card-grid' : ''; 
-  
   if (funds.length === 0) {
-    // 无基金时显示友好提示
     container.innerHTML = `<div style="text-align:center; padding:60px 20px; color:#94a3b8;">
       <div style="font-size:48px; margin-bottom:16px;">📭</div>
       <div style="font-weight:bold; margin-bottom:8px;">暂无基金</div>
@@ -2251,12 +2255,10 @@ rtManualRefreshMarket() {
     </div>`;
     return;
   }
-  
   container.innerHTML = this.viewMode === 'card' 
     ? funds.map(f => this.buildCardHtml(f, true)).join('') 
     : this.buildListHtml(funds, true, false); 
-
-  },
+},
   
   buildCardHtml(f, isHomeGroup = false) { 
     if(!f.isLoad) {
@@ -2382,7 +2384,7 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
   },
   
   buildListHtml(funds, showDel = false, isSector = false) { 
-  if(funds.length === 0) return ''; 
+  if (!funds || funds.length === 0) return ''; 
   const curSortRule = isSector ? document.getElementById('sec-sort-rule').value : document.getElementById('sort-rule').value; 
   const curSortDir = isSector ? this.secSortDir : this.sortDir; 
   
@@ -2394,42 +2396,52 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     return `<div class="l-col-rate th" onclick="app.handleListSortClick('${colKey}', ${isSector})">${label}${arrow}</div>`; 
   }; 
   
-  let headers = ['3日','5日','7日','10日','15日','20日','1月','3月','6月','1年']; 
-  // 在 headers 后单独添加“近1年回撤”列，不放入循环以便单独控制样式
-  // 替换原来的 extraHeader 部分
-  let maxDrawdownHeader = `<div class="l-col-rate th" onclick="app.handleListSortClick('maxDrawdown', ${isSector})">最大回撤</div>`;
-  let sharpeHeader = `<div class="l-col-rate th" onclick="app.handleListSortClick('sharpe', ${isSector})">夏普比率</div>`;
-
-  let header = `<div class="l-header"><div class="l-col-name th">基金名称</div>${renderTh('盘中估算', 'rt')}${renderTh('最新实盘', 'daily')}${headers.map(h => renderTh(h, h)).join('')}${maxDrawdownHeader}${sharpeHeader}</div>`; 
+  const headers = ['3日','5日','7日','10日','15日','20日','1月','3月','6月','1年']; 
+  // 最大回撤和夏普比率的表头
+  const maxDrawdownHeader = `<div class="l-col-rate th" onclick="app.handleListSortClick('maxDrawdown', ${isSector})">最大回撤</div>`;
+  const sharpeHeader = `<div class="l-col-rate th" onclick="app.handleListSortClick('sharpe', ${isSector})">夏普比率</div>`;
+  
+  let header = `<div class="l-header">
+    <div class="l-col-name th">基金名称</div>
+    ${renderTh('盘中估算', 'rt')}
+    ${renderTh('最新实盘', 'daily')}
+    ${headers.map(h => renderTh(h, h)).join('')}
+    ${maxDrawdownHeader}
+    ${sharpeHeader}
+  </div>`; 
   
   let rows = funds.map(f => { 
-    if(!f.isLoad) { 
-      return `<div class="l-row"><div class="l-col-name"><div style="font-weight:800; font-size:13px;">${f.name||f.code}</div><div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">点击右上角刷新数据</div></div></div>`; 
+    if (!f.isLoad) { 
+      return `<div class="l-row"><div class="l-col-name"><div style="font-weight:800; font-size:13px;">${f.name || f.code}</div><div style="font-size:10px; font-weight:600; color:#94a3b8; margin-top:2px;">点击右上角刷新数据</div></div></div>`; 
     } 
     
-    let rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join(''); 
+    const rates = f.listRates.map(r => `<div class="l-col-rate ${r.val>=0?'red':(r.val<0?'green':'')}">${r.val!=='--'?r.val+'%':'--'}</div>`).join(''); 
     
-    // 最大回撤单元格
+    // 最大回撤单元格（绿色，负数）
     let maxDrawdownHtml = '<div class="l-col-rate green">--</div>';
-    if (f.dynamicMaxDrawdown !== null) {
+    if (f.dynamicMaxDrawdown !== null && f.dynamicMaxDrawdown !== '--') {
       maxDrawdownHtml = `<div class="l-col-rate green">${f.dynamicMaxDrawdown}%</div>`;
     }
-    // 夏普比率单元格
+    
+    // 夏普比率单元格（正数红色，负数绿色）
     let sharpeHtml = '<div class="l-col-rate">--</div>';
-    if (f.dynamicSharpe !== null && !isNaN(f.dynamicSharpe)) {
+    if (f.dynamicSharpe !== null && f.dynamicSharpe !== '--') {
       const sharpeNum = parseFloat(f.dynamicSharpe);
       const sharpeColor = sharpeNum > 0 ? 'red' : (sharpeNum < 0 ? 'green' : '');
       sharpeHtml = `<div class="l-col-rate ${sharpeColor}">${f.dynamicSharpe}</div>`;
     }
     
-    let delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : ''; 
-    let titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`; 
+    const delBtn = (showDel && this.currentGroupId !== 'default') ? `<div class="c-del-btn" style="top:6px; right:6px; background:transparent;" onclick="app.removeFundFromGroup(event, '${f.code}')">✕</div>` : ''; 
+    const titleHtml = `${f.medal ? `<span class="medal-icon">${f.medal}</span>` : ''}${f.name}`; 
     
     const rt = this.rtData[f.code]; 
     let rtColHtml = `<div class="l-col-rate" style="width:70px; color:#cbd5e1; font-size:11px;">--</div>`; 
-    if(rt) { 
+    if (rt) { 
       const rtC = rt.gszzl >= 0 ? 'red' : 'green'; 
-      rtColHtml = `<div class="l-col-rate" style="width:70px;"><div>${rt.gsz.toFixed(4)}</div><div class="${rtC}" style="font-size:11px; margin-top:2px;">${rt.gszzl>0?'+':''}${rt.gszzl}%</div></div>`; 
+      rtColHtml = `<div class="l-col-rate" style="width:70px;">
+        <div>${rt.gsz.toFixed(4)}</div>
+        <div class="${rtC}" style="font-size:11px; margin-top:2px;">${rt.gszzl>0?'+':''}${rt.gszzl}%</div>
+      </div>`; 
     } 
     
     return `<div id="fund-row-${f.code}" class="${f.isStarred ? 'l-row starred-row' : 'l-row'}" onclick="app.openDetail('${f.code}')">
@@ -2540,27 +2552,34 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
   },
 
   handleListSortClick(colName, isSector = false) { 
-    const selectId = isSector ? 'sec-sort-rule' : 'sort-rule'; 
-    const select = document.getElementById(selectId); 
-    
-    if (select.value === colName) { 
-      if ((isSector ? this.secSortDir : this.sortDir) === 'desc') { 
-        if (isSector) this.secSortDir = 'asc'; else this.sortDir = 'asc'; 
-      } else { 
-        select.value = 'daily'; 
-        if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc'; 
-      } 
-    } else { 
-      select.value = colName; 
-      if (isSector) this.secSortDir = 'desc'; else this.sortDir = 'desc'; 
-    } 
-    
-    const btnId = isSector ? 'sec-sort-dir-btn' : 'sort-dir-btn'; 
-    const curDir = isSector ? this.secSortDir : this.sortDir; 
-    document.getElementById(btnId).innerText = curDir === 'desc' ? '降序 ↓' : '升序 ↑'; 
-    
-    if (isSector) this.renderSector(); else this.renderHome(); 
-  },
+  const selectId = isSector ? 'sec-sort-rule' : 'sort-rule'; 
+  const select = document.getElementById(selectId); 
+  
+  if (select.value === colName) { 
+    // 同一列，切换排序方向
+    if (isSector) {
+      this.secSortDir = this.secSortDir === 'desc' ? 'asc' : 'desc';
+    } else {
+      this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc';
+    }
+  } else { 
+    // 新列，设置为该列，默认降序
+    select.value = colName; 
+    if (isSector) {
+      this.secSortDir = 'desc';
+    } else {
+      this.sortDir = 'desc';
+    }
+  } 
+  
+  const btnId = isSector ? 'sec-sort-dir-btn' : 'sort-dir-btn'; 
+  const curDir = isSector ? this.secSortDir : this.sortDir; 
+  const btn = document.getElementById(btnId);
+  if (btn) btn.innerText = curDir === 'desc' ? '降序 ↓' : '升序 ↑'; 
+  
+  if (isSector) this.renderSector(); 
+  else this.renderHome(); 
+},
   
   setViewMode(mode) { 
     this.viewMode = mode; 
@@ -5389,20 +5408,21 @@ renderCompareDetails() {
     
     let funds = Object.values(this.data.fundsCache).filter(f => f.sectors?.includes(this.activeSector)).map(f => this.formatFund(f.code)); 
     let loadedFunds = funds.filter(f => f.isLoad); 
+
+     // 根据当前周期计算每个基金的最大回撤和夏普比率
+  const days = this.periodDaysMap[this.listPeriod];
+  for (let f of loadedFunds) {
+    if (f.netWorth && f.netWorth.length > 1) {
+      f.dynamicMaxDrawdown = this.computeMaxDrawdown(f.netWorth, days);
+      f.dynamicSharpe = this.computeSharpeRatio(f.netWorth, days);
+    } else {
+      f.dynamicMaxDrawdown = null;
+      f.dynamicSharpe = null;
+    }
+  }
+    
     this.calculateMedals(loadedFunds); 
     this.calculateSuperScoreMedals(loadedFunds); 
-
-    // 在 funds 排序之前，为每个基金计算当前周期下的最大回撤和夏普比率
-    const days = this.periodDaysMap[this.listPeriod];
-    for (let f of loadedFunds) {
-       if (f.isLoad && f.netWorth) {
-        f.dynamicMaxDrawdown = this.computeMaxDrawdown(f.netWorth, days);
-        f.dynamicSharpe = this.computeSharpeRatio(f.netWorth, days);
-      } else {
-        f.dynamicMaxDrawdown = null;
-        f.dynamicSharpe = null;
-      }
-    }
     
     const sortVal = document.getElementById('sec-sort-rule').value; 
     this.assignMedals(loadedFunds, sortVal); 
@@ -5424,12 +5444,12 @@ renderCompareDetails() {
         va = a.superScore || 0; 
         vb = b.superScore || 0; 
       } else if (sortVal === 'maxDrawdown') {
-        va = parseFloat(a.dynamicMaxDrawdown) || 0;
-        vb = parseFloat(b.dynamicMaxDrawdown) || 0;
-      } else if (sortVal === 'sharpe') {
-        va = parseFloat(a.dynamicSharpe) || -99999;
-        vb = parseFloat(b.dynamicSharpe) || -99999;
-      } else { 
+      va = parseFloat(a.dynamicMaxDrawdown) || 0;
+      vb = parseFloat(b.dynamicMaxDrawdown) || 0;
+    } else if (sortVal === 'sharpe') {
+      va = parseFloat(a.dynamicSharpe) || -99999;
+      vb = parseFloat(b.dynamicSharpe) || -99999;
+    } else {
         const ra = a.listRates.find(r => r.label === sortVal); 
         const rb = b.listRates.find(r => r.label === sortVal); 
         va = parseFloat(ra?.val)|| -99999; 

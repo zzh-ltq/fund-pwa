@@ -1067,9 +1067,12 @@ canvas#compare-canvas {
           </div>
           <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
           <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
+          <!-- 修改高度至 300px 以留出空间，并新增评估看板 -->
           <div id="md-canvas-wrap" style="position:relative; width:100%; height:300px; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;" onscroll="app.onCanvasScroll()">
             <canvas id="md-canvas" style="height:100%;"></canvas>
           </div>
+          <!-- 新增: MACD智能评估看板 -->
+          <div id="md-macd-evaluation" style="display:none; margin: 10px 15px 5px; padding: 10px 12px; background: #fff; border-radius: 8px; border-left: 4px solid var(--blue); box-shadow: var(--shadow-sm); text-align: left;"></div>
         </div>
         <!-- 优化项：新版资金流向模块 -->
         <div class="flow-bar-wrap" id="md-fund-flow-area" style="display:none;">
@@ -3843,7 +3846,8 @@ drawIntradayFlowCanvas(data) {
     const getX = idx => pad.l + idx * stepX; 
     
     let yMax, yMin; 
-    
+    let startIdx = 0, endIdx = data.prices.length - 1;
+
     if (data.type === 'trend') { 
       const allPrices = data.avgPrices ? [...data.prices, ...data.avgPrices] : data.prices; 
       const validAllPrices = allPrices.filter(p => !isNaN(p) && p > 0); 
@@ -3853,8 +3857,8 @@ drawIntradayFlowCanvas(data) {
       yMax = data.prevClose + diffMax; 
       yMin = data.prevClose - diffMax; 
     } else { 
-      let startIdx = Math.floor(scrollLeft / stepX) - 2;
-      let endIdx = Math.ceil((scrollLeft + clientW) / stepX) + 2;
+      startIdx = Math.floor(scrollLeft / stepX) - 2;
+      endIdx = Math.ceil((scrollLeft + clientW) / stepX) + 2;
       startIdx = Math.max(0, startIdx);
       endIdx = Math.min(data.prices.length - 1, endIdx);
 
@@ -3877,7 +3881,7 @@ drawIntradayFlowCanvas(data) {
       }
     } 
     
-    // 分栏高度动态定位：K线占 55% 的绝对高度
+    // 主K线视窗占全区 55% 高度
     let getY;
     let priceHeight = dh;
     if (data.type === 'kline') {
@@ -3887,7 +3891,7 @@ drawIntradayFlowCanvas(data) {
       getY = price => pad.t + dh - ((price - yMin) / (yMax - yMin)) * dh;
     }
     
-    // 绘制横向网格
+    // 绘制横线
     ctx.strokeStyle = '#e2e8f0'; 
     ctx.lineWidth = 0.5; 
     if (data.type === 'kline') {
@@ -3908,7 +3912,7 @@ drawIntradayFlowCanvas(data) {
         ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, h - pad.b); ctx.stroke();
     }
     
-    // 绘制 Y 轴主栏价格刻度
+    // Y 轴主栏价格刻度
     let dec = this.marketState.currentDecimals || 2;
     ctx.font = '10px sans-serif'; 
     for (let i = 0; i <= 4; i++) { 
@@ -3923,7 +3927,7 @@ drawIntradayFlowCanvas(data) {
       ctx.fillText((rate >= 0 ? '+' : '') + rate.toFixed(2) + '%', scrollLeft + clientW - pad.r + 5, y + 3); 
     } 
     
-    // 绘制 X 轴时间刻度
+    // X 轴时间刻度
     ctx.textAlign = 'center';
     ctx.fillStyle = '#64748b';
     ctx.font = '10px sans-serif';
@@ -3964,7 +3968,7 @@ drawIntradayFlowCanvas(data) {
       } 
     } 
     
-    // 绘制主K线或趋势线
+    // 绘制 K 线形态与均线
     if (data.type === 'kline') { 
       const drawMALine = (maData, color) => { 
         if(!maData) return; 
@@ -4011,7 +4015,7 @@ drawIntradayFlowCanvas(data) {
           }
       }
 
-      // 【核心功能新增】绘制 MACD 分栏走势图
+      // 【核心调整】局部自适应纵向拉伸 MACD 指标图
       if (data.dif && data.dea && data.macd) {
         const macdHeight = dh * 0.23;
         const macdY = pad.t + dh * 0.77;
@@ -4026,7 +4030,12 @@ drawIntradayFlowCanvas(data) {
         ctx.textAlign = 'right';
         ctx.fillText('MACD', scrollLeft + pad.l - 5, macdCenterY + 3);
 
-        const maxMacdVal = Math.max(...[...data.dif, ...data.dea, ...data.macd].map(Math.abs).filter(v => !isNaN(v))) || 0.1;
+        // 使用切片计算可视区间内 MACD 系列的局部最大绝对值，解决远期 spike 压扁近期图线的问题
+        const vDif = data.dif.slice(startIdx, endIdx + 1);
+        const vDea = data.dea.slice(startIdx, endIdx + 1);
+        const vMacd = data.macd.slice(startIdx, endIdx + 1);
+        const maxMacdVal = Math.max(...[...vDif, ...vDea, ...vMacd].map(Math.abs).filter(v => !isNaN(v))) || 0.1;
+        
         const getMacdY = v => macdCenterY - (v / maxMacdVal) * (macdHeight / 2);
 
         // 绘制 MACD 零轴线
@@ -4038,7 +4047,7 @@ drawIntradayFlowCanvas(data) {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // 绘制 MACD 红绿柱子
+        // 绘制红绿柱
         const mBarW = Math.max(stepX * 0.5, 1);
         for (let i = 0; i < data.macd.length; i++) {
           if (isNaN(data.macd[i])) continue;
@@ -4048,24 +4057,24 @@ drawIntradayFlowCanvas(data) {
           ctx.fillRect(x - mBarW/2, Math.min(macdCenterY, barY), mBarW, Math.abs(macdCenterY - barY));
         }
 
-        // 绘制 DIF 曲线 (天蓝色)
+        // 绘制 DIF
         ctx.beginPath();
         ctx.moveTo(getX(0), getMacdY(data.dif[0]));
         for (let i = 1; i < data.dif.length; i++) {
           ctx.lineTo(getX(i), getMacdY(data.dif[i]));
         }
         ctx.strokeStyle = '#3b82f6';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.1;
         ctx.stroke();
 
-        // 绘制 DEA 曲线 (金黄色)
+        // 绘制 DEA
         ctx.beginPath();
         ctx.moveTo(getX(0), getMacdY(data.dea[0]));
         for (let i = 1; i < data.dea.length; i++) {
           ctx.lineTo(getX(i), getMacdY(data.dea[i]));
         }
         ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.1;
         ctx.stroke();
       }
 
@@ -4138,6 +4147,30 @@ drawIntradayFlowCanvas(data) {
       } 
     } else if (timeDisplayEl) { timeDisplayEl.style.display = 'none'; } 
     
+    // 【核心功能新增】向评估面板实时输出诊断信号
+    const evalDiv = document.getElementById('md-macd-evaluation');
+    if (evalDiv) {
+      if (data.type === 'kline') {
+        const signalObj = app.getMacdSignal(data, displayIdx);
+        if (signalObj) {
+          evalDiv.style.display = 'block';
+          evalDiv.style.borderLeftColor = signalObj.color;
+          evalDiv.style.background = signalObj.bg;
+          evalDiv.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;">
+              <span style="font-weight:900; font-size:13px; color:var(--text-main);">📊 MACD 智能指标诊断</span>
+              <span style="font-weight:900; font-size:12px; color:${signalObj.color}; background:#fff; padding:2px 8px; border-radius:12px; border: 1px solid ${signalObj.color}30;">${signalObj.signal}</span>
+            </div>
+            <div style="font-size:11px; color:#475569; line-height:1.5;">${signalObj.desc}</div>
+          `;
+        } else {
+          evalDiv.style.display = 'none';
+        }
+      } else {
+        evalDiv.style.display = 'none';
+      }
+    }
+
     if (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) { 
       const cx = getX(crosshairIdx), cy = getY(data.prices[crosshairIdx]); 
       ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h - pad.b); ctx.moveTo(scrollLeft + pad.l, cy); ctx.lineTo(scrollLeft + clientW - pad.r, cy); 
@@ -4169,6 +4202,81 @@ drawIntradayFlowCanvas(data) {
       ctx.fillText(infoText, boxX + boxW / 2, boxY + 16); 
     } 
     ctx.restore(); 
+  },
+
+  getMacdSignal(data, idx) {
+    if (!data || !data.dif || !data.dea || idx < 1) return null;
+    
+    const dif = data.dif[idx];
+    const dea = data.dea[idx];
+    const macd = data.macd[idx];
+    
+    const prevDif = data.dif[idx - 1];
+    const prevDea = data.dea[idx - 1];
+    const prevMacd = data.macd[idx - 1];
+    
+    let signal = "震荡整理";
+    let color = "#64748b";
+    let bg = "#f8fafc";
+    let desc = "目前多空力量均衡，指标处于常态震荡整理区间。";
+    
+    // 金叉与死叉条件判定
+    const isGoldenCross = (prevDif <= prevDea && dif > dea);
+    const isDeathCross = (prevDif >= prevDea && dif < dea);
+    
+    if (isGoldenCross) {
+      if (dif >= 0) {
+        signal = "🌟 零轴上金叉 (多头强攻)";
+        color = "#f43f5e";
+        bg = "#fff1f2";
+        desc = "DIF 在零轴上方突破 DEA 形成金叉，属于多头主升浪确立信号，上涨动能极强。";
+      } else {
+        signal = "✨ 零轴下金叉 (超跌反弹)";
+        color = "#f59e0b";
+        bg = "#fffbeb";
+        desc = "DIF 在零轴下方低位突破 DEA 形成金叉，多属于超跌反弹或阶段筑底筑回升信号。";
+      }
+    } else if (isDeathCross) {
+      if (dif >= 0) {
+        signal = "⚠️ 零轴上死叉 (见顶预警)";
+        color = "#ca8a04";
+        bg = "#fefce8";
+        desc = "DIF 在零轴上方高位跌破 DEA 形成死叉，多为高位滞涨或短期见顶回落信号，建议防守。";
+      } else {
+        signal = "🚨 零轴下死叉 (加速下行)";
+        color = "#10b981";
+        bg = "#f0fdf4";
+        desc = "DIF 在零轴下方继续跌破 DEA，暗示空头仍占绝对主导，可能步入加速下行期。";
+      }
+    } else {
+      // 持续态判定
+      if (dif > dea) {
+        if (macd > prevMacd) {
+          signal = "📈 红柱增长 (多头强势)";
+          color = "#f43f5e";
+          bg = "#fff1f2";
+          desc = "指标处于强势多头区间，且红柱持续发散增长，上涨能量继续释放。";
+        } else {
+          signal = "🔄 红柱缩短 (动能减弱)";
+          color = "#e11d48";
+          bg = "#fff5f5";
+          desc = "虽处多头区间但红柱开始收缩，说明上攻动能有所放缓，防范短期获利盘回吐风险。";
+        }
+      } else {
+        if (macd < prevMacd) {
+          signal = "📉 绿柱增长 (空头主导)";
+          color = "#10b981";
+          bg = "#f0fdf4";
+          desc = "指标处于空头区间，且绿柱发散延长，抛压较重，不建议盲目抄底。";
+        } else {
+          signal = "🩹 绿柱收缩 (企稳回暖)";
+          color = "#3b82f6";
+          bg = "#eff6ff";
+          desc = "虽处空头阶段但绿柱已开始收缩，空方砸盘力量渐衰，行情有望迎来超跌企稳。";
+        }
+      }
+    }
+    return { signal, color, bg, desc };
   },
   
   roundRect(ctx, x, y, w, h, r) { 

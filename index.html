@@ -1067,7 +1067,7 @@ canvas#compare-canvas {
           </div>
           <div id="md-chart-info" style="font-size:11px; color:#94a3b8; padding:4px 0; min-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
           <div id="md-chart-time-display" style="text-align:center; font-size:14px; font-weight:bold; color:#1e293b; margin-top:8px; display:none;"></div>
-          <div id="md-canvas-wrap" style="position:relative; width:100%; height:220px; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;" onscroll="app.onCanvasScroll()">
+          <div id="md-canvas-wrap" style="position:relative; width:100%; height:300px; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch;" onscroll="app.onCanvasScroll()">
             <canvas id="md-canvas" style="height:100%;"></canvas>
           </div>
         </div>
@@ -3512,7 +3512,6 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
       } catch(e) {} 
     } else { 
       const klt = parseInt(this.marketState.chartType) || 101; 
-      // lmt 改为 380，提取一年半的数据
       const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&_=${Date.now()}`; 
       try { 
         const res = await fetchJSONP(kUrl, 'cb'); 
@@ -3534,17 +3533,44 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
               for(let j=0; j<days; j++) sum += data[i-j]; res.push(sum/days); 
             } return res; 
           }; 
+
+          // 计算 MACD 所需的 EMA 局部辅助函数
+          const calcEMALocal = (data, days) => { 
+            let k = 2 / (days + 1); 
+            let ema = [data[0]]; 
+            for (let i = 1; i < data.length; i++) {
+              ema.push(data[i] * k + ema[i - 1] * (1 - k)); 
+            }
+            return ema; 
+          }; 
+
+          const closePrices = parsed.map(p => p.close);
+          const ema12 = calcEMALocal(closePrices, 12);
+          const ema26 = calcEMALocal(closePrices, 26);
+          const dif = [];
+          for (let i = 0; i < closePrices.length; i++) {
+            dif.push(ema12[i] - ema26[i]);
+          }
+          const dea = calcEMALocal(dif, 9);
+          const macd = [];
+          for (let i = 0; i < closePrices.length; i++) {
+            macd.push((dif[i] - dea[i]) * 2);
+          }
+
           this.marketChartData = { 
             type: 'kline', 
             xLabels: parsed.map(p => p.date), 
-            prices: parsed.map(p => p.close),
-            opens: parsed.map(p => p.open),   // 新增：开盘价
-            highs: parsed.map(p => p.high),   // 新增：最高价
-            lows: parsed.map(p => p.low),     // 新增：最低价
-            ma5: calcMA(parsed.map(p => p.close),5), 
-            ma10: calcMA(parsed.map(p => p.close),10), 
-            ma20: calcMA(parsed.map(p => p.close),20), 
-            ma60: calcMA(parsed.map(p => p.close),60), 
+            prices: closePrices,
+            opens: parsed.map(p => p.open),
+            highs: parsed.map(p => p.high),
+            lows: parsed.map(p => p.low),
+            ma5: calcMA(closePrices, 5), 
+            ma10: calcMA(closePrices, 10), 
+            ma20: calcMA(closePrices, 20), 
+            ma60: calcMA(closePrices, 60), 
+            dif: dif,
+            dea: dea,
+            macd: macd,
             volumes: parsed.map(p => p.volume), 
             prevClose: finalPrevClose, 
             lastPrice: parsed[parsed.length-1]?.close || 0, 
@@ -3553,7 +3579,7 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
           this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
           this.bindChartEvents(); 
         } 
-      } catch(e) {} 
+      } catch(e) {}
     } 
   },
 
@@ -3781,27 +3807,23 @@ drawIntradayFlowCanvas(data) {
     const clientH = wrap.clientHeight;
     let visualWidth = clientW;
     
-    // 如果是 K线图，固定视口显示 60 根（约3个月），剩余的撑开滚动条
     if (data.type === 'kline') {
       const visibleCount = 60; 
-      const innerClientW = clientW - 100; // 减去左右内边距
+      const innerClientW = clientW - 100; 
       const step = innerClientW / visibleCount;
       const minWidth = data.prices.length * step + 100; 
       if (minWidth > clientW) visualWidth = minWidth;
     }
     
-    // 仅仅负责拉伸画布尺寸，不负责滚动条跳跃
     if (canvas.style.width !== visualWidth + 'px') {
         canvas.style.width = visualWidth + 'px';
         canvas.width = visualWidth * dpr; 
         canvas.height = clientH * dpr; 
     }
 
-    // 【核心修复】：单独判断是否需要将滚动条强制拉到最新日期
     if (this.marketState.needScrollToRight) {
         setTimeout(() => { 
             wrap.scrollLeft = visualWidth - clientW; 
-            // 滚动完立刻关闭标志，后续滑动或后台定时刷新数据都不会再弹回！
             this.marketState.needScrollToRight = false; 
         }, 0);
     }
@@ -3822,7 +3844,6 @@ drawIntradayFlowCanvas(data) {
     
     let yMax, yMin; 
     
-    // 【核心】动态极值计算
     if (data.type === 'trend') { 
       const allPrices = data.avgPrices ? [...data.prices, ...data.avgPrices] : data.prices; 
       const validAllPrices = allPrices.filter(p => !isNaN(p) && p > 0); 
@@ -3832,13 +3853,11 @@ drawIntradayFlowCanvas(data) {
       yMax = data.prevClose + diffMax; 
       yMin = data.prevClose - diffMax; 
     } else { 
-      // 根据当前滚动条位置，计算出当前可视区间的索引范围
       let startIdx = Math.floor(scrollLeft / stepX) - 2;
       let endIdx = Math.ceil((scrollLeft + clientW) / stepX) + 2;
       startIdx = Math.max(0, startIdx);
       endIdx = Math.min(data.prices.length - 1, endIdx);
 
-      // 只提取可视范围内的 K线和均线数据
       const vPrices = data.prices.slice(startIdx, endIdx + 1);
       const vHighs = (data.highs || []).slice(startIdx, endIdx + 1);
       const vLows = (data.lows || []).slice(startIdx, endIdx + 1);
@@ -3847,7 +3866,6 @@ drawIntradayFlowCanvas(data) {
       const vMA20 = (data.ma20 || []).slice(startIdx, endIdx + 1);
       const vMA60 = (data.ma60 || []).slice(startIdx, endIdx + 1);
 
-      // 合并查找出当前屏幕看到的所有数据里的最高和最低值
       const allVals = [...vPrices, ...vHighs, ...vLows, ...vMA5, ...vMA10, ...vMA20, ...vMA60].filter(v => v !== null && !isNaN(v));
       if (allVals.length > 0) {
           const maxP = Math.max(...allVals), minP = Math.min(...allVals); 
@@ -3859,37 +3877,53 @@ drawIntradayFlowCanvas(data) {
       }
     } 
     
-    const getY = price => pad.t + dh - ((price - yMin) / (yMax - yMin)) * dh; 
-
-    // 画背景横纵虚线
+    // 分栏高度动态定位：K线占 55% 的绝对高度
+    let getY;
+    let priceHeight = dh;
+    if (data.type === 'kline') {
+      priceHeight = dh * 0.55;
+      getY = price => pad.t + priceHeight - ((price - yMin) / (yMax - yMin)) * priceHeight;
+    } else {
+      getY = price => pad.t + dh - ((price - yMin) / (yMax - yMin)) * dh;
+    }
+    
+    // 绘制横向网格
     ctx.strokeStyle = '#e2e8f0'; 
     ctx.lineWidth = 0.5; 
-    for (let i=0;i<=4;i++) { 
-      let y = pad.t + (i/4)*dh; 
-      ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w-pad.r, y); ctx.stroke(); 
-    } 
+    if (data.type === 'kline') {
+      for (let i = 0; i <= 4; i++) { 
+        let y = pad.t + (i / 4) * priceHeight; 
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke(); 
+      }
+    } else {
+      for (let i = 0; i <= 4; i++) { 
+        let y = pad.t + (i / 4) * dh; 
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke(); 
+      } 
+    }
+
     const vLinesCount = data.type === 'trend' ? 3 : Math.floor(data.prices.length / 30);
     for (let i = 1; i <= vLinesCount; i++) {
         let x = pad.l + (i / (vLinesCount + 1)) * dw;
         ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, h - pad.b); ctx.stroke();
     }
     
-    // 画 Y 轴文字（粘性悬浮在屏幕两边）
+    // 绘制 Y 轴主栏价格刻度
     let dec = this.marketState.currentDecimals || 2;
     ctx.font = '10px sans-serif'; 
-    for (let i=0;i<=4;i++) { 
-      let price = yMin + ((4-i)/4)*(yMax-yMin); 
-      let y = pad.t + (i/4)*dh; 
+    for (let i = 0; i <= 4; i++) { 
+      let price = yMin + ((4 - i) / 4) * (yMax - yMin); 
+      let y = data.type === 'kline' ? (pad.t + (i / 4) * priceHeight) : (pad.t + (i / 4) * dh); 
       let rate = ((price - data.prevClose) / data.prevClose * 100); 
       ctx.textAlign = 'right'; 
       ctx.fillStyle = '#64748b'; 
-      ctx.fillText(price.toFixed(dec), scrollLeft + pad.l - 5, y+3); 
+      ctx.fillText(price.toFixed(dec), scrollLeft + pad.l - 5, y + 3); 
       ctx.textAlign = 'left'; 
       ctx.fillStyle = rate >= 0 ? '#f43f5e' : '#10b981'; 
-      ctx.fillText((rate >= 0 ? '+' : '') + rate.toFixed(2) + '%', scrollLeft + clientW - pad.r + 5, y+3); 
+      ctx.fillText((rate >= 0 ? '+' : '') + rate.toFixed(2) + '%', scrollLeft + clientW - pad.r + 5, y + 3); 
     } 
     
-    // 画 X 轴时间标签
+    // 绘制 X 轴时间刻度
     ctx.textAlign = 'center';
     ctx.fillStyle = '#64748b';
     ctx.font = '10px sans-serif';
@@ -3907,27 +3941,31 @@ drawIntradayFlowCanvas(data) {
         ctx.fillText(lastLabel, getX(lastIdx), h - pad.b + 12);
     } 
     
-    // 绘制底部成交量柱子
+    // 绘制成交量柱子
     if (data.volumes && data.volumes.length > 0) { 
       const maxVol = Math.max(...data.volumes.filter(v=>!isNaN(v))) || 1; 
-      const volHeight = h*0.15; 
-      const volY = h-pad.b-volHeight; 
+      const volHeight = data.type === 'kline' ? (dh * 0.12) : (h * 0.15); 
+      const volY = data.type === 'kline' ? (pad.t + dh * 0.60) : (h - pad.b - volHeight); 
       const barW = Math.max(stepX * 0.6, 1); 
-      for (let i=0;i<data.volumes.length;i++) { 
-        let x = getX(i)-barW/2; 
-        let hBar = (data.volumes[i]/maxVol)*volHeight; 
+      
+      if (data.type === 'kline') {
+        ctx.strokeStyle = '#f1f5f9';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(pad.l, volY, dw, volHeight);
+      }
+
+      for (let i = 0; i < data.volumes.length; i++) { 
+        let x = getX(i) - barW / 2; 
+        let hBar = (data.volumes[i] / maxVol) * volHeight; 
         let barColor = '#cbd5e1'; 
-        if (i>0) barColor = data.prices[i] >= data.prices[i-1] ? 'rgba(244,63,94,0.4)' : 'rgba(16,185,129,0.4)'; 
+        if (i > 0) barColor = data.prices[i] >= data.prices[i - 1] ? 'rgba(244,63,94,0.4)' : 'rgba(16,185,129,0.4)'; 
         ctx.fillStyle = barColor; 
-        ctx.fillRect(x, volY+volHeight-hBar, barW, hBar); 
+        ctx.fillRect(x, volY + volHeight - hBar, barW, hBar); 
       } 
     } 
     
-    // ==================================
-    // 核心绘制分支：趋势分时图 VS 蜡烛K线图
-    // ==================================
+    // 绘制主K线或趋势线
     if (data.type === 'kline') { 
-      // 1. 画 均线
       const drawMALine = (maData, color) => { 
         if(!maData) return; 
         ctx.beginPath(); 
@@ -3941,7 +3979,6 @@ drawIntradayFlowCanvas(data) {
       }; 
       drawMALine(data.ma60, '#10b981'); drawMALine(data.ma20, '#ec4899'); drawMALine(data.ma10, '#f59e0b'); drawMALine(data.ma5, '#3b82f6'); 
       
-      // 2. 画 真实的红绿蜡烛图
       const candleW = Math.max(stepX * 0.6, 1);
       for (let i = 0; i < data.prices.length; i++) { 
           if (isNaN(data.prices[i]) || data.prices[i] === 0) continue; 
@@ -3952,34 +3989,90 @@ drawIntradayFlowCanvas(data) {
           let lowY = getY(data.lows[i]);
           
           let isRed = data.prices[i] >= data.opens[i];
-          let color = isRed ? '#f43f5e' : '#10b981'; // 阳红阴绿
+          let color = isRed ? '#f43f5e' : '#10b981'; 
           
           ctx.strokeStyle = color;
           ctx.fillStyle = color;
           ctx.lineWidth = 1;
           
-          // 画上下影线
           ctx.beginPath();
           ctx.moveTo(x, highY);
           ctx.lineTo(x, lowY);
           ctx.stroke();
           
-          // 画实体柱
           let bodyTop = Math.min(openY, closeY);
           let bodyH = Math.max(Math.abs(openY - closeY), 1);
           
           if (isRed) {
-              ctx.clearRect(x - candleW/2, bodyTop, candleW, bodyH); // 挖空内部显示出线
-              ctx.strokeRect(x - candleW/2, bodyTop, candleW, bodyH); // 阳线空心框
+              ctx.clearRect(x - candleW/2, bodyTop, candleW, bodyH); 
+              ctx.strokeRect(x - candleW/2, bodyTop, candleW, bodyH); 
           } else {
-              ctx.fillRect(x - candleW/2, bodyTop, candleW, bodyH); // 阴线实心框
+              ctx.fillRect(x - candleW/2, bodyTop, candleW, bodyH); 
           }
       }
+
+      // 【核心功能新增】绘制 MACD 分栏走势图
+      if (data.dif && data.dea && data.macd) {
+        const macdHeight = dh * 0.23;
+        const macdY = pad.t + dh * 0.77;
+        const macdCenterY = macdY + macdHeight / 2;
+        
+        ctx.strokeStyle = '#f1f5f9';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(pad.l, macdY, dw, macdHeight);
+
+        ctx.font = '9px sans-serif';
+        ctx.fillStyle = '#cbd5e1';
+        ctx.textAlign = 'right';
+        ctx.fillText('MACD', scrollLeft + pad.l - 5, macdCenterY + 3);
+
+        const maxMacdVal = Math.max(...[...data.dif, ...data.dea, ...data.macd].map(Math.abs).filter(v => !isNaN(v))) || 0.1;
+        const getMacdY = v => macdCenterY - (v / maxMacdVal) * (macdHeight / 2);
+
+        // 绘制 MACD 零轴线
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(pad.l, macdCenterY);
+        ctx.lineTo(w - pad.r, macdCenterY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 绘制 MACD 红绿柱子
+        const mBarW = Math.max(stepX * 0.5, 1);
+        for (let i = 0; i < data.macd.length; i++) {
+          if (isNaN(data.macd[i])) continue;
+          const x = getX(i);
+          const barY = getMacdY(data.macd[i]);
+          ctx.fillStyle = data.macd[i] >= 0 ? '#f43f5e' : '#10b981';
+          ctx.fillRect(x - mBarW/2, Math.min(macdCenterY, barY), mBarW, Math.abs(macdCenterY - barY));
+        }
+
+        // 绘制 DIF 曲线 (天蓝色)
+        ctx.beginPath();
+        ctx.moveTo(getX(0), getMacdY(data.dif[0]));
+        for (let i = 1; i < data.dif.length; i++) {
+          ctx.lineTo(getX(i), getMacdY(data.dif[i]));
+        }
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // 绘制 DEA 曲线 (金黄色)
+        ctx.beginPath();
+        ctx.moveTo(getX(0), getMacdY(data.dea[0]));
+        for (let i = 1; i < data.dea.length; i++) {
+          ctx.lineTo(getX(i), getMacdY(data.dea[i]));
+        }
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
     } else {
-      // 分时图绘制逻辑（黄线均价，蓝线走势及阴影）
-      if (data.avgPrices && data.avgPrices.length>0) { 
+      if (data.avgPrices && data.avgPrices.length > 0) { 
         ctx.beginPath(); ctx.moveTo(getX(0), getY(data.avgPrices[0])); 
-        for(let i=1;i<data.avgPrices.length;i++) {
+        for(let i = 1; i < data.avgPrices.length; i++) {
             if (isNaN(data.avgPrices[i]) || data.avgPrices[i] === 0) continue;
             ctx.lineTo(getX(i), getY(data.avgPrices[i])); 
         }
@@ -3987,32 +4080,29 @@ drawIntradayFlowCanvas(data) {
       } 
       
       ctx.beginPath(); ctx.moveTo(getX(0), getY(data.prices[0])); 
-      for(let i=1;i<data.prices.length;i++) { 
+      for(let i = 1; i < data.prices.length; i++) { 
         const price = data.prices[i]; 
-        if (isNaN(price) || price===0) continue; 
+        if (isNaN(price) || price === 0) continue; 
         ctx.lineTo(getX(i), getY(price)); 
       } 
       ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5; ctx.stroke(); 
       
       ctx.beginPath(); ctx.moveTo(getX(0), getY(data.prices[0])); 
-      for(let i=1;i<data.prices.length;i++) ctx.lineTo(getX(i), getY(data.prices[i])); 
-      ctx.lineTo(getX(data.prices.length-1), h-pad.b); ctx.lineTo(getX(0), h-pad.b); ctx.closePath(); 
-      const grd = ctx.createLinearGradient(0, pad.t, 0, h-pad.b); 
+      for(let i = 1; i < data.prices.length; i++) ctx.lineTo(getX(i), getY(data.prices[i])); 
+      ctx.lineTo(getX(data.prices.length - 1), h - pad.b); ctx.lineTo(getX(0), h - pad.b); ctx.closePath(); 
+      const grd = ctx.createLinearGradient(0, pad.t, 0, h - pad.b); 
       grd.addColorStop(0, 'rgba(59,130,246,0.25)'); grd.addColorStop(1, 'rgba(59,130,246,0.01)'); 
       ctx.fillStyle = grd; ctx.fill(); 
     }
-    // ==================================
 
-    // 绘制悬浮信息文本与十字准星
     const timeDisplayEl = document.getElementById('md-chart-time-display'); 
     const infoDiv = document.getElementById('md-chart-info'); 
     const titleName = document.getElementById('md-title')?.innerText || ''; 
-    let displayIdx = (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) ? crosshairIdx : data.prices.length-1; 
+    let displayIdx = (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) ? crosshairIdx : data.prices.length - 1; 
     
     if (displayIdx >= 0 && displayIdx < data.prices.length) { 
       const priceVal = data.prices[displayIdx]; 
       const timeLabel = data.xLabels[displayIdx] || ''; 
-      // 无论是分时图(返回YYYY-MM-DD HH:mm)还是K线图(返回YYYY-MM-DD)，直接显示完整的原始字符串
       let displayTime = timeLabel;
       
       if (timeDisplayEl) { timeDisplayEl.innerText = displayTime; timeDisplayEl.style.display = 'block'; } 
@@ -4023,7 +4113,20 @@ drawIntradayFlowCanvas(data) {
           let m10 = data.ma10 && data.ma10[displayIdx] ? data.ma10[displayIdx].toFixed(dec) : '--'; 
           let m20 = data.ma20 && data.ma20[displayIdx] ? data.ma20[displayIdx].toFixed(dec) : '--'; 
           let m60 = data.ma60 && data.ma60[displayIdx] ? data.ma60[displayIdx].toFixed(dec) : '--'; 
-          infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main); margin-right:8px;">${titleName}</span> <span style="color:#3b82f6; margin-right:6px;">MA5: ${m5}</span> <span style="color:#f59e0b; margin-right:6px;">MA10: ${m10}</span> <span style="color:#ec4899; margin-right:6px;">MA20: ${m20}</span> <span style="color:#10b981; margin-right:6px;">MA60: ${m60}</span>`; 
+          
+          let difVal = data.dif && data.dif[displayIdx] ? data.dif[displayIdx].toFixed(dec) : '--';
+          let deaVal = data.dea && data.dea[displayIdx] ? data.dea[displayIdx].toFixed(dec) : '--';
+          let macdVal = data.macd && data.macd[displayIdx] ? data.macd[displayIdx].toFixed(dec) : '--';
+          let mCol = (!isNaN(parseFloat(macdVal)) && parseFloat(macdVal) >= 0) ? '#f43f5e' : '#10b981';
+
+          infoDiv.innerHTML = `<span style="font-weight:800; color:var(--text-main); margin-right:8px;">${titleName}</span> 
+            <span style="color:#3b82f6; margin-right:6px;">MA5: ${m5}</span> 
+            <span style="color:#f59e0b; margin-right:6px;">MA10: ${m10}</span> 
+            <span style="color:#ec4899; margin-right:6px;">MA20: ${m20}</span> 
+            <span style="color:#10b981; margin-right:6px;">MA60: ${m60}</span>
+            <span style="color:#3b82f6; margin-left:8px; margin-right:6px;">DIF: ${difVal}</span> 
+            <span style="color:#f59e0b; margin-right:6px;">DEA: ${deaVal}</span> 
+            <span style="color:${mCol}; font-weight:800;">MACD: ${macdVal}</span>`; 
         } else { 
           const change = priceVal - data.prevClose; 
           const changeRate = data.prevClose !== 0 ? (change / data.prevClose * 100).toFixed(2) : '0.00'; 
@@ -4035,28 +4138,27 @@ drawIntradayFlowCanvas(data) {
       } 
     } else if (timeDisplayEl) { timeDisplayEl.style.display = 'none'; } 
     
-    // 画十字准星
     if (showCrosshair && crosshairIdx >= 0 && crosshairIdx < data.prices.length) { 
       const cx = getX(crosshairIdx), cy = getY(data.prices[crosshairIdx]); 
-      ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h-pad.b); ctx.moveTo(scrollLeft+pad.l, cy); ctx.lineTo(scrollLeft+clientW-pad.r, cy); 
-      ctx.strokeStyle = '#94a3b8'; ctx.setLineDash([4,4]); ctx.lineWidth=1; ctx.stroke(); ctx.setLineDash([]); 
+      ctx.beginPath(); ctx.moveTo(cx, pad.t); ctx.lineTo(cx, h - pad.b); ctx.moveTo(scrollLeft + pad.l, cy); ctx.lineTo(scrollLeft + clientW - pad.r, cy); 
+      ctx.strokeStyle = '#94a3b8'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]); 
       
-      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2*Math.PI); ctx.fillStyle = '#fff'; ctx.fill(); 
-      ctx.strokeStyle = '#0066ff'; ctx.lineWidth=1.5; ctx.stroke(); 
+      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2 * Math.PI); ctx.fillStyle = '#fff'; ctx.fill(); 
+      ctx.strokeStyle = '#0066ff'; ctx.lineWidth = 1.5; ctx.stroke(); 
       
       const priceVal = data.prices[crosshairIdx]; 
       const change = priceVal - data.prevClose; 
       const changeRate = data.prevClose !== 0 ? (change / data.prevClose * 100).toFixed(2) : '0.00'; 
-      const infoText = `${priceVal.toFixed(dec)}  ${change>=0?'+':''}${change.toFixed(dec)}  ${changeRate}%`; 
+      const infoText = `${priceVal.toFixed(dec)}  ${change >= 0 ? '+' : ''}${change.toFixed(dec)}  ${changeRate}%`; 
       ctx.font = '11px sans-serif'; 
       let boxW = ctx.measureText(infoText).width + 20; 
-      let boxX = cx - boxW/2; 
+      let boxX = cx - boxW / 2; 
       
       if (boxX < scrollLeft + pad.l) boxX = scrollLeft + pad.l; 
-      if (boxX+boxW > scrollLeft + clientW - pad.r) boxX = scrollLeft + clientW - pad.r - boxW; 
+      if (boxX + boxW > scrollLeft + clientW - pad.r) boxX = scrollLeft + clientW - pad.r - boxW; 
       
-      let boxY = cy-35; 
-      if (boxY < pad.t) boxY = cy+15; 
+      let boxY = cy - 35; 
+      if (boxY < pad.t) boxY = cy + 15; 
       
       ctx.fillStyle = 'rgba(30,41,59,0.9)'; 
       ctx.beginPath(); 
@@ -4064,7 +4166,7 @@ drawIntradayFlowCanvas(data) {
       ctx.fill(); 
       ctx.fillStyle = '#fff'; 
       ctx.textAlign = 'center'; 
-      ctx.fillText(infoText, boxX+boxW/2, boxY+16); 
+      ctx.fillText(infoText, boxX + boxW / 2, boxY + 16); 
     } 
     ctx.restore(); 
   },

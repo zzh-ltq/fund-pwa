@@ -700,6 +700,7 @@ canvas#compare-canvas {
     <div style="display: flex; justify-content: center; gap: 16px; margin: 15px 12px 5px;">
       <div id="market-group-index" class="action-pill active" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('index')">📈 指数</div>
       <div id="market-group-stock" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('stock')">📊 股票</div>
+      <div id="market-group-etf" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('etf')">📦 ETF</div>
     </div>
 
     <div class="m-search-wrap">
@@ -1697,7 +1698,9 @@ async _fetchSingleFundHoldings(code) {
       this.data.groups = savedData.groups;
       this.data.fundsCache = savedData.fundsCache || {};
       this.data.customSectors = savedData.customSectors || [];
-      this.data.marketGroups = savedData.marketGroups || { index: [], stock: [] };
+      this.data.marketGroups = savedData.marketGroups || { index: [], stock: [], etf: [] };
+      // 容错处理：确保已有老旧缓存数据安全升级，增加 etf 节点
+      if (!this.data.marketGroups.etf) this.data.marketGroups.etf = [];
       if (savedData.rtData) this.rtData = savedData.rtData;
     } else {
       const local = localStorage.getItem('fund_pwa_v6');
@@ -1705,11 +1708,13 @@ async _fetchSingleFundHoldings(code) {
         try { 
           const parsed = JSON.parse(local); 
           this.data = { ...this.data, ...parsed }; 
-          if (!this.data.marketGroups) this.data.marketGroups = { index: [], stock: [] }; 
+          if (!this.data.marketGroups) this.data.marketGroups = { index: [], stock: [], etf: [] }; 
+          if (!this.data.marketGroups.etf) this.data.marketGroups.etf = [];
         } catch(e) {}
       }
     }
-    if (!this.data.marketGroups) this.data.marketGroups = { index: [], stock: [] };
+    if (!this.data.marketGroups) this.data.marketGroups = { index: [], stock: [], etf: [] };
+    if (!this.data.marketGroups.etf) this.data.marketGroups.etf = [];
     
     this.initS3();
     this.processGroupRisks();
@@ -1717,11 +1722,7 @@ async _fetchSingleFundHoldings(code) {
     this.renderHome();
     this.enablePCMouseScroll();
     
-    // 在 app.init() 末尾或适合的地方调用
     this.setListPeriod('近1年');
-    
-    // 【核心修复】：删除了原先的 setTimeout refreshAll(true)
-    // 杜绝每次打开网页就在后台偷偷狂刷几百条网络请求的行为，全面依赖本地 IndexedDB 缓存！
     
     document.addEventListener('visibilitychange', () => { 
       if (document.hidden) {
@@ -2790,7 +2791,8 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     this.currentMarketGroup = group; 
     document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
     document.getElementById('market-group-stock').className = group === 'stock' ? 'action-pill active' : 'action-pill'; 
-    this.renderWatchedMarkets();  // ✅ 正确 
+    document.getElementById('market-group-etf').className = group === 'etf' ? 'action-pill active' : 'action-pill'; 
+    this.renderWatchedMarkets(); 
   },
   
   setMarketSort(mode) { 
@@ -2802,38 +2804,35 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
   },
   
 
-// 1. 完全替换 getCorrectSecid (精准处理股票、场内ETF和指数前缀)
-  getCorrectSecid(savedSecid, code, groupType) {
+getCorrectSecid(savedSecid, code, groupType) {
     if (!code) return savedSecid;
     const c = String(code).toUpperCase();
 
     // 1. 板块绝对前缀
     if (c.startsWith('BK')) return `90.${c}`;
 
-    // 2. 如果是股票或场内基金(ETF/LOF)，规则固定，强制纠正
-    if (groupType === 'stock') {
-      // 沪市：6(A股), 9(B股), 51/52/56/58(沪市ETF/LOF), 68(科创板)
+    // 2. 如果是股票或场内ETF基金，规则固定，强制纠正
+    if (groupType === 'stock' || groupType === 'etf') {
+      // 沪市：6(A股), 9(B股), 51/52/56/58/59(沪市ETF)
       if (c.startsWith('6') || c.startsWith('9') || c.startsWith('51') || c.startsWith('52') || c.startsWith('56') || c.startsWith('58') || c.startsWith('59')) return `1.${c}`; 
-      // 深市/北交所：0(深A), 3(创业板), 4/8(北交所), 15/16(深市ETF/LOF)
+      // 深市/北交所：0(深A), 3(创业板), 4/8(北交所), 15/16(深市ETF)
       if (c.startsWith('0') || c.startsWith('3') || c.startsWith('4') || c.startsWith('8') || c.startsWith('15') || c.startsWith('16')) return `0.${c}`; 
     }
 
-    // 3. 如果是指数，优先信任之前正确保存的带小数点的前缀 (包含香港、美股等)
+    // 3. 如果是指数，优先信任之前保存的带小数点的完整前缀
     if (savedSecid && String(savedSecid).includes('.')) {
-        // 但如果把 ETF 误加到了指数板块，这里也要做一次纠偏
         if (c.startsWith('51') || c.startsWith('52') || c.startsWith('56') || c.startsWith('58') || c.startsWith('59')) return `1.${c}`;
         if (c.startsWith('15') || c.startsWith('16')) return `0.${c}`;
         return savedSecid;
     }
 
-    // 4. 指数的保底推断
+    // 4. 默认纠偏
     if (groupType === 'index') {
       if (c.startsWith('399')) return `0.${c}`;
       if (c.startsWith('000')) return `1.${c}`;
-      if (c.startsWith('98')) return `0.${c}`; // 国证通常为 0.
-      if (c.startsWith('93')) return `1.${c}`; // 中证通常为 1.
+      if (c.startsWith('98')) return `0.${c}`; 
+      if (c.startsWith('93')) return `1.${c}`; 
       if (c.startsWith('H')) return `2.${c}`;
-      // 如果用户把 ETF 误加到了指数板块组
       if (c.startsWith('51') || c.startsWith('52') || c.startsWith('56') || c.startsWith('58') || c.startsWith('59')) return `1.${c}`;
       if (c.startsWith('15') || c.startsWith('16')) return `0.${c}`;
     }
@@ -7087,7 +7086,7 @@ async _renderHoldingsUI(code, stocks, bonds) {
     if(confirm('警告：这将清空您本地所有的分组、板块和基金数据！\n（您的云端同步配置将保留）\n\n确认清空吗？')) { 
       localStorage.removeItem('fund_pwa_v6'); 
       await this.dbRemove('fund_pwa_full_data'); 
-      this.data = { groups: [{ id: 'default', name: '全部', fundCodes: [] }], fundsCache: {}, customSectors: [], marketGroups: { index: [], stock: [] } }; 
+      this.data = { groups: [{ id: 'default', name: '全部', fundCodes: [] }], fundsCache: {}, customSectors: [], marketGroups: { index: [], stock: [], etf: [] } }; 
       this.rtData = {}; 
       this.showToast('本地数据已清空'); 
       setTimeout(() => { location.reload(); }, 500); 

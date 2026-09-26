@@ -3348,40 +3348,53 @@ getCorrectSecid(savedSecid, code, groupType) {
   // ==========================================
   // 1. 初始化中补齐股票分组状态
   currentStockGroupId: 'default',
-  // --- 安全跨源 JSONP 请求（无 Referer 模式，规避东财防盗链）---
+  // --- 修复版：防迟到抛错的安全 JSONP 请求工具 ---
   fetchJSONPSafely(url, callbackParam = 'cb') {
     return new Promise((resolve) => {
       const cbName = 'jsonp_kline_' + Math.floor(Math.random() * 1000000) + '_' + Date.now();
       const script = document.createElement('script');
       
-      // 明确声明无 Referer 策略
-      script.referrerPolicy = 'no-referrer';
-      
       const sep = url.includes('?') ? '&' : '?';
       script.src = `${url}${sep}${callbackParam}=${cbName}`;
 
+      let isFinished = false;
+
+      // 成功回调
       window[cbName] = (data) => {
-        resolve(data);
-        delete window[cbName];
+        if (!isFinished) {
+          isFinished = true;
+          resolve(data);
+        }
+        // 关键修复：绝不能立即 delete，将其置为空函数，避免东财请求慢延时返回时报 ReferenceError
+        window[cbName] = () => {};
+        setTimeout(() => { delete window[cbName]; }, 30000); // 30秒后再安全垃圾回收
         if (script.parentNode) script.remove();
       };
 
+      // 错误回调
       script.onerror = () => {
-        delete window[cbName];
+        if (!isFinished) {
+          isFinished = true;
+          resolve(null);
+        }
+        window[cbName] = () => {};
+        setTimeout(() => { delete window[cbName]; }, 30000);
         if (script.parentNode) script.remove();
-        resolve(null);
       };
 
       document.head.appendChild(script);
 
-      // 6秒超时防护
+      // 5秒超时安全降级
       setTimeout(() => {
-        if (window[cbName]) {
-          delete window[cbName];
-          if (script.parentNode) script.remove();
+        if (!isFinished) {
+          isFinished = true;
           resolve(null);
+          // 超时后保留空函数占位，防止后续数据到达时报错
+          window[cbName] = () => {};
+          setTimeout(() => { delete window[cbName]; }, 30000);
+          if (script.parentNode) script.remove();
         }
-      }, 6000);
+      }, 5000);
     });
   },
 
@@ -3411,7 +3424,7 @@ getCorrectSecid(savedSecid, code, groupType) {
     }
   },
 
-  // --- 优股扫描引擎：同时扫描股票池与 ETF 池下所有三指标全部看多的标的 ---
+  // --- 修复版：优股批量限流扫描引擎（分批并发，防止被东财防火墙掐断连接）---
   async renderSuperStocksScan() {
     const container = document.getElementById('market-watched-list');
     const stockList = (this.data.marketGroups.stock || []).map(i => ({ ...i, category: '股票' }));
@@ -3427,83 +3440,98 @@ getCorrectSecid(savedSecid, code, groupType) {
       <div style="text-align:center; padding:40px 20px; background:#fff; border-radius:12px; margin:10px 0; border:1px solid #e2e8f0; grid-column: 1 / -1;">
         <div class="loading-spinner" style="margin:0 auto 15px auto;"></div>
         <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">MACD + KDJ + BOLL 全指标扫描中</div>
-        <div style="font-size:12px; color:var(--text-sub);">正在对自选池内 ${allTargets.length} 只标的 (含 ${stockList.length} 只股票、${etfList.length} 只 ETF) 进行技术面共振筛选...</div>
+        <div id="super-scan-progress" style="font-size:12px; color:var(--text-sub);">正在对自选池内 ${allTargets.length} 只标的进行平滑分析 (0 / ${allTargets.length})...</div>
       </div>
     `;
 
     const matchedItems = [];
+    const progressEl = document.getElementById('super-scan-progress');
 
-    // 并发快速计算
-    await Promise.all(allTargets.map(async (item) => {
-      try {
-        const targetType = item.category === 'ETF' ? 'etf' : 'stock';
-        const querySecid = this.getCorrectSecid(item.secid, item.code, targetType);
-        const klines = await this._fetchMarketHistoryKlines(querySecid, 65);
-        if (!klines || klines.length < 35) return;
+    // 采用 4 只标的一组的节流队列并发，杜绝瞬间高并发导致的 ERR_EMPTY_RESPONSE
+    const batchSize = 4;
+    for (let i = 0; i < allTargets.length; i += batchSize) {
+      const chunk = allTargets.slice(i, i + batchSize);
+      
+      await Promise.all(chunk.map(async (item) => {
+        try {
+          const targetType = item.category === 'ETF' ? 'etf' : 'stock';
+          const querySecid = this.getCorrectSecid(item.secid, item.code, targetType);
+          const klines = await this._fetchMarketHistoryKlines(querySecid, 65);
+          if (!klines || klines.length < 26) return;
 
-        const closes = klines.map(k => k.close);
-        const highs = klines.map(k => k.high);
-        const lows = klines.map(k => k.low);
-        const N = closes.length;
-        const latestPrice = closes[N - 1];
+          const closes = klines.map(k => k.close);
+          const highs = klines.map(k => k.high);
+          const lows = klines.map(k => k.low);
+          const N = closes.length;
+          const latestPrice = closes[N - 1];
 
-        // 1. MACD
-        const calcEMA = (data, p) => {
-          let k = 2 / (p + 1);
-          let ema = [data[0]];
-          for (let i = 1; i < data.length; i++) ema.push(data[i] * k + ema[i - 1] * (1 - k));
-          return ema;
-        };
-        const ema12 = calcEMA(closes, 12);
-        const ema26 = calcEMA(closes, 26);
-        const dif = ema12.map((val, idx) => val - ema26[idx]);
-        const dea = calcEMA(dif, 9);
-        const macd = dif.map((val, idx) => (val - dea[idx]) * 2);
+          // 1. MACD
+          const calcEMA = (data, p) => {
+            let k = 2 / (p + 1);
+            let ema = [data[0]];
+            for (let idx = 1; idx < data.length; idx++) ema.push(data[idx] * k + ema[idx - 1] * (1 - k));
+            return ema;
+          };
+          const ema12 = calcEMA(closes, 12);
+          const ema26 = calcEMA(closes, 26);
+          const dif = ema12.map((val, idx) => val - ema26[idx]);
+          const dea = calcEMA(dif, 9);
+          const macd = dif.map((val, idx) => (val - dea[idx]) * 2);
 
-        const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
-        const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
-        const isMacdBuy = (prevDIF <= prevDEA && curDIF > curDEA) || (curDIF > curDEA && curMACD >= prevMACD) || (curDIF < 0 && curMACD > prevMACD && prevMACD < 0);
+          const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
+          const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
+          const isMacdBuy = (prevDIF <= prevDEA && curDIF > curDEA) || (curDIF > curDEA && curMACD >= prevMACD) || (curDIF < 0 && curMACD > prevMACD && prevMACD < 0);
 
-        // 2. KDJ(9,3,3)
-        let kArr = [50], dArr = [50], jArr = [50];
-        for (let i = 8; i < N; i++) {
-          let periodHigh = Math.max(...highs.slice(i - 8, i + 1));
-          let periodLow = Math.min(...lows.slice(i - 8, i + 1));
-          let rsv = periodHigh === periodLow ? 50 : ((closes[i] - periodLow) / (periodHigh - periodLow)) * 100;
-          let nextK = (2 / 3) * kArr[kArr.length - 1] + (1 / 3) * rsv;
-          let nextD = (2 / 3) * dArr[dArr.length - 1] + (1 / 3) * nextK;
-          let nextJ = 3 * nextK - 2 * nextD;
-          kArr.push(nextK); dArr.push(nextD); jArr.push(nextJ);
-        }
-        const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
-        const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
-        const isKdjBuy = (prevK <= prevD && curK > curD) || curJ < 5 || (curK < 40 && curK > prevK);
+          // 2. KDJ
+          let kArr = [50], dArr = [50], jArr = [50];
+          for (let idx = 8; idx < N; idx++) {
+            let periodHigh = Math.max(...highs.slice(idx - 8, idx + 1));
+            let periodLow = Math.min(...lows.slice(idx - 8, idx + 1));
+            let rsv = periodHigh === periodLow ? 50 : ((closes[idx] - periodLow) / (periodHigh - periodLow)) * 100;
+            let nextK = (2 / 3) * kArr[kArr.length - 1] + (1 / 3) * rsv;
+            let nextD = (2 / 3) * dArr[dArr.length - 1] + (1 / 3) * nextK;
+            let nextJ = 3 * nextK - 2 * nextD;
+            kArr.push(nextK); dArr.push(nextD); jArr.push(nextJ);
+          }
+          const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
+          const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
+          const isKdjBuy = (prevK <= prevD && curK > curD) || curJ < 5 || (curK < 40 && curK > prevK);
 
-        // 3. BOLL(20,2)
-        const bollSlice = closes.slice(-20);
-        const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
-        const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
-        const bollUpper = bollMid + 2 * bollStd;
-        const bollLower = bollMid - 2 * bollStd;
-        const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
-        const isBollBuy = bollPct <= 25 || (latestPrice > bollMid && closes[N - 1] >= closes[N - 2]);
+          // 3. BOLL
+          const bollSlice = closes.slice(-20);
+          const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
+          const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
+          const bollUpper = bollMid + 2 * bollStd;
+          const bollLower = bollMid - 2 * bollStd;
+          const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
+          const isBollBuy = bollPct <= 25 || (latestPrice > bollMid && closes[N - 1] >= closes[N - 2]);
 
-        // 三指标全部看多买入
-        if (isMacdBuy && isKdjBuy && isBollBuy) {
-          const chg = ((closes[N - 1] - closes[N - 2]) / closes[N - 2]) * 100;
-          matchedItems.push({
-            name: item.name,
-            code: item.code,
-            secid: querySecid,
-            category: item.category,
-            price: latestPrice.toFixed(2),
-            chgRate: chg.toFixed(2),
-            curJ: curJ.toFixed(1),
-            bollPct: bollPct.toFixed(0)
-          });
-        }
-      } catch(e) {}
-    }));
+          if (isMacdBuy && isKdjBuy && isBollBuy) {
+            const chg = ((closes[N - 1] - closes[N - 2]) / closes[N - 2]) * 100;
+            matchedItems.push({
+              name: item.name,
+              code: item.code,
+              secid: querySecid,
+              category: item.category,
+              price: latestPrice.toFixed(2),
+              chgRate: chg.toFixed(2),
+              curJ: curJ.toFixed(1),
+              bollPct: bollPct.toFixed(0)
+            });
+          }
+        } catch(e) {}
+      }));
+
+      // 更新进度
+      if (progressEl) {
+        progressEl.innerText = `正在对自选池内 ${allTargets.length} 只标的进行平滑分析 (${Math.min(i + batchSize, allTargets.length)} / ${allTargets.length})...`;
+      }
+
+      // 批次间微休眠 50ms，保持请求节奏平稳
+      if (i + batchSize < allTargets.length) {
+        await new Promise(r => setTimeout(r, 50));
+      }
+    }
 
     if (matchedItems.length === 0) {
       container.innerHTML = `
@@ -5053,13 +5081,15 @@ drawIntradayFlowCanvas(data) {
     }
   },
 
-  // --- 技术面/优股分析：提取历史日K线（通过 Worker 代理通道稳定获取）---
-  async _fetchMarketHistoryKlines(secid, days) {
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=0&end=20500101&smplmt=460&lmt=1000000&_=${Date.now()}`;
+  // --- 修复版：轻量化日K线提取（按需指定 lmt，不再请求上市以来全量数据）---
+  async _fetchMarketHistoryKlines(secid, days = 65) {
+      // 动态根据所需天数设置 lmt，默认取 80 根，彻底解决数据臃肿和网络堵塞
+      const limit = Math.min(Math.max(days + 15, 60), 120);
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=0&end=20500101&smplmt=460&lmt=${limit}&_=${Date.now()}`;
       
       let klines = [];
 
-      // 优先走 Worker 代理
+      // 1. 优先通过 Worker
       if (this.workerUrl && !this.workerUrl.includes('example.com')) {
         try {
           const fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
@@ -5073,7 +5103,7 @@ drawIntradayFlowCanvas(data) {
         } catch (e) {}
       }
 
-      // 降级使用 fetchJSONPSafely
+      // 2. 降级走安全 JSONP
       if (!klines || klines.length === 0) {
         try {
           const res = await this.fetchJSONPSafely(kUrl, 'cb');

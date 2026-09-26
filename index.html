@@ -4947,20 +4947,37 @@ drawIntradayFlowCanvas(data) {
         } 
       } catch(e) {} 
     } else { 
-      // 日K(101)、周K(102)、月K(103) 获取分支（直连官方标准接口）
+      // 日K(101)、周K(102)、月K(103) 获取分支（优先走 Worker 代理通道规避防盗链）
       const klt = parseInt(this.marketState.chartType) || 101; 
       const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&beg=0&end=20500101&smplmt=460&lmt=1000000&_=${Date.now()}`; 
       
       let klines = [];
-      try {
-        const res = await this.fetchJSONPSafely(kUrl, 'cb');
-        klines = res?.data?.klines || [];
-      } catch(e) {}
+
+      // 方案 A：优先通过 Worker 代理（携带官方 Referer，突破防盗链）
+      if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+        try {
+          const fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
+          const resp = await fetch(fetchUrl);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data?.data?.klines) {
+              klines = data.data.klines;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 方案 B：Worker 未生效时的本地降级
+      if (!klines || klines.length === 0) {
+        try {
+          const res = await this.fetchJSONPSafely(kUrl, 'cb');
+          klines = res?.data?.klines || [];
+        } catch (e) {}
+      }
 
       let finalPrevClose = this.marketState.currentPrevClose;
       
       if (klines && klines.length > 0) { 
-        // 保留近 380 根 K 线，确保计算精度与渲染性能
         if (klines.length > 380) {
           klines = klines.slice(-380);
         }
@@ -5036,29 +5053,51 @@ drawIntradayFlowCanvas(data) {
     }
   },
 
-  // --- 技术面/优股分析：提取历史日K线 ---
+  // --- 技术面/优股分析：提取历史日K线（通过 Worker 代理通道稳定获取）---
   async _fetchMarketHistoryKlines(secid, days) {
       const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=0&end=20500101&smplmt=460&lmt=1000000&_=${Date.now()}`;
-      try {
-          const res = await this.fetchJSONPSafely(kUrl, 'cb');
-          let klines = res?.data?.klines || [];
-          if (klines.length > 0) {
-              if (days && klines.length > days) {
-                  klines = klines.slice(-days);
-              }
-              return klines.map(str => {
-                  const p = str.split(',');
-                  return { 
-                      date: p[0], 
-                      open: parseFloat(p[1]) || 0, 
-                      close: parseFloat(p[2]) || 0, 
-                      high: parseFloat(p[3]) || 0, 
-                      low: parseFloat(p[4]) || 0, 
-                      vol: parseFloat(p[5]) || 0 
-                  };
-              });
+      
+      let klines = [];
+
+      // 优先走 Worker 代理
+      if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+        try {
+          const fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
+          const resp = await fetch(fetchUrl);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data?.data?.klines) {
+              klines = data.data.klines;
+            }
           }
-      } catch (e) {}
+        } catch (e) {}
+      }
+
+      // 降级使用 fetchJSONPSafely
+      if (!klines || klines.length === 0) {
+        try {
+          const res = await this.fetchJSONPSafely(kUrl, 'cb');
+          klines = res?.data?.klines || [];
+        } catch (e) {}
+      }
+
+      if (klines && klines.length > 0) {
+        if (days && klines.length > days) {
+          klines = klines.slice(-days);
+        }
+        return klines.map(str => {
+          const p = str.split(',');
+          return { 
+            date: p[0], 
+            open: parseFloat(p[1]) || 0, 
+            close: parseFloat(p[2]) || 0, 
+            high: parseFloat(p[3]) || 0, 
+            low: parseFloat(p[4]) || 0, 
+            vol: parseFloat(p[5]) || 0 
+          };
+        });
+      }
+
       return null;
   },
 

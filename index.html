@@ -8,7 +8,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <meta name="referrer" content="no-referrer">
   <title>养鸡小能手 PWA</title>
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/aws-sdk/2.1692.0/aws-sdk.min.js"></script>
@@ -1143,8 +1142,6 @@ function fetchJSONP(url, callbackName = 'callback') {
   return new Promise((resolve, reject) => {
     const cb = 'jsonp_cb_' + Math.floor(Math.random() * 1000000) + '_' + Date.now();
     const script = document.createElement('script');
-    // 关键修复：强制不发送当前外域 Referer，伪装为原生直接访问
-    script.referrerPolicy = 'no-referrer';
     const sep = url.includes('?') ? '&' : '?';
     script.src = `${url}${sep}${callbackName}=${cb}`;
     window[cb] = (data) => {
@@ -1153,7 +1150,7 @@ function fetchJSONP(url, callbackName = 'callback') {
       script.remove();
     };
     script.onerror = () => {
-      reject('JSONP Network Error');
+      resolve(null); // 静默兼容，防止未捕获异常
       delete window[cb];
       script.remove();
     };
@@ -4912,41 +4909,24 @@ drawIntradayFlowCanvas(data) {
         } 
       } catch(e) {} 
     } else { 
-      // 日K(101)、周K(102)、月K(103) 获取分支
+      // 日K(101)、周K(102)、月K(103) 获取分支（100% 对齐图3东方财富官方原生参数，不再经过会报500的Worker）
       const klt = parseInt(this.marketState.chartType) || 101; 
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&beg=0&end=20500101&smplmt=460&lmt=1000000&_=${Date.now()}`; 
       
       let klines = [];
-
       try {
-        let fetchUrl = kUrl;
-        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-          fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
-        }
-        const resp = await fetch(fetchUrl, { referrerPolicy: 'no-referrer' });
-        if (resp.ok) {
-          const text = await resp.text();
-          let json = null;
-          try {
-            json = JSON.parse(text);
-          } catch(pe) {
-            const m = text.match(/\((.*)\)/);
-            if (m) json = JSON.parse(m[1]);
-          }
-          if (json?.data?.klines) klines = json.data.klines;
-        }
+        const res = await fetchJSONP(kUrl, 'cb');
+        klines = res?.data?.klines || [];
       } catch(e) {}
-
-      if (!klines || klines.length === 0) {
-        try {
-          const res = await fetchJSONP(kUrl, 'cb');
-          klines = res?.data?.klines || [];
-        } catch(e) {}
-      }
 
       let finalPrevClose = this.marketState.currentPrevClose;
       
       if (klines && klines.length > 0) { 
+        // 保留最近 380 根 K 线保证渲染流畅与均线计算精度
+        if (klines.length > 380) {
+          klines = klines.slice(-380);
+        }
+
         const parsed = klines.map(str => { 
           const parts = str.split(','); 
           return { 
@@ -5021,42 +5001,30 @@ drawIntradayFlowCanvas(data) {
   // ==============================================================
   // 提取历史日K线通用函数（闭合修复版）
   // ==============================================================
+  // --- 抓取历史日K线（100% 对齐图3东财官方参数，纯净直连，不再调用报500的Worker）---
   async _fetchMarketHistoryKlines(secid, days) {
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=0&end=20500101&smplmt=460&lmt=1000000&_=${Date.now()}`;
       
       try {
-          let fetchUrl = kUrl;
-          if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-              fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
-          }
-          const resp = await fetch(fetchUrl, { referrerPolicy: 'no-referrer' });
-          if (resp.ok) {
-              const text = await resp.text();
-              let json = null;
-              try { json = JSON.parse(text); } catch(pe) {
-                  const m = text.match(/\((.*)\)/);
-                  if (m) json = JSON.parse(m[1]);
-              }
-              const klines = json?.data?.klines || [];
-              if (klines.length > 0) {
-                  return klines.map(str => {
-                      const p = str.split(',');
-                      return { date: p[0], open: parseFloat(p[1]) || 0, close: parseFloat(p[2]) || 0, high: parseFloat(p[3]) || 0, low: parseFloat(p[4]) || 0, vol: parseFloat(p[5]) || 0 };
-                  });
-              }
-          }
-      } catch (e) {}
-
-      try {
           const res = await fetchJSONP(kUrl, 'cb');
-          const klines = res?.data?.klines || [];
+          let klines = res?.data?.klines || [];
           if (klines.length > 0) {
+              if (days && klines.length > days) {
+                  klines = klines.slice(-days);
+              }
               return klines.map(str => {
                   const p = str.split(',');
-                  return { date: p[0], open: parseFloat(p[1]) || 0, close: parseFloat(p[2]) || 0, high: parseFloat(p[3]) || 0, low: parseFloat(p[4]) || 0, vol: parseFloat(p[5]) || 0 };
+                  return { 
+                      date: p[0], 
+                      open: parseFloat(p[1]) || 0, 
+                      close: parseFloat(p[2]) || 0, 
+                      high: parseFloat(p[3]) || 0, 
+                      low: parseFloat(p[4]) || 0, 
+                      vol: parseFloat(p[5]) || 0 
+                  };
               });
           }
-      } catch (e2) {}
+      } catch (e) {}
 
       return null;
   },

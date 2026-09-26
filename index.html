@@ -9,8 +9,6 @@
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
-  <meta name="referrer" content="never">
-  <meta name="referrer" content="no-referrer">
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/aws-sdk/2.1692.0/aws-sdk.min.js"></script>
 
@@ -703,15 +701,6 @@ canvas#compare-canvas {
       <div id="market-group-index" class="action-pill active" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('index')">📈 指数</div>
       <div id="market-group-stock" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('stock')">📊 股票</div>
       <div id="market-group-etf" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('etf')">📦 ETF</div>
-      <div id="market-group-super" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('super')">🏆 优股</div>
-    </div>
-    <!-- 新增：仅在股票选项卡下显示的专属分组管理胶囊栏 -->
-    <div id="stock-group-bar" class="tabs-wrapper" style="display: none; margin: 10px 12px 6px;">
-      <div class="tabs-scroll" id="stock-groups-scroll"></div>
-      <div class="tabs-fixed-right">
-        <div class="mgr-btn" title="新建股票分组" onclick="app.createStockGroup()">＋</div>
-        <div class="mgr-btn" title="管理股票分组" onclick="app.openStockGroupMgr()">☰</div>
-      </div>
     </div>
 
     <div class="m-search-wrap">
@@ -918,28 +907,7 @@ canvas#compare-canvas {
       <div id="market-group-select-list" class="tabs-scroll" style="flex-wrap:wrap; white-space:normal; gap:8px; cursor:auto;"></div>
     </div>
   </div>
-  <!-- 弹窗: 股票分组管理 -->
-  <div id="modal-stock-group-mgr" class="modal-view" onclick="app.closeOutside(event, 'stock-group-mgr')">
-    <div class="modal-content" onclick="app.stopProp(event)">
-      <div class="nav-bar">
-        <div class="nav-btn left" onclick="app.closeModal('stock-group-mgr')">‹ 返回</div>
-        <div class="nav-title">股票分组管理</div>
-        <div style="width:60px;"></div>
-      </div>
-      <div class="mgr-header">
-        <span style="flex:1;">分组名称</span>
-        <div style="display:flex; width:100px; justify-content:space-between;">
-          <span>修改</span><span>清空</span><span>删除</span>
-        </div>
-      </div>
-      <div class="mgr-list-wrap" id="stock-mgr-scroll-box">
-        <div id="stock-group-mgr-list" style="position:relative;"></div>
-      </div>
-      <div class="mgr-bottom-bar" style="position: relative; padding: 12px;">
-        <button class="btn-primary" style="border-radius:20px; margin-bottom: 0;" onclick="app.createStockGroup()">＋ 新建股票分组</button>
-      </div>
-    </div>
-  </div>
+
   <!-- 弹窗:基金搜索 -->
   <div id="modal-search" class="modal-view" onclick="app.closeOutside(event, 'search')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%; border-radius: 14px; padding: 6px 12px;"><div class="nav-btn" style="background:none; box-shadow:none; color: var(--text-sub);" onclick="app.closeModal('search')">取消</div></div><div class="scroll-area" id="search-results"></div></div></div>
 
@@ -1082,10 +1050,6 @@ canvas#compare-canvas {
           <div class="pk-row"><span>涨跌额</span><span id="md-chg-abs">--</span></div>
           <div class="pk-row"><span>振幅</span><span id="md-amp">--</span></div>
           <div class="pk-row"><span>量比</span><span id="md-volratio">--</span></div>
-          <!-- 新增：换手率、总市值、市盈率，凑满12格整齐排列 -->
-          <div class="pk-row"><span>换手率</span><span id="md-turnover" style="font-weight:900; color:#0066ff;">--</span></div>
-          <div class="pk-row"><span>总市值</span><span id="md-totalval">--</span></div>
-          <div class="pk-row"><span>市盈率</span><span id="md-pe">--</span></div>
         </div>
         <div style="background:#fff; padding:10px 15px 0;">
           <div class="detail-tabs" id="md-chart-tabs">
@@ -1152,7 +1116,7 @@ function fetchJSONP(url, callbackName = 'callback') {
       script.remove();
     };
     script.onerror = () => {
-      resolve(null); // 静默兼容，防止未捕获异常
+      reject('JSONP Network Error');
       delete window[cb];
       script.remove();
     };
@@ -1735,9 +1699,8 @@ async _fetchSingleFundHoldings(code) {
       this.data.fundsCache = savedData.fundsCache || {};
       this.data.customSectors = savedData.customSectors || [];
       this.data.marketGroups = savedData.marketGroups || { index: [], stock: [], etf: [] };
+      // 容错处理：确保已有老旧缓存数据安全升级，增加 etf 节点
       if (!this.data.marketGroups.etf) this.data.marketGroups.etf = [];
-      // 保证股票分组正确加载
-      this.data.stockCustomGroups = savedData.stockCustomGroups || [{ id: 'default', name: '全部', stockCodes: [] }];
       if (savedData.rtData) this.rtData = savedData.rtData;
     } else {
       const local = localStorage.getItem('fund_pwa_v6');
@@ -2824,6 +2787,14 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     this.renderMarketTabs(); 
   },
   
+  switchMarketGroup(group) { 
+    this.currentMarketGroup = group; 
+    document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
+    document.getElementById('market-group-stock').className = group === 'stock' ? 'action-pill active' : 'action-pill'; 
+    document.getElementById('market-group-etf').className = group === 'etf' ? 'action-pill active' : 'action-pill'; 
+    this.renderWatchedMarkets(); 
+  },
+  
   setMarketSort(mode) { 
     this.marketSortMode = mode; 
     document.getElementById('mkt-sort-default').className = mode === 'default' ? 'active' : ''; 
@@ -2872,14 +2843,7 @@ getCorrectSecid(savedSecid, code, groupType) {
    // --- 1. 完全替换 renderWatchedMarkets 函数 ---
   async renderWatchedMarkets() { 
     const groupKey = this.currentMarketGroup; 
-    let list = this.data.marketGroups[groupKey] || []; 
-    // 股票菜单下若切换到具体分组，只要该股票的 stockGroups 列表中包含该分组 ID 即予以展示
-    if (groupKey === 'stock' && this.currentStockGroupId && this.currentStockGroupId !== 'default') {
-        list = list.filter(item => {
-            const groups = Array.isArray(item.stockGroups) ? item.stockGroups : (item.bindStockGroup ? [item.bindStockGroup] : []);
-            return groups.includes(this.currentStockGroupId);
-        });
-    }
+    const list = this.data.marketGroups[groupKey] || []; 
     const container = document.getElementById('market-watched-list'); 
     
     if (list.length === 0) { 
@@ -2972,6 +2936,7 @@ getCorrectSecid(savedSecid, code, groupType) {
             let dec = (quote.f1 !== undefined && !isNaN(quote.f1)) ? parseInt(quote.f1) : 2;
             if (item.querySecid.includes('USDCNH') || item.name.includes('人民币')) dec = 4;
 
+            // 【修改点4】严密的停盘价格读取顺序兜底显示，保证周末绝不显示 '--'
             let price = '--';
             if (quote.f2 !== undefined && quote.f2 !== '-' && !isNaN(quote.f2)) {
                 price = parseFloat(quote.f2).toFixed(dec);
@@ -2998,103 +2963,51 @@ getCorrectSecid(savedSecid, code, groupType) {
                 chgVal = (0).toFixed(dec);
             }
 
-            // 主力资金流向标签美化
             let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
             let flowDisplay = '';
             if (rawFlowAmt !== 0) {
                 let mainCol = rawFlowAmt > 0 ? 'red' : 'green';
-                let bgCol = rawFlowAmt > 0 ? '#fff1f2' : '#ecfdf5';
-                let borderCol = rawFlowAmt > 0 ? '#ffe4e6' : '#d1fae5';
                 flowDisplay = `
-                    <span class="${mainCol}" style="font-size:11px; font-weight:800; background:${bgCol}; border:1px solid ${borderCol}; padding:2px 8px; border-radius:6px; display:inline-flex; align-items:center;">
-                        主力 ${rawFlowAmt > 0 ? '+' : ''}${this.formatFlowAmt(rawFlowAmt)}
-                    </span>`;
-            } else {
-                flowDisplay = `<span style="font-size:11px; color:#cbd5e1; font-weight:600;">主力资金暂无异动</span>`;
+                <div style="display:flex; gap: 6px; margin-top: 4px;">
+                    <div class="${mainCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px;">主力 ${rawFlowAmt>0?'+':''}${this.formatFlowAmt(rawFlowAmt)}</div>
+                </div>`;
             }
             
             const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
             const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
             
-            // 底部多标签逻辑组装
             let groupTagHtml = '';
-            if (groupKey === 'stock' || groupKey === 'etf') {
-                const sGroups = this.data.stockCustomGroups || [];
-                if (!Array.isArray(item.stockGroups)) {
-                    item.stockGroups = item.bindStockGroup ? [item.bindStockGroup] : [];
-                }
-
-                const activeSGroups = sGroups.filter(g => g.id !== 'default' && item.stockGroups.includes(g.id));
-
-                if (activeSGroups.length > 0) {
-                    const tagsListHtml = activeSGroups.map(g => `
-                        <span class="c-tag" style="background:#e6f0ff; color:#0066ff; border:1px solid #bfdbfe; font-size:11px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
-                            <span style="cursor:pointer;" onclick="app.switchStockGroupFilter(event, '${g.id}')">📂 ${g.name}</span>
-                            <span style="cursor:pointer; font-weight:900; font-size:12px; margin-left:2px; color:#93c5fd;" onmouseover="this.style.color='#f43f5e'" onmouseout="this.style.color='#93c5fd'" onclick="app.removeStockFromGroup(event, '${item.secid}', '${g.id}')" title="从该分组移出">✕</span>
-                        </span>
-                    `).join('');
-
-                    groupTagHtml = `
-                        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
-                            ${tagsListHtml}
-                            <span class="c-tag c-add-tag" style="cursor:pointer; padding:2px 7px; border-radius:12px; font-weight:900; font-size:11px; border:1px dashed #cbd5e1; color:#64748b; background:#f8fafc;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')" title="添加其他分组">＋</span>
-                        </div>
-                    `;
-                } else {
-                    groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:11px; border:1px dashed #93c5fd; color:#0066ff; background:#eff6ff;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">+ 添加分组</span>`;
-                }
+            let boundGroup = item.bindGroup ? this.data.groups.find(g => g.id === item.bindGroup) : null;
+            if (boundGroup) {
+                groupTagHtml = `
+                    <span class="c-tag" style="background:var(--blue); color:#fff; cursor:pointer; box-shadow: 0 2px 6px rgba(0,102,255,0.2);" onclick="app.jumpToFundGroup(event, '${boundGroup.id}')">📂 ${boundGroup.name}</span>
+                    <span class="c-tag" style="background:#f1f5f9; color:#94a3b8; cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}')">🔄</span>
+                `;
             } else {
-                let boundGroup = item.bindGroup ? this.data.groups.find(g => g.id === item.bindGroup) : null;
-                if (boundGroup) {
-                    groupTagHtml = `
-                        <span class="c-tag" style="background:#e6f0ff; color:#0066ff; border:1px solid #bfdbfe; font-size:11px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
-                            <span style="cursor:pointer;" onclick="app.jumpToFundGroup(event, '${boundGroup.id}')">📂 ${boundGroup.name}</span>
-                            <span style="cursor:pointer; font-weight:bold; font-size:11px; margin-left:2px; color:#0066ff;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">🔄</span>
-                        </span>
-                    `;
-                } else {
-                    groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:11px; border:1px dashed #93c5fd; color:#0066ff; background:#eff6ff;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">+ 绑定基金分组</span>`;
-                }
+                groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}')">+ 分组</span>`;
             }
 
-            // 【全新布局】：三段式卡片（顶部名称价格 + 中间资金 + 底部专属分组标签栏）
-            const html = `
-            <div class="card" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')" style="position:relative; padding:14px; margin-bottom:0; display:flex; flex-direction:column; justify-content:space-between; background:var(--surface-color); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); border:1px solid rgba(255,255,255,0.8); cursor:pointer; transition:all 0.3s cubic-bezier(0.25,0.8,0.25,1);">
-                <!-- 右上角优雅删除按钮 -->
-                <div class="c-del-btn" style="top:10px; right:10px; width:22px; height:22px; font-size:12px;" onclick="app.delWatchedMarket(event, '${item.secid}')" title="从自选删除">✕</div>
-
-                <!-- 1. 顶部核心区：左侧名称与代码，右侧最新价格与涨跌 -->
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; padding-right:24px;">
-                    <div style="display:flex; flex-direction:column; gap:4px;">
-                        <div style="font-weight:900; font-size:16px; color:var(--text-main); line-height:1.2;">${item.name}</div>
-                        <div style="font-size:11px; font-weight:700; color:#64748b; background:#f1f5f9; padding:1px 6px; border-radius:4px; align-self:flex-start;">${item.code || ''}</div>
+            const html = `<div class="list-item" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')">
+                <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
+                <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:2px;">
+                    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px;">
+                        <div style="font-weight:800; font-size:16px;">${item.name}</div>
+                        <div style="font-size:11px; font-weight:700; color:#64748b; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${item.code || ''}</div>
+                        ${groupTagHtml}
                     </div>
-                    <div style="text-align:right;">
-                        <div class="${col}" style="font-size:18px; font-weight:900; line-height:1.2;">${price}</div>
-                        <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:3px;">
-                            <span class="${col}" style="font-size:11px; font-weight:bold;">${valSign}${chgVal}</span>
-                            <span class="${col}" style="font-size:11px; font-weight:bold; background:rgba(0,0,0,0.03); padding:1px 4px; border-radius:4px;">${rateSign}${chgRate}%</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 2. 中部区：主力资金流动标签 -->
-                <div style="margin-top:10px; display:flex; align-items:center;">
                     ${flowDisplay}
                 </div>
-
-                <!-- 3. 底部区：专属分组标签栏（置底对齐） -->
-                <div style="margin-top:12px; padding-top:8px; border-top:1px dashed #e2e8f0; display:flex; align-items:center; justify-content:space-between; min-height:30px;">
-                    <span style="font-size:11px; color:#94a3b8; font-weight:bold; flex-shrink:0;">分组</span>
-                    <div style="display:flex; align-items:center; justify-content:flex-end; overflow-x:auto;">
-                        ${groupTagHtml}
+                <div style="width:110px; text-align:right; margin-right:30px;">
+                    <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
+                    <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:2px;">
+                        <span class="${col}" style="font-size:11px; font-weight:bold;">${valSign}${chgVal}</span>
+                        <span class="${col}" style="font-size:11px; font-weight:bold; background:rgba(0,0,0,0.03); padding:1px 4px; border-radius:4px;">${rateSign}${chgRate}%</span>
                     </div>
                 </div>
             </div>`; 
-
             return { html, rawChgRate, rawFlowAmt, originalIndex: index };
-        });
+        }); 
 
         renderItems.sort((a, b) => {
             if (this.marketSortRule === 'chg') return this.marketSortDir === 'desc' ? b.rawChgRate - a.rawChgRate : a.rawChgRate - b.rawChgRate;
@@ -3108,135 +3021,45 @@ getCorrectSecid(savedSecid, code, groupType) {
     } 
   },
 
-  // --- 1. 点击标签上的小「✕」，手动取消该分组标签 ---
-  removeStockFromGroup(e, secid, groupId) {
-    this.stopProp(e);
-    const groupKey = this.currentMarketGroup;
-    const list = this.data.marketGroups[groupKey] || [];
-    const item = list.find(m => m.secid === secid || m.querySecid === secid);
-    if (!item) return;
 
-    if (!Array.isArray(item.stockGroups)) {
-      item.stockGroups = item.bindStockGroup ? [item.bindStockGroup] : [];
-    }
+  // --- 2. 新增：打开行情绑定分组弹窗 ---
+  openMarketGroupSelect(e, secid) {
+      this.stopProp(e);
+      this.targetMarketSecid = secid;
+      const groupKey = this.currentMarketGroup;
+      const marketItem = this.data.marketGroups[groupKey].find(m => m.secid === secid || m.querySecid === secid);
 
-    const g = (this.data.stockCustomGroups || []).find(x => x.id === groupId);
-    const gName = g ? g.name : '该分组';
-
-    // 移除指定的分组标签
-    item.stockGroups = item.stockGroups.filter(id => id !== groupId);
-    delete item.bindStockGroup;
-
-    // 当所有标签均被取消时，则从全部分组（自选库）中彻底删除该股票
-    if (item.stockGroups.length === 0) {
-      this.data.marketGroups[groupKey] = list.filter(m => m.secid !== secid && m.querySecid !== secid);
-      this.saveData();
-      this.showToast(`已从 [${gName}] 移出，无标签归属已彻底从自选删除`);
-    } else {
-      this.saveData();
-      this.showToast(`已从 [${gName}] 分组中移出`);
-    }
-    this.renderWatchedMarkets();
-  },
-
-  // --- 2. 打开分组选择弹窗（支持多选切换）---
-  openMarketGroupSelect(e, secid, targetGroupType) {
-    this.stopProp(e);
-    const groupKey = targetGroupType || this.currentMarketGroup;
-    this.targetMarketSecid = secid;
-    this.targetMarketGroupType = groupKey;
-
-    const marketList = this.data.marketGroups[groupKey] || [];
-    const marketItem = marketList.find(m => m.secid === secid || m.querySecid === secid);
-    if (!marketItem) return;
-
-    if (!Array.isArray(marketItem.stockGroups)) {
-      marketItem.stockGroups = marketItem.bindStockGroup ? [marketItem.bindStockGroup] : [];
-    }
-
-    let html = '';
-    const modalTitleEl = document.querySelector('#modal-market-group-select .nav-bar span') || document.querySelector('#modal-market-group-select div[style*="font-weight:800"] span');
-
-    // 股票与 ETF：展示所有自定义股票分组进行多选切换
-    if (groupKey === 'stock' || groupKey === 'etf') {
-      if (modalTitleEl) modalTitleEl.innerText = '设置股票所属分组 (可多选)';
-      const sGroups = (this.data.stockCustomGroups || []).filter(g => g.id !== 'default');
-      
-      if (sGroups.length === 0) {
-        html = '<div style="padding:15px; color:#94a3b8; font-size:12px; width:100%; text-align:center;">暂无自定义股票分组，请先在行情页点击“＋”号新建分组</div>';
-      } else {
-        html = sGroups.map(g => {
-          const isBelong = marketItem.stockGroups.includes(g.id);
-          return `
-            <div class="action-pill ${isBelong ? 'active' : ''}" style="${isBelong ? 'background:#0066ff; color:#fff;' : ''}" onclick="app.toggleStockGroupBelong(event, '${g.id}')">
-              ${isBelong ? '✓ ' : '+ '}📂 ${g.name}
-            </div>`;
-        }).join('');
-      }
-
-      html += `<div style="font-size:11px; color:#94a3b8; width:100%; margin-top:12px; text-align:center;">提示：点击标签切换归属，当所有分组均取消时，该股票将从自选库删除</div>`;
-    } else {
-      // 指数菜单保持原样绑定基金分组
-      if (modalTitleEl) modalTitleEl.innerText = '绑定基金分组 (单选)';
-      html = this.data.groups.map(g => {
-        const isSel = marketItem && marketItem.bindGroup === g.id;
-        return `<div class="action-pill ${isSel ? 'active' : ''}" onclick="app.bindMarketToGroup(event, '${g.id}')">${g.name}</div>`;
+      // 渲染已有分组列表
+      let html = this.data.groups.map(g => {
+          let isSel = marketItem && marketItem.bindGroup === g.id;
+          return `<div class="action-pill ${isSel ? 'active' : ''}" onclick="app.bindMarketToGroup(event, '${g.id}')">${g.name}</div>`;
       }).join('');
-      html += `<div class="action-pill" style="background:#fff1f2; color:var(--red); border:1px solid #ffe4e6; margin-top:8px;" onclick="app.bindMarketToGroup(event, null)">取消绑定</div>`;
-    }
-
-    document.getElementById('market-group-select-list').innerHTML = html;
-    this.openModal('market-group-select');
-  },
-
-  // --- 3. 弹窗内点击某个分组执行添加或移除 ---
-  toggleStockGroupBelong(e, groupId) {
-    this.stopProp(e);
-    const groupKey = this.targetMarketGroupType || this.currentMarketGroup;
-    const list = this.data.marketGroups[groupKey] || [];
-    const item = list.find(m => m.secid === this.targetMarketSecid || m.querySecid === this.targetMarketSecid);
-    if (!item) return;
-
-    if (!Array.isArray(item.stockGroups)) {
-      item.stockGroups = item.bindStockGroup ? [item.bindStockGroup] : [];
-    }
-
-    const g = (this.data.stockCustomGroups || []).find(x => x.id === groupId);
-    const gName = g ? g.name : '该分组';
-
-    if (item.stockGroups.includes(groupId)) {
-      // 已经包含，点击则移出
-      item.stockGroups = item.stockGroups.filter(id => id !== groupId);
-      delete item.bindStockGroup;
       
-      // 所有标签都被取消时，彻底删除
-      if (item.stockGroups.length === 0) {
-        this.data.marketGroups[groupKey] = list.filter(m => m.secid !== this.targetMarketSecid && m.querySecid !== this.targetMarketSecid);
-        this.saveData();
-        this.closeModal('market-group-select');
-        this.showToast(`已移除所有标签，【${item.name}】已从自选中删除`);
-        this.renderWatchedMarkets();
-        return;
-      } else {
-        this.showToast(`已从 [${gName}] 移出`);
-      }
-    } else {
-      // 尚未包含，点击加入
-      item.stockGroups.push(groupId);
-      this.showToast(`已成功加入 [${gName}]`);
-    }
+      // 增加一个清除绑定的按钮
+      html += `<div class="action-pill" style="background:#fff1f2; color:var(--red); border: 1px solid #ffe4e6;" onclick="app.bindMarketToGroup(event, null)">取消绑定</div>`;
 
-    this.saveData();
-    this.openMarketGroupSelect(e, this.targetMarketSecid, groupKey); // 刷新弹窗内勾选状态
-    this.renderWatchedMarkets(); // 同步刷新底层卡片
+      document.getElementById('market-group-select-list').innerHTML = html;
+      this.openModal('market-group-select');
   },
 
-  // --- 点击股票卡片上的股票分组标签，快捷切换并筛选该股票分组 ---
-  switchStockGroupFilter(e, stockGroupId) {
-    this.stopProp(e);
-    this.currentStockGroupId = stockGroupId;
-    this.renderStockGroups();
-    this.renderWatchedMarkets();
+  // --- 3. 新增：执行绑定/解绑行情到分组 ---
+  bindMarketToGroup(e, groupId) {
+      this.stopProp(e);
+      const groupKey = this.currentMarketGroup;
+      const marketItem = this.data.marketGroups[groupKey].find(m => m.secid === this.targetMarketSecid || m.querySecid === this.targetMarketSecid);
+      
+      if (marketItem) {
+          if (groupId === null) {
+              delete marketItem.bindGroup;
+              this.showToast('已取消绑定');
+          } else {
+              marketItem.bindGroup = groupId;
+              this.showToast('绑定分组成功');
+          }
+          this.saveData(); // 保存到本地存储
+          this.renderWatchedMarkets(); // 重新渲染列表刷新UI
+      }
+      this.closeModal('market-group-select');
   },
 
   // --- 4. 新增：点击已绑定的标签，跳转到自选页对应的分组 ---
@@ -3264,47 +3087,27 @@ getCorrectSecid(savedSecid, code, groupType) {
     } 
   },
   
+   // 3. 完全替换 addWatchedMarket (防止新增时存入被污染的前缀)
   addWatchedMarket(secid, name, code) { 
     const groupKey = this.currentMarketGroup; 
     if (!this.data.marketGroups[groupKey]) this.data.marketGroups[groupKey] = []; 
     
     const targetList = this.data.marketGroups[groupKey]; 
+    
+    // 如果 secid 没有带小数点，再用规则生成；如果有小数点，说明是搜索接口返回的正确数据，直接信任！
     let finalSecid = secid;
     if (!String(finalSecid).includes('.')) {
         finalSecid = this.getCorrectSecid(secid, code, groupKey);
     }
     
-    const existItem = targetList.find(m => m.secid === finalSecid || m.code === code);
-    const isSpecificStockGroup = (groupKey === 'stock' && this.currentStockGroupId && this.currentStockGroupId !== 'default');
-
-    if (existItem) {
-      if (!Array.isArray(existItem.stockGroups)) {
-        existItem.stockGroups = existItem.bindStockGroup ? [existItem.bindStockGroup] : [];
-      }
-      if (isSpecificStockGroup) {
-        if (!existItem.stockGroups.includes(this.currentStockGroupId)) {
-          existItem.stockGroups.push(this.currentStockGroupId);
-        }
-        const curGroup = (this.data.stockCustomGroups || []).find(g => g.id === this.currentStockGroupId);
-        this.saveData();
-        this.showToast(`✅ 已将【${name}】加入分组 [${curGroup?.name || ''}]`);
-        this.renderWatchedMarkets();
-      } else {
-        this.showToast(`该标的已在自选列表中`, 'warning');
-      }
-    } else {
-      const newItem = { secid: finalSecid, name, code, stockGroups: [] };
-      if (isSpecificStockGroup) {
-        newItem.stockGroups.push(this.currentStockGroupId);
-      }
-      targetList.push(newItem);
-      this.saveData();
-
-      const curGroup = isSpecificStockGroup ? (this.data.stockCustomGroups || []).find(g => g.id === this.currentStockGroupId) : null;
-      this.showToast(curGroup ? `✅ 已添加并加入 [${curGroup.name}]` : `✅ 添加成功`);
-      this.renderWatchedMarkets();
-    }
-
+    if (targetList.some(m => m.secid === finalSecid)) { 
+        this.showToast(`该${groupKey === 'index' ? '指数' : '股票'}已在自选列表中`, 'error'); 
+    } else { 
+        targetList.push({ secid: finalSecid, name, code }); 
+        this.saveData(); 
+        this.showToast(`✅ 添加至${groupKey === 'index' ? '指数' : '股票'}分组成功`); 
+        this.renderWatchedMarkets(); 
+    } 
     document.getElementById('market-search-input').value = ''; 
     document.getElementById('market-search-res').style.display = 'none'; 
   },
@@ -3346,331 +3149,6 @@ getCorrectSecid(savedSecid, code, groupType) {
 // ==========================================
   // 10. 股票行情大厅模块 (含弹窗初始化清理)
   // ==========================================
-  // 1. 初始化中补齐股票分组状态
-  currentStockGroupId: 'default',
-  // --- 修复版：防迟到抛错的安全 JSONP 请求工具 ---
-  fetchJSONPSafely(url, callbackParam = 'cb') {
-    return new Promise((resolve) => {
-      const cbName = 'jsonp_kline_' + Math.floor(Math.random() * 1000000) + '_' + Date.now();
-      const script = document.createElement('script');
-      
-      const sep = url.includes('?') ? '&' : '?';
-      script.src = `${url}${sep}${callbackParam}=${cbName}`;
-
-      let isFinished = false;
-
-      // 成功回调
-      window[cbName] = (data) => {
-        if (!isFinished) {
-          isFinished = true;
-          resolve(data);
-        }
-        // 关键修复：绝不能立即 delete，将其置为空函数，避免东财请求慢延时返回时报 ReferenceError
-        window[cbName] = () => {};
-        setTimeout(() => { delete window[cbName]; }, 30000); // 30秒后再安全垃圾回收
-        if (script.parentNode) script.remove();
-      };
-
-      // 错误回调
-      script.onerror = () => {
-        if (!isFinished) {
-          isFinished = true;
-          resolve(null);
-        }
-        window[cbName] = () => {};
-        setTimeout(() => { delete window[cbName]; }, 30000);
-        if (script.parentNode) script.remove();
-      };
-
-      document.head.appendChild(script);
-
-      // 5秒超时安全降级
-      setTimeout(() => {
-        if (!isFinished) {
-          isFinished = true;
-          resolve(null);
-          // 超时后保留空函数占位，防止后续数据到达时报错
-          window[cbName] = () => {};
-          setTimeout(() => { delete window[cbName]; }, 30000);
-          if (script.parentNode) script.remove();
-        }
-      }, 5000);
-    });
-  },
-
-  switchMarketGroup(group) { 
-    this.currentMarketGroup = group; 
-    document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
-    document.getElementById('market-group-stock').className = group === 'stock' ? 'action-pill active' : 'action-pill'; 
-    document.getElementById('market-group-etf').className = group === 'etf' ? 'action-pill active' : 'action-pill'; 
-    const superBtn = document.getElementById('market-group-super');
-    if (superBtn) superBtn.className = group === 'super' ? 'action-pill active' : 'action-pill'; 
-
-    const stockBar = document.getElementById('stock-group-bar');
-    if (stockBar) {
-      stockBar.style.display = group === 'stock' ? 'flex' : 'none';
-      if (group === 'stock') {
-        this.renderStockGroups();
-      } else {
-        // 切换至其他菜单时，将股票分组筛选状态安全重置回全部
-        this.currentStockGroupId = 'default';
-      }
-    }
-
-    if (group === 'super') {
-      this.renderSuperStocksScan();
-    } else {
-      this.renderWatchedMarkets(); 
-    }
-  },
-
-  // --- 修复版：优股批量限流扫描引擎（分批并发，防止被东财防火墙掐断连接）---
-  async renderSuperStocksScan() {
-    const container = document.getElementById('market-watched-list');
-    const stockList = (this.data.marketGroups.stock || []).map(i => ({ ...i, category: '股票' }));
-    const etfList = (this.data.marketGroups.etf || []).map(i => ({ ...i, category: 'ETF' }));
-    const allTargets = [...stockList, ...etfList];
-
-    if (allTargets.length === 0) {
-      container.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#94a3b8; font-weight:bold;">自选股票与 ETF 池为空，请先在「股票」或「ETF」选项卡添加关注的标的</div>';
-      return;
-    }
-
-    container.innerHTML = `
-      <div style="text-align:center; padding:40px 20px; background:#fff; border-radius:12px; margin:10px 0; border:1px solid #e2e8f0; grid-column: 1 / -1;">
-        <div class="loading-spinner" style="margin:0 auto 15px auto;"></div>
-        <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">MACD + KDJ + BOLL 全指标扫描中</div>
-        <div id="super-scan-progress" style="font-size:12px; color:var(--text-sub);">正在对自选池内 ${allTargets.length} 只标的进行平滑分析 (0 / ${allTargets.length})...</div>
-      </div>
-    `;
-
-    const matchedItems = [];
-    const progressEl = document.getElementById('super-scan-progress');
-
-    // 采用 4 只标的一组的节流队列并发，杜绝瞬间高并发导致的 ERR_EMPTY_RESPONSE
-    const batchSize = 4;
-    for (let i = 0; i < allTargets.length; i += batchSize) {
-      const chunk = allTargets.slice(i, i + batchSize);
-      
-      await Promise.all(chunk.map(async (item) => {
-        try {
-          const targetType = item.category === 'ETF' ? 'etf' : 'stock';
-          const querySecid = this.getCorrectSecid(item.secid, item.code, targetType);
-          const klines = await this._fetchMarketHistoryKlines(querySecid, 65);
-          if (!klines || klines.length < 26) return;
-
-          const closes = klines.map(k => k.close);
-          const highs = klines.map(k => k.high);
-          const lows = klines.map(k => k.low);
-          const N = closes.length;
-          const latestPrice = closes[N - 1];
-
-          // 1. MACD
-          const calcEMA = (data, p) => {
-            let k = 2 / (p + 1);
-            let ema = [data[0]];
-            for (let idx = 1; idx < data.length; idx++) ema.push(data[idx] * k + ema[idx - 1] * (1 - k));
-            return ema;
-          };
-          const ema12 = calcEMA(closes, 12);
-          const ema26 = calcEMA(closes, 26);
-          const dif = ema12.map((val, idx) => val - ema26[idx]);
-          const dea = calcEMA(dif, 9);
-          const macd = dif.map((val, idx) => (val - dea[idx]) * 2);
-
-          const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
-          const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
-          const isMacdBuy = (prevDIF <= prevDEA && curDIF > curDEA) || (curDIF > curDEA && curMACD >= prevMACD) || (curDIF < 0 && curMACD > prevMACD && prevMACD < 0);
-
-          // 2. KDJ
-          let kArr = [50], dArr = [50], jArr = [50];
-          for (let idx = 8; idx < N; idx++) {
-            let periodHigh = Math.max(...highs.slice(idx - 8, idx + 1));
-            let periodLow = Math.min(...lows.slice(idx - 8, idx + 1));
-            let rsv = periodHigh === periodLow ? 50 : ((closes[idx] - periodLow) / (periodHigh - periodLow)) * 100;
-            let nextK = (2 / 3) * kArr[kArr.length - 1] + (1 / 3) * rsv;
-            let nextD = (2 / 3) * dArr[dArr.length - 1] + (1 / 3) * nextK;
-            let nextJ = 3 * nextK - 2 * nextD;
-            kArr.push(nextK); dArr.push(nextD); jArr.push(nextJ);
-          }
-          const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
-          const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
-          const isKdjBuy = (prevK <= prevD && curK > curD) || curJ < 5 || (curK < 40 && curK > prevK);
-
-          // 3. BOLL
-          const bollSlice = closes.slice(-20);
-          const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
-          const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
-          const bollUpper = bollMid + 2 * bollStd;
-          const bollLower = bollMid - 2 * bollStd;
-          const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
-          const isBollBuy = bollPct <= 25 || (latestPrice > bollMid && closes[N - 1] >= closes[N - 2]);
-
-          if (isMacdBuy && isKdjBuy && isBollBuy) {
-            const chg = ((closes[N - 1] - closes[N - 2]) / closes[N - 2]) * 100;
-            matchedItems.push({
-              name: item.name,
-              code: item.code,
-              secid: querySecid,
-              category: item.category,
-              price: latestPrice.toFixed(2),
-              chgRate: chg.toFixed(2),
-              curJ: curJ.toFixed(1),
-              bollPct: bollPct.toFixed(0)
-            });
-          }
-        } catch(e) {}
-      }));
-
-      // 更新进度
-      if (progressEl) {
-        progressEl.innerText = `正在对自选池内 ${allTargets.length} 只标的进行平滑分析 (${Math.min(i + batchSize, allTargets.length)} / ${allTargets.length})...`;
-      }
-
-      // 批次间微休眠 50ms，保持请求节奏平稳
-      if (i + batchSize < allTargets.length) {
-        await new Promise(r => setTimeout(r, 50));
-      }
-    }
-
-    if (matchedItems.length === 0) {
-      container.innerHTML = `
-        <div style="text-align:center; padding:50px 20px; color:#94a3b8; grid-column:1 / -1;">
-          <div style="font-size:36px; margin-bottom:10px;">📉</div>
-          <div style="font-weight:bold; color:var(--text-main); font-size:15px;">当前暂无三指标全部看多的标的</div>
-          <div style="font-size:12px; margin-top:6px;">建议防守观望，等待市场出现多头金叉共振</div>
-        </div>
-      `;
-      return;
-    }
-
-    // 渲染优股/优选 ETF 卡片
-    container.innerHTML = matchedItems.map(s => {
-      const col = parseFloat(s.chgRate) >= 0 ? 'red' : 'green';
-      const sign = parseFloat(s.chgRate) > 0 ? '+' : '';
-      const catColor = s.category === 'ETF' ? '#f59e0b' : '#0066ff';
-      const catBg = s.category === 'ETF' ? '#fef3c7' : '#e6f0ff';
-      return `
-        <div class="list-item" style="border-left:4px solid #f43f5e;" onclick="app.openMarketDetail('${s.secid}', '${s.name}')">
-          <div style="flex:1;">
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span style="font-weight:900; font-size:16px;">${s.name}</span>
-              <span class="c-code">${s.code}</span>
-              <span class="c-tag" style="background:${catBg}; color:${catColor}; font-weight:900;">${s.category}</span>
-              <span class="c-tag" style="background:#fff1f2; color:#f43f5e; font-weight:900;">🎯 三指标全多</span>
-            </div>
-            <div style="display:flex; gap:6px; margin-top:6px; font-size:11px;">
-              <span class="c-tag" style="background:#eff6ff; color:#3b82f6;">MACD 看多</span>
-              <span class="c-tag" style="background:#fffbeb; color:#d97706;">KDJ 拐点</span>
-              <span class="c-tag" style="background:#f5f3ff; color:#7c3aed;">BOLL 支撑</span>
-            </div>
-          </div>
-          <div style="text-align:right;">
-            <div class="${col}" style="font-size:18px; font-weight:900;">${s.price}</div>
-            <div class="${col}" style="font-size:12px; font-weight:bold; margin-top:2px;">${sign}${s.chgRate}%</div>
-          </div>
-        </div>
-      `;
-    }).join('');
-  },
-
-  // 3. 渲染股票分组 Tabs
-  renderStockGroups() {
-    if (!this.data.stockCustomGroups || this.data.stockCustomGroups.length === 0) {
-      this.data.stockCustomGroups = [{ id: 'default', name: '全部', stockCodes: [] }];
-    }
-    const scrollBox = document.getElementById('stock-groups-scroll');
-    if (!scrollBox) return;
-    scrollBox.innerHTML = this.data.stockCustomGroups.map(g => {
-      return `<div class="action-pill ${g.id === this.currentStockGroupId ? 'active' : ''}" onclick="app.currentStockGroupId='${g.id}'; app.renderStockGroups(); app.renderWatchedMarkets();">${g.name}</div>`;
-    }).join('');
-  },
-
-  // 4. 新建股票分组
-  createStockGroup() {
-    let name = prompt('请输入新股票分组名称:');
-    if (name && name.trim()) {
-      name = name.trim();
-      if (!this.data.stockCustomGroups) this.data.stockCustomGroups = [{ id: 'default', name: '全部', stockCodes: [] }];
-      if (this.data.stockCustomGroups.some(g => g.name === name)) {
-        return alert('该分组名称已存在');
-      }
-      this.data.stockCustomGroups.push({ id: 'sg_' + Date.now(), name, stockCodes: [] });
-      this.saveData();
-      this.renderStockGroups();
-      if (document.getElementById('modal-stock-group-mgr').classList.contains('active')) {
-        this.renderStockGroupMgrList();
-      }
-      this.showToast('✅ 股票分组创建成功');
-    }
-  },
-
-  // 5. 打开股票分组管理弹窗
-  openStockGroupMgr() {
-    this.openModal('stock-group-mgr');
-    this.renderStockGroupMgrList();
-  },
-
-  // 6. 渲染股票分组管理列表
-  renderStockGroupMgrList() {
-    const box = document.getElementById('stock-group-mgr-list');
-    if (!box) return;
-    const h = 50;
-    const list = this.data.stockCustomGroups || [];
-    box.style.height = (list.length * h) + 'px';
-    box.innerHTML = list.map((g, i) => {
-      const top = i * h;
-      const isDefault = g.id === 'default';
-      const right = isDefault 
-        ? `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f1f5f9;" onclick="app.clearStockGroup('${g.id}')">▤</div><div style="width:30px;"></div>`
-        : `<div class="m-btn" style="background:var(--blue-light); color:var(--blue);" onclick="app.renameStockGroup('${g.id}')">✎</div>
-           <div class="m-btn" style="background:#f1f5f9; color:var(--text-sub);" onclick="app.clearStockGroup('${g.id}')">▤</div>
-           <div class="m-del" onclick="app.delStockGroup('${g.id}')"></div>`;
-      return `
-        <div class="mgr-item" style="top:${top}px;">
-          <div class="m-left"><b>${g.name}</b></div>
-          <div class="m-actions" style="width:110px; justify-content:space-between;">${right}</div>
-        </div>`;
-    }).join('');
-  },
-
-  // 7. 股票分组的改名、清空、删除
-  renameStockGroup(id) {
-    const g = (this.data.stockCustomGroups || []).find(x => x.id === id);
-    if (!g) return;
-    const nn = prompt('修改分组名称:', g.name);
-    if (nn && nn.trim() && nn.trim() !== g.name) {
-      g.name = nn.trim();
-      this.saveData();
-      this.renderStockGroupMgrList();
-      this.renderStockGroups();
-    }
-  },
-
-  clearStockGroup(id) {
-    if (confirm('确认清空该股票分组内的代码？')) {
-      const g = (this.data.stockCustomGroups || []).find(x => x.id === id);
-      if (g) {
-        g.stockCodes = [];
-        this.saveData();
-        this.renderStockGroups();
-        this.renderWatchedMarkets();
-        this.showToast('已清空');
-      }
-    }
-  },
-
-  delStockGroup(id) {
-    if (confirm('确定删除该股票分组？')) {
-      this.data.stockCustomGroups = (this.data.stockCustomGroups || []).filter(x => x.id !== id);
-      if (this.currentStockGroupId === id) this.currentStockGroupId = 'default';
-      this.saveData();
-      this.renderStockGroupMgrList();
-      this.renderStockGroups();
-      this.renderWatchedMarkets();
-      this.showToast('已删除');
-    }
-  },
   openMarketDetail(secid, name) { 
       this.marketState.currentSecid = secid; 
       this.marketState.chartType = 'trend'; 
@@ -3687,9 +3165,6 @@ getCorrectSecid(savedSecid, code, groupType) {
       document.getElementById('md-open').innerText = '--';
       document.getElementById('md-high').innerText = '--';
       document.getElementById('md-low').innerText = '--';
-      if (document.getElementById('md-turnover')) document.getElementById('md-turnover').innerText = '--';
-      if (document.getElementById('md-totalval')) document.getElementById('md-totalval').innerText = '--';
-      if (document.getElementById('md-pe')) document.getElementById('md-pe').innerText = '--';
     
       // 2. 标题更新
       document.getElementById('md-title').innerText = name; 
@@ -3734,28 +3209,399 @@ getCorrectSecid(savedSecid, code, groupType) {
     }
   },
   
-  
+  async refreshMarketDetail() { 
+    const secid = this.marketState.currentSecid; 
+    if (!secid) return; 
+    
+    // 获取资金流向DOM节点，先隐藏
+    const flowArea = document.getElementById('md-fund-flow-area');
+    if (flowArea) flowArea.style.display = 'none'; 
+    
+   // 注意 url 的 fields 中增加了 f59 字段（东方财富详情接口的精度字段）
+    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170&_=${Date.now()}`; 
+    try { 
+      const res = await fetchJSONP(pkUrl, 'cb'); 
+      const d = res?.data; 
+      if (d) { 
+        // 动态设置当前全局精度
+        if (d.f59 !== undefined && !isNaN(d.f59)) {
+            this.marketState.currentDecimals = parseInt(d.f59);
+        }
+        let dec = this.marketState.currentDecimals;
 
-   // 【优化版】：近 20 日主力净流入柱状图（数值根据 >= 1亿 动态显示“亿”或“万”）
-  renderFundFlowChart(data) {
+        const curPrice = parseFloat(d.f43); 
+        const price = !isNaN(curPrice) ? curPrice.toFixed(dec) : '--'; 
+        let chgVal = '--', chgRate = '--'; 
+        if (d.f169 !== undefined && d.f169 !== '-' && !isNaN(d.f169)) chgVal = parseFloat(d.f169).toFixed(dec); 
+        if (d.f170 !== undefined && d.f170 !== '-' && !isNaN(d.f170)) chgRate = parseFloat(d.f170).toFixed(2); 
+        const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green'; 
+        
+        const prevCloseRaw = parseFloat(d.f60);
+        let calculatedPrev = (!isNaN(curPrice) && chgVal !== '--') ? (curPrice - parseFloat(chgVal)) : 0;
+        this.marketState.currentPrevClose = (!isNaN(prevCloseRaw) && prevCloseRaw > 0) ? prevCloseRaw : calculatedPrev;
+        
+        document.getElementById('md-price').innerText = price; 
+        document.getElementById('md-price').className = col; 
+        document.getElementById('md-chg-val').innerText = (chgVal !== '--' && parseFloat(chgVal) > 0 ? '+' : '') + chgVal; 
+        document.getElementById('md-chg-val').className = col; 
+        document.getElementById('md-chg-rate').innerText = (chgRate !== '--' && parseFloat(chgRate) > 0 ? '+' : '') + chgRate + '%'; 
+        document.getElementById('md-chg-rate').className = col; 
+        
+        const fmt = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v).toFixed(dec) : '--'; 
+        const fmtVol = (v) => { 
+          if (v === undefined || v === '-' || isNaN(v)) return '--'; 
+          const n = parseFloat(v); 
+          if (n >= 100000000) return (n/100000000).toFixed(2)+'亿'; 
+          if (n >= 10000) return (n/10000).toFixed(0)+'万'; 
+          return n.toFixed(0); 
+        }; 
+        document.getElementById('md-high').innerText = fmt(d.f44); 
+        document.getElementById('md-open').innerText = fmt(d.f46); 
+        document.getElementById('md-low').innerText = fmt(d.f45); 
+        document.getElementById('md-prev').innerText = this.marketState.currentPrevClose > 0 ? this.marketState.currentPrevClose.toFixed(dec) : '--'; 
+        document.getElementById('md-vol').innerText = fmtVol(d.f47); 
+        document.getElementById('md-amt').innerText = fmtVol(d.f48); 
+        
+        const chgAbsEl = document.getElementById('md-chg-abs'); 
+        if (chgAbsEl) chgAbsEl.innerHTML = `<span class="${col}">${chgVal !== '--' && parseFloat(chgVal)>0?'+':''}${chgVal}</span>`; 
+        const ampEl = document.getElementById('md-amp'); 
+        if (ampEl) { 
+          const hi = parseFloat(d.f44), lo = parseFloat(d.f45); 
+          if (!isNaN(hi) && !isNaN(lo) && this.marketState.currentPrevClose > 0) ampEl.innerText = ((hi - lo) / this.marketState.currentPrevClose * 100).toFixed(2) + '%'; else ampEl.innerText = '--'; 
+        } 
+        const vrEl = document.getElementById('md-volratio'); 
+        if (vrEl) vrEl.innerText = (d.f50 !== undefined && d.f50 !== '-' && !isNaN(d.f50)) ? parseFloat(d.f50).toFixed(2) : '--'; 
+        const dTime = new Date(); 
+        document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
+      } 
+    } catch(e) {} 
+
+    // --- 2. 获取资金流向 (实时快照 + 历史兜底双擎模式) ---
+    const inOutEl = document.getElementById('ff-main-inout');
+    const breakdownEl = document.getElementById('ff-daily-breakdown');
+    const historyEl = document.getElementById('ff-history-chart');
+    if (inOutEl) inOutEl.innerHTML = '';
+    if (breakdownEl) breakdownEl.innerHTML = '<div style="text-align:center; padding:10px; color:#94a3b8;">数据加载中...</div>';
+    if (historyEl) historyEl.innerHTML = '';
+
+    let snapshotFlow = null;
+    let historyFlowData = [];
+    let latestHistoryDay = null;
+
+    // A. 尝试获取实时快照
+    const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f66,f67,f70,f72,f73,f76,f78,f79,f82,f84,f85,f138,f139,f141,f142,f144,f145,f147,f148&_=${Date.now()}`;
+    try {
+        const res = await fetchJSONP(flowUrl, 'cb');
+        if (res?.data) {
+            snapshotFlow = res.data;
+        }
+    } catch(e) {}
+
+    // B. 获取近 20 天历史资金
+    const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=20&secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&_=${Date.now()}`;
+    try {
+        const res = await fetchJSONP(hisFlowUrl, 'cb');
+        const klines = res?.data?.klines;
+        if (klines && klines.length > 0) {
+            historyFlowData = klines.map(str => {
+                const p = str.split(',');
+                return {
+                    date: p[0].slice(5),
+                    mainNet: parseFloat(p[1]) || 0,
+                    sNet: parseFloat(p[2]) || 0,
+                    mNet: parseFloat(p[3]) || 0,
+                    lNet: parseFloat(p[4]) || 0,
+                    xlNet: parseFloat(p[5]) || 0
+                };
+            });
+            latestHistoryDay = historyFlowData[historyFlowData.length - 1]; 
+        }
+    } catch(e) {}
+
+    // C. 混合渲染逻辑
+    if (snapshotFlow || latestHistoryDay) {
+        if (flowArea) flowArea.style.display = 'block';
+
+        let mainNet = 0, xlNet = 0, lNet = 0, mNet = 0, sNet = 0;
+        let mainIn = 0, mainOut = 0, hasAbsoluteInOut = false;
+
+        // 优先使用实时快照
+        if (snapshotFlow) {
+            // 【核心修复】：严格区分板块和个股的字段，绝不混用！
+            const isSector = secid.startsWith('90.');
+            
+            if (isSector) {
+                // 板块专属字段 (f138 ~ f148)
+                const xlIn = parseFloat(snapshotFlow.f138) || 0;
+                const xlOut = parseFloat(snapshotFlow.f139) || 0;
+                xlNet = xlIn - xlOut;
+
+                const lIn = parseFloat(snapshotFlow.f141) || 0;
+                const lOut = parseFloat(snapshotFlow.f142) || 0;
+                lNet = lIn - lOut;
+
+                const mIn = parseFloat(snapshotFlow.f144) || 0;
+                const mOut = parseFloat(snapshotFlow.f145) || 0;
+                mNet = mIn - mOut;
+
+                const sIn = parseFloat(snapshotFlow.f147) || 0;
+                const sOut = parseFloat(snapshotFlow.f148) || 0;
+                sNet = sIn - sOut;
+
+                mainIn = xlIn + lIn;
+                mainOut = xlOut + lOut;
+                mainNet = mainIn - mainOut; // 板块主力净流入自行相减最准
+            } else {
+                // 个股专属字段 (f62 ~ f85)
+                const xlIn = parseFloat(snapshotFlow.f66) || 0;
+                const xlOut = parseFloat(snapshotFlow.f67) || 0;
+                xlNet = parseFloat(snapshotFlow.f64) || (xlIn - xlOut);
+
+                const lIn = parseFloat(snapshotFlow.f72) || 0;
+                const lOut = parseFloat(snapshotFlow.f73) || 0;
+                lNet = parseFloat(snapshotFlow.f70) || (lIn - lOut);
+
+                const mIn = parseFloat(snapshotFlow.f78) || 0;
+                const mOut = parseFloat(snapshotFlow.f79) || 0;
+                mNet = parseFloat(snapshotFlow.f76) || (mIn - mOut);
+
+                const sIn = parseFloat(snapshotFlow.f84) || 0;
+                const sOut = parseFloat(snapshotFlow.f85) || 0;
+                sNet = parseFloat(snapshotFlow.f82) || (sIn - sOut);
+
+                mainIn = xlIn + lIn;
+                mainOut = xlOut + lOut;
+                
+                // 个股直接取 f62 净流入
+                if (snapshotFlow.f62 !== undefined && snapshotFlow.f62 !== '-') {
+                    mainNet = parseFloat(snapshotFlow.f62);
+                } else {
+                    mainNet = mainIn - mainOut;
+                }
+            }
+
+            if (mainIn > 0 || mainOut > 0) hasAbsoluteInOut = true;
+            
+        } 
+        // 实时快照失效（如周末），则无缝降级使用历史数据的最后一天
+        else if (latestHistoryDay) {
+            xlNet = latestHistoryDay.xlNet;
+            lNet = latestHistoryDay.lNet;
+            mNet = latestHistoryDay.mNet;
+            sNet = latestHistoryDay.sNet;
+            mainNet = latestHistoryDay.mainNet;
+            hasAbsoluteInOut = false; 
+        }
+
+        // 防拦截拦截：如果全都为0，说明接口可能返回空包
+        if (xlNet === 0 && lNet === 0 && mNet === 0 && sNet === 0 && mainNet === 0 && breakdownEl) {
+             breakdownEl.innerHTML = '<div style="text-align:center; padding:10px; color:#94a3b8;">暂无资金明细数据</div>';
+             if (inOutEl) inOutEl.innerHTML = '';
+        } else {
+            // 1. 渲染头部汇总信息
+            if (inOutEl) {
+                if (hasAbsoluteInOut) {
+                    inOutEl.innerHTML = `
+                        <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流入</span><span class="red" style="font-size:14px;">${this.formatFlowAmt(mainIn)}</span></div>
+                        <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流出</span><span class="green" style="font-size:14px;">${this.formatFlowAmt(mainOut)}</span></div>
+                        <div style="display:flex; flex-direction:column; align-items:center;"><span>净流入</span><span class="${mainNet>=0?'red':'green'}" style="font-size:14px;">${mainNet>0?'+':''}${this.formatFlowAmt(mainNet)}</span></div>
+                    `;
+                } else {
+                    inOutEl.innerHTML = `<div style="width:100%; text-align:center; padding: 4px 0;"><span>主力资金净流入</span><span class="${mainNet>=0?'red':'green'}" style="font-size:18px; margin-left:12px; font-weight:900;">${mainNet>0?'+':''}${this.formatFlowAmt(mainNet)}</span></div>`;
+                }
+            }
+
+            // 2. 渲染特大单、大单、中单、小单横向条形图
+            if (breakdownEl) {
+                const maxAbs = Math.max(Math.abs(xlNet), Math.abs(lNet), Math.abs(mNet), Math.abs(sNet), 1);
+                const buildRow = (label, val) => {
+                    const isPos = val >= 0;
+                    const pct = Math.min((Math.abs(val) / maxAbs) * 100, 100);
+                    const colorCls = isPos ? 'red' : 'green';
+                    const sign = isPos && val !== 0 ? '+' : '';
+                    return `
+                    <div class="flow-row">
+                        <span class="flow-label">${label}</span>
+                        <div class="flow-bar-container">
+                            <div class="flow-bar-left">${!isPos ? `<div class="f-bar green" style="width: ${pct}%;"></div>` : ''}</div>
+                            <div class="flow-bar-right">${isPos ? `<div class="f-bar red" style="width: ${pct}%;"></div>` : ''}</div>
+                        </div>
+                        <span class="flow-val ${colorCls}">${sign}${this.formatFlowAmt(val)}</span>
+                    </div>`;
+                };
+                breakdownEl.innerHTML = buildRow('特大单', xlNet) + buildRow('大单', lNet) + buildRow('中单', mNet) + buildRow('小单', sNet);
+            }
+        }
+
+        // 3. 渲染近20日柱状图
+        if (historyFlowData.length > 0) {
+            const chartData = historyFlowData.map(d => ({ date: d.date, netFlow: d.mainNet }));
+            this.renderFundFlowChart(chartData);
+        } else if (historyEl) {
+            historyEl.innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">暂无历史资金数据</div>';
+        }
+
+    } else {
+        if (flowArea) flowArea.style.display = 'none';
+    }
+
+   // --- 4. 抓取走势图数据并补齐缺失的顶部数据 ---
+    if (this.marketState.chartType === 'trend') { 
+      const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`; 
+      try { 
+        const res = await fetchJSONP(trendUrl, 'cb'); 
+        const trends = res?.data?.trends || []; 
+        const prePrice = res?.data?.prePrice;
+        let finalPrevClose = (prePrice && !isNaN(prePrice) && prePrice > 0) ? prePrice : this.marketState.currentPrevClose;
+        
+        if (trends.length > 0) { 
+          const parsed = trends.map(str => { 
+            const parts = str.split(','); 
+            return { time: parts[0], price: parseFloat(parts[1]) || 0, avgPrice: parseFloat(parts[2]) || 0, volume: parseInt(parts[5] || 0) }; 
+          }); 
+          
+          if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].price || 1;
+
+          const curPriceText = document.getElementById('md-price').innerText;
+          if (curPriceText === '--' || curPriceText === 'NaN') {
+               let validPrices = parsed.map(p => p.price).filter(p => p > 0);
+               if (validPrices.length > 0) {
+                   let latest = validPrices[validPrices.length - 1];
+                   let high = Math.max(...validPrices);
+                   let low = Math.min(...validPrices);
+                   let open = validPrices[0];
+                   let chgVal = latest - finalPrevClose;
+                   let chgRate = (chgVal / finalPrevClose) * 100;
+                   let col = chgRate >= 0 ? 'red' : 'green';
+
+                   let dec = this.marketState.currentDecimals || 2;
+                   document.getElementById('md-price').innerText = latest.toFixed(dec);
+                   document.getElementById('md-price').className = col;
+                   document.getElementById('md-chg-val').innerText = (chgVal > 0 ? '+' : '') + chgVal.toFixed(dec);
+                   document.getElementById('md-chg-val').className = col;
+                   document.getElementById('md-chg-rate').innerText = (chgRate > 0 ? '+' : '') + chgRate.toFixed(2) + '%';
+                   document.getElementById('md-chg-rate').className = col;
+
+                   document.getElementById('md-high').innerText = high.toFixed(dec);
+                   document.getElementById('md-low').innerText = low.toFixed(dec);
+                   document.getElementById('md-open').innerText = open.toFixed(dec);
+                   document.getElementById('md-prev').innerText = finalPrevClose.toFixed(dec);
+                   const dTime = new Date(); 
+                   document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`;
+               }
+          }
+
+          // 核心修复：引入各市场的日内总分钟数，防止盘中走势被横向过度拉伸
+          let totalPts = parsed.length;
+          if (this.marketState.currentTab === 'A') totalPts = 241;
+          else if (this.marketState.currentTab === 'HK') totalPts = 331;
+          else if (this.marketState.currentTab === 'US') totalPts = 391;
+
+          this.marketChartData = { 
+            type: 'trend', 
+            xLabels: parsed.map(p => p.time), 
+            prices: parsed.map(p => p.price), 
+            avgPrices: parsed.map(p => p.avgPrice), 
+            volumes: parsed.map(p => p.volume), 
+            prevClose: finalPrevClose, 
+            lastPrice: parsed[parsed.length-1]?.price || 0, 
+            timeStr: new Date().toLocaleTimeString(),
+            totalPoints: totalPts // 传入总刻度数
+          }; 
+          this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
+          this.bindChartEvents(); 
+        } 
+      } catch(e) {} 
+    } else { 
+      const klt = parseInt(this.marketState.chartType) || 101; 
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&_=${Date.now()}`; 
+      try { 
+        const res = await fetchJSONP(kUrl, 'cb'); 
+        const klines = res?.data?.klines || []; 
+        let finalPrevClose = this.marketState.currentPrevClose;
+        
+        if (klines.length > 0) { 
+          const parsed = klines.map(str => { 
+            const parts = str.split(','); 
+            return { date: parts[0], open: parseFloat(parts[1]) || 0, close: parseFloat(parts[2]) || 0, high: parseFloat(parts[3]) || 0, low: parseFloat(parts[4]) || 0, volume: parseInt(parts[5] || 0) }; 
+          }); 
+          if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].close || 1;
+
+          const calcMA = (data, days) => { 
+            let res = []; 
+            for(let i=0; i<data.length; i++){ 
+              if(i < days-1) { res.push(null); continue; } 
+              let sum=0; 
+              for(let j=0; j<days; j++) sum += data[i-j]; res.push(sum/days); 
+            } return res; 
+          }; 
+
+          // 计算 MACD 所需的 EMA 局部辅助函数
+          const calcEMALocal = (data, days) => { 
+            let k = 2 / (days + 1); 
+            let ema = [data[0]]; 
+            for (let i = 1; i < data.length; i++) {
+              ema.push(data[i] * k + ema[i - 1] * (1 - k)); 
+            }
+            return ema; 
+          }; 
+
+          const closePrices = parsed.map(p => p.close);
+          const ema12 = calcEMALocal(closePrices, 12);
+          const ema26 = calcEMALocal(closePrices, 26);
+          const dif = [];
+          for (let i = 0; i < closePrices.length; i++) {
+            dif.push(ema12[i] - ema26[i]);
+          }
+          const dea = calcEMALocal(dif, 9);
+          const macd = [];
+          for (let i = 0; i < closePrices.length; i++) {
+            macd.push((dif[i] - dea[i]) * 2);
+          }
+
+          this.marketChartData = { 
+            type: 'kline', 
+            xLabels: parsed.map(p => p.date), 
+            prices: closePrices,
+            opens: parsed.map(p => p.open),
+            highs: parsed.map(p => p.high),
+            lows: parsed.map(p => p.low),
+            ma5: calcMA(closePrices, 5), 
+            ma10: calcMA(closePrices, 10), 
+            ma20: calcMA(closePrices, 20), 
+            ma60: calcMA(closePrices, 60), 
+            dif: dif,
+            dea: dea,
+            macd: macd,
+            volumes: parsed.map(p => p.volume), 
+            prevClose: finalPrevClose, 
+            lastPrice: parsed[parsed.length-1]?.close || 0, 
+            timeStr: new Date().toLocaleTimeString() 
+          }; 
+          this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
+          this.bindChartEvents(); 
+        } 
+      } catch(e) {}
+    } 
+  },
+
+   renderFundFlowChart(data) {
     const container = document.getElementById('ff-history-chart');
     if (!container || !data || data.length === 0) {
         container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无历史资金数据</div>';
         return;
     }
 
-    // 保留原始元单位数值用于计算比例与单位判断
-    const processedData = data.map(item => ({
-        ...item,
-        rawFlow: item.netFlow,
-        absFlow: Math.abs(item.netFlow)
-    }));
+    const processedData = data.map(item => {
+        const netFlow = item.netFlow / 100000000;
+        return { ...item, netFlow: netFlow, absFlow: Math.abs(netFlow) };
+    });
 
-    const maxAbs = Math.max(...processedData.map(d => d.absFlow), 1);
+    const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
     
-    const barMaxHeight = 75;          
+    const barMaxHeight = 80;          
     const barMinHeight = 4;
-    const itemWidth = 72; // 略微放宽间距以保证“万”字文本完整展示
+    const itemWidth = 65; 
     const canvasHeight = 240;          
     const yZero = 120;                 
 
@@ -3765,6 +3611,7 @@ getCorrectSecid(savedSecid, code, groupType) {
     scrollDiv.style.webkitOverflowScrolling = 'touch';
     scrollDiv.style.margin = '0 -12px';
     scrollDiv.style.padding = '0 12px';
+    // 增加平滑滚动特性
     scrollDiv.style.scrollBehavior = 'smooth';
 
     const canvas = document.createElement('canvas');
@@ -3791,22 +3638,9 @@ getCorrectSecid(savedSecid, code, groupType) {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // 金额单位智能格式化：>=1亿显示“亿”，<1亿显示“万”
-    const formatFlowUnit = (val) => {
-        const abs = Math.abs(val);
-        const sign = val > 0 ? '+' : (val < 0 ? '-' : '');
-        if (abs >= 100000000) {
-            return `${sign}${(abs / 100000000).toFixed(2)}亿`;
-        } else if (abs >= 10000) {
-            return `${sign}${(abs / 10000).toFixed(2)}万`;
-        } else {
-            return `${sign}${abs.toFixed(0)}元`;
-        }
-    };
-
     processedData.forEach((item, idx) => {
         const x = idx * itemWidth + itemWidth / 2;
-        const isInflow = item.rawFlow >= 0;
+        const isInflow = item.netFlow >= 0;
         const barHeight = Math.max(barMinHeight, (item.absFlow / maxAbs) * barMaxHeight);
         
         let barY, barColor, valueY;
@@ -3824,19 +3658,20 @@ getCorrectSecid(savedSecid, code, groupType) {
         ctx.fillStyle = barColor;
         ctx.fillRect(x - 6, barY, 12, barHeight); 
 
-        // 绘制数值文本
-        const valueText = formatFlowUnit(item.rawFlow);
-        ctx.font = 'bold 9px sans-serif';
+        // 数值文字
+        const valueText = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
+        ctx.font = 'bold 10px sans-serif';
         ctx.fillStyle = barColor;
         ctx.textAlign = 'center';
         ctx.fillText(valueText, x, valueY);
 
-        // 绘制日期文本
+        // 日期文字
         ctx.font = '10px sans-serif';
         ctx.fillStyle = '#64748b';
         ctx.fillText(item.date, x, canvasHeight - 10);
     });
 
+    // 绘制完毕后，使用 setTimeout 强制滚动条滑动到最右侧（最新数据）
     setTimeout(() => {
         scrollDiv.scrollLeft = scrollDiv.scrollWidth;
     }, 50);
@@ -4668,467 +4503,20 @@ drawIntradayFlowCanvas(data) {
       `;
   },
 
-  // ==============================================================
-  // 行情详情刷新核心函数（严格语法校验闭合版）
-  // ==============================================================
-  async refreshMarketDetail() { 
-    const secid = this.marketState.currentSecid; 
-    if (!secid) return; 
-    
-    // 获取资金流向 DOM 容器
-    const flowArea = document.getElementById('md-fund-flow-area');
-    if (flowArea) flowArea.style.display = 'none'; 
-    
-    // --- 1. 获取基础报价与盘口数据 ---
-    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f116,f162,f167,f168,f169,f170&_=${Date.now()}`; 
-    try { 
-      const res = await fetchJSONP(pkUrl, 'cb'); 
-      const d = res?.data; 
-      if (d) { 
-        if (d.f59 !== undefined && !isNaN(d.f59)) {
-            this.marketState.currentDecimals = parseInt(d.f59);
-        }
-        let dec = this.marketState.currentDecimals || 2;
-
-        const curPrice = parseFloat(d.f43); 
-        const price = !isNaN(curPrice) ? curPrice.toFixed(dec) : '--'; 
-        let chgVal = '--', chgRate = '--'; 
-        if (d.f169 !== undefined && d.f169 !== '-' && !isNaN(d.f169)) chgVal = parseFloat(d.f169).toFixed(dec); 
-        if (d.f170 !== undefined && d.f170 !== '-' && !isNaN(d.f170)) chgRate = parseFloat(d.f170).toFixed(2); 
-        const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green'; 
-        
-        const prevCloseRaw = parseFloat(d.f60);
-        let calculatedPrev = (!isNaN(curPrice) && chgVal !== '--') ? (curPrice - parseFloat(chgVal)) : 0;
-        this.marketState.currentPrevClose = (!isNaN(prevCloseRaw) && prevCloseRaw > 0) ? prevCloseRaw : calculatedPrev;
-        
-        document.getElementById('md-price').innerText = price; 
-        document.getElementById('md-price').className = col; 
-        document.getElementById('md-chg-val').innerText = (chgVal !== '--' && parseFloat(chgVal) > 0 ? '+' : '') + chgVal; 
-        document.getElementById('md-chg-val').className = col; 
-        document.getElementById('md-chg-rate').innerText = (chgRate !== '--' && parseFloat(chgRate) > 0 ? '+' : '') + chgRate + '%'; 
-        document.getElementById('md-chg-rate').className = col; 
-        
-        const fmt = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v).toFixed(dec) : '--'; 
-        const fmtVol = (v) => { 
-          if (v === undefined || v === '-' || isNaN(v)) return '--'; 
-          const n = parseFloat(v); 
-          if (n >= 100000000) return (n/100000000).toFixed(2)+'亿'; 
-          if (n >= 10000) return (n/10000).toFixed(0)+'万'; 
-          return n.toFixed(0); 
-        }; 
-        document.getElementById('md-high').innerText = fmt(d.f44); 
-        document.getElementById('md-open').innerText = fmt(d.f46); 
-        document.getElementById('md-low').innerText = fmt(d.f45); 
-        document.getElementById('md-prev').innerText = this.marketState.currentPrevClose > 0 ? this.marketState.currentPrevClose.toFixed(dec) : '--'; 
-        document.getElementById('md-vol').innerText = fmtVol(d.f47); 
-        document.getElementById('md-amt').innerText = fmtVol(d.f48); 
-        
-        const chgAbsEl = document.getElementById('md-chg-abs'); 
-        if (chgAbsEl) chgAbsEl.innerHTML = `<span class="${col}">${chgVal !== '--' && parseFloat(chgVal)>0?'+':''}${chgVal}</span>`; 
-        const ampEl = document.getElementById('md-amp'); 
-        if (ampEl) { 
-          const hi = parseFloat(d.f44), lo = parseFloat(d.f45); 
-          if (!isNaN(hi) && !isNaN(lo) && this.marketState.currentPrevClose > 0) ampEl.innerText = ((hi - lo) / this.marketState.currentPrevClose * 100).toFixed(2) + '%'; else ampEl.innerText = '--'; 
-        } 
-        const vrEl = document.getElementById('md-volratio'); 
-        if (vrEl) vrEl.innerText = (d.f50 !== undefined && d.f50 !== '-' && !isNaN(d.f50)) ? parseFloat(d.f50).toFixed(2) : '--'; 
-
-        // 换手率、总市值、市盈率
-        const turnoverEl = document.getElementById('md-turnover'); 
-        if (turnoverEl) turnoverEl.innerText = (d.f168 !== undefined && d.f168 !== '-' && !isNaN(d.f168)) ? parseFloat(d.f168).toFixed(2) + '%' : '--'; 
-        const totalValEl = document.getElementById('md-totalval');
-        if (totalValEl) totalValEl.innerText = fmtVol(d.f116);
-        const peEl = document.getElementById('md-pe');
-        if (peEl) {
-            const peVal = d.f162 ?? d.f167;
-            peEl.innerText = (peVal !== undefined && peVal !== '-' && !isNaN(peVal)) ? parseFloat(peVal).toFixed(2) : '--';
-        }
-
-        const dTime = new Date(); 
-        document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
-      } 
-    } catch(e) {} 
-
-    // --- 2. 获取资金流向 ---
-    const inOutEl = document.getElementById('ff-main-inout');
-    const breakdownEl = document.getElementById('ff-daily-breakdown');
-    const historyEl = document.getElementById('ff-history-chart');
-    if (inOutEl) inOutEl.innerHTML = '';
-    if (breakdownEl) breakdownEl.innerHTML = '<div style="text-align:center; padding:10px; color:#94a3b8;">数据加载中...</div>';
-    if (historyEl) historyEl.innerHTML = '';
-
-    let snapshotFlow = null;
-    let historyFlowData = [];
-    let latestHistoryDay = null;
-
-    // A. 抓取今日资金
-    const zjlxUrl = `https://emdatah5.eastmoney.com/dc/ZJLX/getZJLXData?secid=${secid}&fields=f57,f58,f135,f136,f137,f138,f139,f140,f141,f142,f143,f144,f145,f146,f147,f148,f149,f86&_=${Date.now()}`;
-    try {
-        let fetchUrl = zjlxUrl;
-        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-            fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(zjlxUrl)}`;
-        }
-        const resp = await fetch(fetchUrl);
-        if (resp.ok) {
-            const json = await resp.json();
-            if (json?.data) snapshotFlow = json.data;
-        }
-    } catch(e) {
-        try {
-            const jsonpRes = await fetchJSONP(zjlxUrl, 'callback');
-            if (jsonpRes?.data) snapshotFlow = jsonpRes.data;
-        } catch(e2) {}
-    }
-
-    // B. 获取近 20 天历史资金
-    const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=20&secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&_=${Date.now()}`;
-    try {
-        const res = await fetchJSONP(hisFlowUrl, 'cb');
-        const klines = res?.data?.klines;
-        if (klines && klines.length > 0) {
-            historyFlowData = klines.map(str => {
-                const p = str.split(',');
-                return {
-                    date: p[0].slice(5),
-                    mainNet: parseFloat(p[1]) || 0,
-                    sNet: parseFloat(p[2]) || 0,
-                    mNet: parseFloat(p[3]) || 0,
-                    lNet: parseFloat(p[4]) || 0,
-                    xlNet: parseFloat(p[5]) || 0
-                };
-            });
-            latestHistoryDay = historyFlowData[historyFlowData.length - 1]; 
-        }
-    } catch(e) {}
-
-    // C. 准确解析与渲染资金数据
-    if (snapshotFlow || latestHistoryDay) {
-        if (flowArea) flowArea.style.display = 'block';
-
-        const parseNum = (v) => (v !== undefined && v !== '-' && !isNaN(parseFloat(v))) ? parseFloat(v) : null;
-
-        let xlNet = parseNum(snapshotFlow?.f140);
-        let lNet = parseNum(snapshotFlow?.f143);
-        let mNet = parseNum(snapshotFlow?.f146);
-        let sNet = parseNum(snapshotFlow?.f149);
-        let mainNet = parseNum(snapshotFlow?.f137);
-        let mainIn = parseNum(snapshotFlow?.f135);
-        let mainOut = parseNum(snapshotFlow?.f136);
-
-        const hasValidSnapshot = (xlNet !== null && lNet !== null && (xlNet !== 0 || lNet !== 0 || mNet !== 0 || sNet !== 0));
-        if (!hasValidSnapshot && latestHistoryDay) {
-            xlNet = latestHistoryDay.xlNet;
-            lNet = latestHistoryDay.lNet;
-            mNet = latestHistoryDay.mNet;
-            sNet = latestHistoryDay.sNet;
-            mainNet = latestHistoryDay.mainNet;
-            mainIn = null;
-            mainOut = null;
-        }
-
-        xlNet = xlNet || 0;
-        lNet = lNet || 0;
-        mNet = mNet || 0;
-        sNet = sNet || 0;
-        if (mainNet === null || isNaN(mainNet)) mainNet = xlNet + lNet;
-
-        // 1. 顶部汇总渲染
-        if (inOutEl) {
-            if (mainIn !== null && mainOut !== null && (mainIn > 0 || mainOut > 0)) {
-                inOutEl.innerHTML = `
-                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流入</span><span class="red" style="font-size:14px; font-weight:900;">${this.formatFlowAmt(mainIn)}</span></div>
-                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流出</span><span class="green" style="font-size:14px; font-weight:900;">${this.formatFlowAmt(mainOut)}</span></div>
-                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力净流入</span><span class="${mainNet >= 0 ? 'red' : 'green'}" style="font-size:14px; font-weight:900;">${mainNet > 0 ? '+' : ''}${this.formatFlowAmt(mainNet)}</span></div>
-                `;
-            } else {
-                inOutEl.innerHTML = `
-                    <div style="width:100%; text-align:center; padding: 4px 0;">
-                        <span>主力资金净流入</span>
-                        <span class="${mainNet >= 0 ? 'red' : 'green'}" style="font-size:18px; margin-left:12px; font-weight:900;">${mainNet > 0 ? '+' : ''}${this.formatFlowAmt(mainNet)}</span>
-                    </div>`;
-            }
-        }
-
-        // 2. 渲染条形图
-        if (breakdownEl) {
-            const maxAbs = Math.max(Math.abs(xlNet), Math.abs(lNet), Math.abs(mNet), Math.abs(sNet), 1);
-            const buildRow = (label, val) => {
-                const isPos = val >= 0;
-                const pct = Math.min((Math.abs(val) / maxAbs) * 100, 100);
-                const colorCls = isPos ? 'red' : 'green';
-                const sign = isPos && val !== 0 ? '+' : '';
-                return `
-                <div class="flow-row">
-                    <span class="flow-label">${label}</span>
-                    <div class="flow-bar-container">
-                        <div class="flow-bar-left">${!isPos ? `<div class="f-bar green" style="width: ${pct}%;"></div>` : ''}</div>
-                        <div class="flow-bar-right">${isPos ? `<div class="f-bar red" style="width: ${pct}%;"></div>` : ''}</div>
-                    </div>
-                    <span class="flow-val ${colorCls}">${sign}${this.formatFlowAmt(val)}</span>
-                </div>`;
-            };
-
-            breakdownEl.innerHTML = 
-                buildRow('特大单', xlNet) + 
-                buildRow('大单', lNet) + 
-                buildRow('中单', mNet) + 
-                buildRow('小单', sNet);
-        }
-
-        // 3. 渲染近20日柱状图
-        if (historyFlowData.length > 0) {
-            const chartData = historyFlowData.map(d => ({ date: d.date, netFlow: d.mainNet }));
-            this.renderFundFlowChart(chartData);
-        } else if (historyEl) {
-            historyEl.innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">暂无历史资金数据</div>';
-        }
-    } else {
-        if (flowArea) flowArea.style.display = 'none';
-    }
-
-    // --- 3. 走势图数据分支（分时线 或 K线）---
-    if (this.marketState.chartType === 'trend') { 
-      const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`; 
-      try { 
-        const res = await fetchJSONP(trendUrl, 'cb'); 
-        const trends = res?.data?.trends || []; 
-        const prePrice = res?.data?.prePrice;
-        let finalPrevClose = (prePrice && !isNaN(prePrice) && prePrice > 0) ? prePrice : this.marketState.currentPrevClose;
-        
-        if (trends.length > 0) { 
-          let accAmount = 0;
-          let accVolume = 0;
-
-          const parsed = trends.map(str => { 
-            const parts = str.split(','); 
-            const time = parts[0];
-            const realPrice = parseFloat(parts[2]) || 0; 
-            const vol = parseInt(parts[5] || 0);         
-            const amt = parseFloat(parts[6] || 0);       
-
-            accAmount += amt;
-            accVolume += vol;
-
-            let realAvgPrice = parseFloat(parts[7]) || 0;
-            if (realAvgPrice <= 0 && accVolume > 0) {
-              realAvgPrice = accAmount / (accVolume * 100);
-            }
-            if (realAvgPrice <= 0) realAvgPrice = realPrice;
-
-            return { 
-              time: time, 
-              price: realPrice, 
-              avgPrice: realAvgPrice, 
-              volume: vol 
-            }; 
-          }); 
+  // 3. 辅助：后台静默拉取历史日 K 线数据
+  async _fetchMarketHistoryKlines(secid, days) {
+      // 拉取日 K 线 (klt=101)
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&_=${Date.now()}`;
+      try {
+          const res = await fetchJSONP(url, 'cb');
+          const klines = res?.data?.klines || [];
+          if (klines.length === 0) return null;
           
-          if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].price || 1;
-
-          const curPriceText = document.getElementById('md-price').innerText;
-          if (curPriceText === '--' || curPriceText === 'NaN') {
-               let validPrices = parsed.map(p => p.price).filter(p => p > 0);
-               if (validPrices.length > 0) {
-                   let latest = validPrices[validPrices.length - 1];
-                   let high = Math.max(...validPrices);
-                   let low = Math.min(...validPrices);
-                   let open = validPrices[0];
-                   let chgVal = latest - finalPrevClose;
-                   let chgRate = (chgVal / finalPrevClose) * 100;
-                   let col = chgRate >= 0 ? 'red' : 'green';
-
-                   let dec = this.marketState.currentDecimals || 2;
-                   document.getElementById('md-price').innerText = latest.toFixed(dec);
-                   document.getElementById('md-price').className = col;
-                   document.getElementById('md-chg-val').innerText = (chgVal > 0 ? '+' : '') + chgVal.toFixed(dec);
-                   document.getElementById('md-chg-val').className = col;
-                   document.getElementById('md-chg-rate').innerText = (chgRate > 0 ? '+' : '') + chgRate.toFixed(2) + '%';
-                   document.getElementById('md-chg-rate').className = col;
-
-                   document.getElementById('md-high').innerText = high.toFixed(dec);
-                   document.getElementById('md-low').innerText = low.toFixed(dec);
-                   document.getElementById('md-open').innerText = open.toFixed(dec);
-                   document.getElementById('md-prev').innerText = finalPrevClose.toFixed(dec);
-                   const dTime = new Date(); 
-                   document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`;
-               }
-          }
-
-          let totalPts = parsed.length;
-          if (this.marketState.currentTab === 'A') totalPts = 241;
-          else if (this.marketState.currentTab === 'HK') totalPts = 331;
-          else if (this.marketState.currentTab === 'US') totalPts = 391;
-
-          this.marketChartData = { 
-            type: 'trend', 
-            xLabels: parsed.map(p => p.time), 
-            prices: parsed.map(p => p.price), 
-            avgPrices: parsed.map(p => p.avgPrice), 
-            volumes: parsed.map(p => p.volume), 
-            prevClose: finalPrevClose, 
-            lastPrice: parsed[parsed.length-1]?.price || 0, 
-            timeStr: new Date().toLocaleTimeString(),
-            totalPoints: totalPts
-          }; 
-          this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
-          this.bindChartEvents(); 
-        } 
-      } catch(e) {} 
-    } else { 
-      // 日K(101)、周K(102)、月K(103) 获取分支（优先走 Worker 代理通道规避防盗链）
-      const klt = parseInt(this.marketState.chartType) || 101; 
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&beg=0&end=20500101&smplmt=460&lmt=1000000&_=${Date.now()}`; 
-      
-      let klines = [];
-
-      // 方案 A：优先通过 Worker 代理（携带官方 Referer，突破防盗链）
-      if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-        try {
-          const fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
-          const resp = await fetch(fetchUrl);
-          if (resp.ok) {
-            const data = await resp.json();
-            if (data?.data?.klines) {
-              klines = data.data.klines;
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 方案 B：Worker 未生效时的本地降级
-      if (!klines || klines.length === 0) {
-        try {
-          const res = await this.fetchJSONPSafely(kUrl, 'cb');
-          klines = res?.data?.klines || [];
-        } catch (e) {}
-      }
-
-      let finalPrevClose = this.marketState.currentPrevClose;
-      
-      if (klines && klines.length > 0) { 
-        if (klines.length > 380) {
-          klines = klines.slice(-380);
-        }
-
-        const parsed = klines.map(str => { 
-          const parts = str.split(','); 
-          return { 
-            date: parts[0], 
-            open: parseFloat(parts[1]) || 0, 
-            close: parseFloat(parts[2]) || 0, 
-            high: parseFloat(parts[3]) || 0, 
-            low: parseFloat(parts[4]) || 0, 
-            volume: parseInt(parts[5] || 0) 
-          }; 
-        }); 
-        if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].close || 1;
-
-        const calcMA = (data, days) => { 
-          let res = []; 
-          for(let i = 0; i < data.length; i++){ 
-            if(i < days - 1) { res.push(null); continue; } 
-            let sum = 0; 
-            for(let j = 0; j < days; j++) sum += data[i - j]; 
-            res.push(sum / days); 
-          } 
-          return res; 
-        }; 
-
-        const calcEMALocal = (data, days) => { 
-          let k = 2 / (days + 1); 
-          let ema = [data[0]]; 
-          for (let i = 1; i < data.length; i++) {
-            ema.push(data[i] * k + ema[i - 1] * (1 - k)); 
-          }
-          return ema; 
-        }; 
-
-        const closePrices = parsed.map(p => p.close);
-        const ema12 = calcEMALocal(closePrices, 12);
-        const ema26 = calcEMALocal(closePrices, 26);
-        const dif = [];
-        for (let i = 0; i < closePrices.length; i++) {
-          dif.push(ema12[i] - ema26[i]);
-        }
-        const dea = calcEMALocal(dif, 9);
-        const macd = [];
-        for (let i = 0; i < closePrices.length; i++) {
-          macd.push((dif[i] - dea[i]) * 2);
-        }
-
-        this.marketChartData = { 
-          type: 'kline', 
-          xLabels: parsed.map(p => p.date), 
-          prices: closePrices,
-          opens: parsed.map(p => p.open),
-          highs: parsed.map(p => p.high),
-          lows: parsed.map(p => p.low),
-          ma5: calcMA(closePrices, 5), 
-          ma10: calcMA(closePrices, 10), 
-          ma20: calcMA(closePrices, 20), 
-          ma60: calcMA(closePrices, 60), 
-          dif: dif,
-          dea: dea,
-          macd: macd,
-          volumes: parsed.map(p => p.volume), 
-          prevClose: finalPrevClose, 
-          lastPrice: parsed[parsed.length - 1]?.close || 0, 
-          timeStr: new Date().toLocaleTimeString() 
-        }; 
-        this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
-        this.bindChartEvents(); 
-      } 
-    }
-  },
-
-  // --- 修复版：轻量化日K线提取（按需指定 lmt，不再请求上市以来全量数据）---
-  async _fetchMarketHistoryKlines(secid, days = 65) {
-      // 动态根据所需天数设置 lmt，默认取 80 根，彻底解决数据臃肿和网络堵塞
-      const limit = Math.min(Math.max(days + 15, 60), 120);
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=0&end=20500101&smplmt=460&lmt=${limit}&_=${Date.now()}`;
-      
-      let klines = [];
-
-      // 1. 优先通过 Worker
-      if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-        try {
-          const fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
-          const resp = await fetch(fetchUrl);
-          if (resp.ok) {
-            const data = await resp.json();
-            if (data?.data?.klines) {
-              klines = data.data.klines;
-            }
-          }
-        } catch (e) {}
-      }
-
-      // 2. 降级走安全 JSONP
-      if (!klines || klines.length === 0) {
-        try {
-          const res = await this.fetchJSONPSafely(kUrl, 'cb');
-          klines = res?.data?.klines || [];
-        } catch (e) {}
-      }
-
-      if (klines && klines.length > 0) {
-        if (days && klines.length > days) {
-          klines = klines.slice(-days);
-        }
-        return klines.map(str => {
-          const p = str.split(',');
-          return { 
-            date: p[0], 
-            open: parseFloat(p[1]) || 0, 
-            close: parseFloat(p[2]) || 0, 
-            high: parseFloat(p[3]) || 0, 
-            low: parseFloat(p[4]) || 0, 
-            vol: parseFloat(p[5]) || 0 
-          };
-        });
-      }
-
-      return null;
+          return klines.map(str => {
+              const p = str.split(',');
+              return { date: p[0], open: parseFloat(p[1]), close: parseFloat(p[2]), high: parseFloat(p[3]), low: parseFloat(p[4]), vol: parseFloat(p[5]) };
+          });
+      } catch (e) { return null; }
   },
 
   // 4. 执行行情大模型预测
@@ -5219,393 +4607,172 @@ drawIntradayFlowCanvas(data) {
       }
   },
 
- // 【完整修复版】：MACD + KDJ + BOLL 三指标共振 + 真实主力资金 + 分时均线穿透 + 当日换手率评估
+  // 5. 执行技术面综合诊断
   async runMarketTechnicalAnalysis(secid, name) {
-    const btn = document.getElementById('m-tech-run-btn');
-    btn.innerText = '📡 指标多维共振计算中...';
-    btn.style.pointerEvents = 'none';
-
-    const resultBox = document.getElementById('m-tech-result');
-    resultBox.innerHTML = `
-      <div style="text-align:center; padding: 40px 20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; box-shadow:0 8px 20px rgba(0,0,0,0.02);">
-        <div class="loading-spinner" style="margin: 0 auto 15px auto;"></div>
-        <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">MACD + KDJ + BOLL 深度共振推演中</div>
-        <div style="font-size:12px; color:var(--text-sub);">正在提取 <b>${name}</b> 的全量量价、换手与主力资金数据...</div>
-      </div>
-    `;
-    resultBox.style.display = 'block';
-
-    try {
-      // 1. 获取近 120 天日 K 线数据（门槛放宽到 26 天以适配次新股）
-      const klines = await this._fetchMarketHistoryKlines(secid, 120);
-      if (!klines || klines.length < 26) throw new Error("历史 K 线样本不足(需至少26个交易日)，无法完成多指标共振拟合");
-
-      // 2. 获取真实分时走势（正确提取现价 parts[2] 与分时均价 parts[7]）
-      let intradayTrends = [];
-      try {
-        const trendRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`, 'cb');
-        intradayTrends = trendRes?.data?.trends || [];
-      } catch(e) {}
-
-      // 3. 获取真实主力资金流向（采用官方 getZJLXData 接口 + 20日历史日K平滑兜底，杜绝 +2 异常）
-      let mainFlowAmt = 0;
-      try {
-        const zjlxUrl = `https://emdatah5.eastmoney.com/dc/ZJLX/getZJLXData?secid=${secid}&fields=f135,f136,f137&_=${Date.now()}`;
-        let fetchUrl = zjlxUrl;
-        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-          fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(zjlxUrl)}`;
-        }
-        const resp = await fetch(fetchUrl);
-        if (resp.ok) {
-          const json = await resp.json();
-          if (json?.data?.f137 !== undefined && json.data.f137 !== '-') {
-            mainFlowAmt = parseFloat(json.data.f137);
-          }
-        }
-      } catch(e) {}
-
-      if (mainFlowAmt === 0) {
-        try {
-          const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=2&secid=${secid}&fields1=f1&fields2=f51,f52&_=${Date.now()}`;
-          const res = await fetchJSONP(hisFlowUrl, 'cb');
-          const hisKlines = res?.data?.klines;
-          if (hisKlines && hisKlines.length > 0) {
-            const lastK = hisKlines[hisKlines.length - 1].split(',');
-            mainFlowAmt = parseFloat(lastK[1]) || 0;
-          }
-        } catch(e2) {}
-      }
-
-      // 4. 获取当日换手率（从盘口接口中获取真实换手率 f168）
-      let turnoverVal = null;
-      let turnoverStr = '--';
-      try {
-        const quoteRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f168&_=${Date.now()}`, 'cb');
-        if (quoteRes?.data?.f168 !== undefined && quoteRes.data.f168 !== '-' && !isNaN(quoteRes.data.f168)) {
-          turnoverVal = parseFloat(quoteRes.data.f168);
-          turnoverStr = turnoverVal.toFixed(2) + '%';
-        }
-      } catch(e) {}
-
-      const closes = klines.map(k => k.close);
-      const highs = klines.map(k => k.high);
-      const lows = klines.map(k => k.low);
-      const vols = klines.map(k => k.vol);
-      const N = closes.length;
-      const latestPrice = closes[N - 1];
-
-      // ----------------- 指标 1：MACD 计算 -----------------
-      const calcEMA = (data, p) => {
-        let k = 2 / (p + 1);
-        let ema = [data[0]];
-        for (let i = 1; i < data.length; i++) ema.push(data[i] * k + ema[i - 1] * (1 - k));
-        return ema;
-      };
-      const ema12 = calcEMA(closes, 12);
-      const ema26 = calcEMA(closes, 26);
-      const dif = ema12.map((val, idx) => val - ema26[idx]);
-      const dea = calcEMA(dif, 9);
-      const macd = dif.map((val, idx) => (val - dea[idx]) * 2);
-
-      const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
-      const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
-
-      let macdSignal = 'HOLD';
-      let macdScore = 0;
-      let macdDesc = '';
-
-      if (prevDIF <= prevDEA && curDIF > curDEA) {
-        macdSignal = 'BUY';
-        macdScore = curDIF >= 0 ? 30 : 25;
-        macdDesc = curDIF >= 0 ? 'DIF 零轴上方强力金叉，主升浪上攻信号明确。' : 'DIF 零轴下方低位金叉，超跌反弹动能确立。';
-      } else if (prevDIF >= prevDEA && curDIF < curDEA) {
-        macdSignal = 'SELL';
-        macdScore = curDIF >= 0 ? -25 : -30;
-        macdDesc = curDIF >= 0 ? '高位死叉成型，多头动能衰竭，面临见顶回落。' : '零轴下方加速死叉，空头力量发散，破位下行。';
-      } else if (curDIF > curDEA) {
-        macdSignal = curMACD >= prevMACD ? 'BUY' : 'HOLD';
-        macdScore = curMACD >= prevMACD ? 15 : 5;
-        macdDesc = curMACD >= prevMACD ? '处于多头运行区间，红柱持续发散增长。' : '多头区间红柱轻微收缩，上涨动能有所放缓。';
-      } else {
-        macdSignal = curMACD <= prevMACD ? 'SELL' : 'HOLD';
-        macdScore = curMACD <= prevMACD ? -15 : -5;
-        macdDesc = curMACD <= prevMACD ? '处于空头弱势区间，绿柱延展，抛压沉重。' : '空头弱势区间绿柱收敛，砸盘动能开始钝化。';
-      }
-
-      // ----------------- 指标 2：KDJ(9,3,3) 计算 -----------------
-      let kArr = [50], dArr = [50], jArr = [50];
-      for (let i = 8; i < N; i++) {
-        let periodHigh = Math.max(...highs.slice(i - 8, i + 1));
-        let periodLow = Math.min(...lows.slice(i - 8, i + 1));
-        let rsv = periodHigh === periodLow ? 50 : ((closes[i] - periodLow) / (periodHigh - periodLow)) * 100;
-        let lastK = kArr[kArr.length - 1];
-        let lastD = dArr[dArr.length - 1];
-        let nextK = (2 / 3) * lastK + (1 / 3) * rsv;
-        let nextD = (2 / 3) * lastD + (1 / 3) * nextK;
-        let nextJ = 3 * nextK - 2 * nextD;
-        kArr.push(nextK); dArr.push(nextD); jArr.push(nextJ);
-      }
-      const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
-      const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
-
-      let kdjSignal = 'HOLD';
-      let kdjScore = 0;
-      let kdjDesc = '';
-
-      if (prevK <= prevD && curK > curD) {
-        if (curK <= 30) {
-          kdjSignal = 'BUY'; kdjScore = 30;
-          kdjDesc = `KDJ在超卖区 (${curK.toFixed(1)}) 形成黄金交叉，强反转拐点出现！`;
-        } else {
-          kdjSignal = 'BUY'; kdjScore = 18;
-          kdjDesc = `KDJ低位金叉上行，多头短期回暖反弹。`;
-        }
-      } else if (prevK >= prevD && curK < curD) {
-        if (curK >= 70) {
-          kdjSignal = 'SELL'; kdjScore = -30;
-          kdjDesc = `KDJ在超买区 (${curK.toFixed(1)}) 形成高位死叉，短线严重承压见顶。`;
-        } else {
-          kdjSignal = 'SELL'; kdjScore = -18;
-          kdjDesc = `KDJ形成高位死叉，下行拐点显现。`;
-        }
-      } else {
-        if (curJ < 0) {
-          kdjSignal = 'BUY'; kdjScore = 20;
-          kdjDesc = `J值 (${curJ.toFixed(1)}) 进入极度负值钝化区，随时可能暴力反抽。`;
-        } else if (curJ > 100) {
-          kdjSignal = 'SELL'; kdjScore = -20;
-          kdjDesc = `J值 (${curJ.toFixed(1)}) 严重超买钝化，乖离率过大，谨防高台跳水。`;
-        } else {
-          kdjSignal = 'HOLD'; kdjScore = 0;
-          kdjDesc = `K/D/J 三线平稳居中运行 (${curK.toFixed(1)} / ${curD.toFixed(1)} / ${curJ.toFixed(1)})，方向中性。`;
-        }
-      }
-
-      // ----------------- 指标 3：BOLL(20,2) 计算 -----------------
-      const bollSlice = closes.slice(-20);
-      const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
-      const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
-      const bollUpper = bollMid + 2 * bollStd;
-      const bollLower = bollMid - 2 * bollStd;
-      const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
-
-      let bollSignal = 'HOLD';
-      let bollScore = 0;
-      let bollDesc = '';
-
-      if (bollPct <= 10) {
-        bollSignal = 'BUY'; bollScore = 25;
-        bollDesc = `股价紧贴/跌破布林下轨 (轨道位置 ${bollPct.toFixed(1)}%)，超跌触底，支撑力极强。`;
-      } else if (bollPct >= 90) {
-        bollSignal = 'SELL'; bollScore = -25;
-        bollDesc = `突破或刺穿布林上轨 (轨道位置 ${bollPct.toFixed(1)}%)，上方压力巨大，面临通道回归。`;
-      } else if (latestPrice > bollMid) {
-        bollSignal = 'BUY'; bollScore = 10;
-        bollDesc = `运行于布林中轨上方，通道呈现良好向上发散态势。`;
-      } else {
-        bollSignal = 'SELL'; bollScore = -10;
-        bollDesc = `受到布林中轨压制，位于弱势下行半区。`;
-      }
-
-      // ----------------- 4. 量能、换手与分时盘口评估 -----------------
-      // A. 量比评估
-      const avgVol5 = vols.slice(-6, -1).reduce((a, b) => a + b, 0) / 5;
-      const volRatio = vols[N - 1] / (avgVol5 || 1);
-      let volDesc = '';
-      let volScore = 0;
-      const isTodayUp = closes[N - 1] >= closes[N - 2];
-
-      if (volRatio > 1.3 && isTodayUp) {
-        volScore += 8; volDesc = `量比达 <b>${volRatio.toFixed(2)}</b>，放量拉升，资金建仓抢筹意愿坚决。`;
-      } else if (volRatio > 1.3 && !isTodayUp) {
-        volScore -= 10; volDesc = `量比达 <b>${volRatio.toFixed(2)}</b>，放量下杀，主力资金出逃明显。`;
-      } else if (volRatio < 0.7 && !isTodayUp) {
-        volScore += 4; volDesc = `量比仅 <b>${volRatio.toFixed(2)}</b>，缩量调整，呈良性洗盘特征。`;
-      } else {
-        volDesc = `量比平稳 (<b>${volRatio.toFixed(2)}</b>)，无明显异动。`;
-      }
-
-      // B. 真实换手率深度评估
-      let turnoverDesc = '暂无换手率数据。';
-      let turnoverScore = 0;
-      if (turnoverVal !== null) {
-        if (turnoverVal >= 20) {
-          if (isTodayUp) {
-            turnoverScore += 4;
-            turnoverDesc = `换手率达 <b class="red">${turnoverStr}</b>，处于高位激烈博弈区，资金大换血，需警惕冲高震荡。`;
-          } else {
-            turnoverScore -= 8;
-            turnoverDesc = `换手率达 <b class="green">${turnoverStr}</b> 且出现调整，筹码严重松动，获利盘集中撤离。`;
-          }
-        } else if (turnoverVal >= 10) {
-          if (isTodayUp) {
-            turnoverScore += 8;
-            turnoverDesc = `换手率达 <b class="red">${turnoverStr}</b>，交投高度活跃，增量资金进场接力，攻击形态良好。`;
-          } else {
-            turnoverScore -= 5;
-            turnoverDesc = `换手率达 <b>${turnoverStr}</b>，多空分歧加大，上方阻力渐显。`;
-          }
-        } else if (turnoverVal >= 5) {
-          turnoverScore += isTodayUp ? 5 : 0;
-          turnoverDesc = `换手率约为 <b>${turnoverStr}</b>，交易温和活跃，筹码沉淀健康，主力控盘平稳。`;
-        } else if (turnoverVal >= 2) {
-          turnoverDesc = `换手率保持在 <b>${turnoverStr}</b>，常态平稳换手，未见过度投机。`;
-        } else {
-          if (!isTodayUp) {
-            turnoverScore += 4;
-            turnoverDesc = `换手率仅 <b class="green">${turnoverStr}</b>，呈现极度缩量“地量”特征，下行抛压衰竭，筑底概率增加。`;
-          } else {
-            turnoverDesc = `换手率仅 <b>${turnoverStr}</b>，无量微涨，后续需观察增量资金能否接棒放量。`;
-          }
-        }
-      }
-
-      // C. 真实分时走势（现价与均价精准偏离计算）
-      let intraDesc = '暂无日内分时微观数据。';
-      let intraScore = 0;
-      if (intradayTrends.length > 0) {
-        let accAmt = 0;
-        let accV = 0;
-        let lastPricePoint = 0;
-        let lastVwapPoint = 0;
-
-        for (let str of intradayTrends) {
-          const p = str.split(',');
-          lastPricePoint = parseFloat(p[2]) || 0; // f53: 真实分时现价
-          const v = parseInt(p[5]) || 0;
-          const a = parseFloat(p[6]) || 0;
-          accAmt += a;
-          accV += v;
-          let vwapP = parseFloat(p[7]) || 0;
-          if (vwapP <= 0 && accV > 0) vwapP = accAmt / (accV * 100);
-          lastVwapPoint = vwapP > 0 ? vwapP : lastPricePoint;
-        }
-
-        if (lastPricePoint > 0 && lastVwapPoint > 0) {
-          const biasPct = ((lastPricePoint - lastVwapPoint) / lastVwapPoint) * 100;
-          if (biasPct >= 1.2) {
-            intraScore += 8;
-            intraDesc = `现价强力脱离日内均线上方 (偏离度 <b class="red">+${biasPct.toFixed(2)}%</b>)，多头主力强力拔高，攻击意愿强烈。`;
-          } else if (biasPct >= 0.25) {
-            intraScore += 5;
-            intraDesc = `现价运行于日内均线之上 (偏离度 +${biasPct.toFixed(2)}%)，日内重心稳步抬升，下方承接坚实。`;
-          } else if (biasPct <= -1.2) {
-            intraScore -= 8;
-            intraDesc = `现价大幅跌破分时均线 (偏离度 <b class="green">${biasPct.toFixed(2)}%</b>)，分时破位下行，均线形成重压。`;
-          } else if (biasPct <= -0.25) {
-            intraScore -= 5;
-            intraDesc = `现价受制于分时均线下方 (偏离度 ${biasPct.toFixed(2)}%)，重心走低，日内弱势震荡。`;
-          } else {
-            intraDesc = `现价紧贴分时均线平稳缠绕 (偏离仅 ${biasPct.toFixed(2)}%)，日内多空力量基本均衡。`;
-          }
-        }
-      }
-
-      // D. 主力资金权重打分
-      if (mainFlowAmt > 10000000) volScore += 6;
-      else if (mainFlowAmt > 0) volScore += 3;
-      else if (mainFlowAmt < -10000000) volScore -= 6;
-      else if (mainFlowAmt < 0) volScore -= 3;
-
-      // ----------------- 综合判定 -----------------
-      const buyVotes = [macdSignal, kdjSignal, bollSignal].filter(s => s === 'BUY').length;
-      const sellVotes = [macdSignal, kdjSignal, bollSignal].filter(s => s === 'SELL').length;
-
-      let totalScore = 50 + macdScore + kdjScore + bollScore + volScore + turnoverScore + intraScore;
-      totalScore = Math.max(5, Math.min(98, totalScore));
-
-      let actionTitle = '';
-      let actionColor = '';
-      let actionTag = '';
-
-      if (buyVotes >= 3 || (buyVotes >= 2 && totalScore >= 75)) {
-        actionTitle = '🚀 强烈买入 (三指标多头共振)';
-        actionColor = '#f43f5e';
-        actionTag = '多头共振金叉，确定性极高，可果断建仓或重仓布局';
-      } else if (buyVotes >= 2 || totalScore >= 60) {
-        actionTitle = '📈 偏多买入 / 分批加仓';
-        actionColor = '#f59e0b';
-        actionTag = '技术面拐点显现，两项以上指标看多，适合逢低逢回调吸纳';
-      } else if (sellVotes >= 3 || (sellVotes >= 2 && totalScore <= 35)) {
-        actionTitle = '🚨 果断卖出 / 清仓避险';
-        actionColor = '#10b981';
-        actionTag = '空头三指标死叉共振，承压极重，强烈建议锁定利润或止损规避';
-      } else if (sellVotes >= 2 || totalScore <= 45) {
-        actionTitle = '📉 逢高减仓 / 谨慎防守';
-        actionColor = '#059669';
-        actionTag = '上涨动能乏力且现指标背离死叉，宜减仓规避潜在调整';
-      } else {
-        actionTitle = '👀 持股观望 / 静待趋势';
-        actionColor = '#64748b';
-        actionTag = '多空力量对峙均衡，暂未出现明确共振拐点，维持底仓观望';
-      }
-
-      const getTagHtml = (sig) => {
-        if (sig === 'BUY') return '<span style="color:#f43f5e; background:#fff1f2; padding:2px 8px; border-radius:12px; font-weight:900; font-size:11px;">看多买入</span>';
-        if (sig === 'SELL') return '<span style="color:#10b981; background:#f0fdf4; padding:2px 8px; border-radius:12px; font-weight:900; font-size:11px;">看空卖出</span>';
-        return '<span style="color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:12px; font-weight:bold; font-size:11px;">中性震荡</span>';
-      };
-
-      // 渲染最终看板
+      const btn = document.getElementById('m-tech-run-btn');
+      btn.innerText = '📡 全维数据提取与扫描中...';
+      btn.style.pointerEvents = 'none';
+      
+      const resultBox = document.getElementById('m-tech-result');
+      // 【修改】：点击立刻清空旧数据，并显示 Loading 动画
       resultBox.innerHTML = `
-        <div class="card" style="border: 2px solid ${actionColor}; background: #fff; box-shadow: 0 10px 25px ${actionColor}15; margin-bottom: 12px; padding: 16px;">
-          <!-- 顶部总决策 -->
-          <div style="text-align:center; padding-bottom: 14px; border-bottom: 1px dashed #e2e8f0;">
-            <div style="font-size:12px; font-weight:bold; color:var(--text-sub); margin-bottom:4px;">三指标共振智能决策</div>
-            <div style="font-size: 24px; font-weight: 900; color: ${actionColor}; margin-bottom: 6px;">${actionTitle}</div>
-            <div style="font-size: 13px; color: #475569; font-weight: bold; background: #f8fafc; display:inline-block; padding: 4px 14px; border-radius: 20px;">
-              综合得分: <span style="color:${actionColor}; font-size:16px;">${totalScore}</span> 分 | ${actionTag}
-            </div>
+          <div style="text-align:center; padding: 40px 20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; box-shadow:0 8px 20px rgba(0,0,0,0.02);">
+              <div class="loading-spinner" style="margin: 0 auto 15px auto;"></div>
+              <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">技术面全维度雷达扫描中</div>
+              <div style="font-size:12px; color:var(--text-sub);">正在提取并分析 <b>${name}</b> 的形态与量价流向...</div>
           </div>
-
-          <!-- 三指标卡片分块 -->
-          <div style="display:flex; flex-direction:column; gap:10px; margin-top: 14px;">
-            <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #3b82f6;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:900; font-size:13px; color:var(--text-main);">📈 MACD 趋势动量判断</span>
-                ${getTagHtml(macdSignal)}
-              </div>
-              <div style="font-size:11px; color:#64748b; margin-bottom:4px;">DIF: <b>${curDIF.toFixed(2)}</b> | DEA: <b>${curDEA.toFixed(2)}</b> | MACD: <b>${curMACD.toFixed(2)}</b></div>
-              <div style="font-size:12px; color:#1e293b; line-height:1.4;">${macdDesc}</div>
-            </div>
-
-            <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #f59e0b;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:900; font-size:13px; color:var(--text-main);">🎯 KDJ 超买超卖与拐点识别</span>
-                ${getTagHtml(kdjSignal)}
-              </div>
-              <div style="font-size:11px; color:#64748b; margin-bottom:4px;">K: <b>${curK.toFixed(1)}</b> | D: <b>${curD.toFixed(1)}</b> | J: <b>${curJ.toFixed(1)}</b></div>
-              <div style="font-size:12px; color:#1e293b; line-height:1.4;">${kdjDesc}</div>
-            </div>
-
-            <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #8b5cf6;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:900; font-size:13px; color:var(--text-main);">🌐 BOLL 布林带空间与支撑压力</span>
-                ${getTagHtml(bollSignal)}
-              </div>
-              <div style="font-size:11px; color:#64748b; margin-bottom:4px;">上轨: <b>${bollUpper.toFixed(2)}</b> | 中轨: <b>${bollMid.toFixed(2)}</b> | 下轨: <b>${bollLower.toFixed(2)}</b></div>
-              <div style="font-size:12px; color:#1e293b; line-height:1.4;">${bollDesc}</div>
-            </div>
-
-            <!-- 4. 深度盘口、量能、换手、分时与主力资金联动评估 -->
-            <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #06b6d4;">
-              <div style="font-weight:900; font-size:13px; color:var(--text-main); margin-bottom:6px;">📊 量能、换手与分时盘口评估</div>
-              <div style="font-size:12px; color:#1e293b; line-height:1.7;">
-                <div>• <b>量能量比：</b>${volDesc}</div>
-                <div>• <b>换手活跃：</b>${turnoverDesc}</div>
-                <div>• <b>分时走势：</b>${intraDesc}</div>
-                <div>• <b>主力动向：</b>今日主力呈现 ${mainFlowAmt >= 0 ? '<span class="red" style="font-weight:bold;">净流入</span>' : '<span class="green" style="font-weight:bold;">净流出</span>'} <b>${mainFlowAmt > 0 ? '+' : ''}${this.formatFlowAmt(mainFlowAmt)}</b>。</div>
-              </div>
-            </div>
-          </div>
-        </div>
       `;
-    } catch (err) {
-      resultBox.innerHTML = `<div style="text-align:center; padding:20px; color:var(--red); font-weight:bold;">${err.message || '技术面诊断失败'}</div>`;
-    } finally {
-      btn.innerText = '📡 立即生成技术面诊断报告';
-      btn.style.pointerEvents = 'auto';
-    }
+      resultBox.style.display = 'block';
+
+      try {
+          const klines = await this._fetchMarketHistoryKlines(secid, 100);
+          if (!klines || klines.length < 60) throw new Error("K线数据不足，无法生成报告");
+
+          let intradayTrend = null;
+          try {
+              const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53&_=${Date.now()}`;
+              const trendRes = await fetchJSONP(trendUrl, 'cb');
+              intradayTrend = trendRes?.data?.trends || [];
+          } catch(e) {}
+
+          let netFlowStr = '--';
+          let netFlowVal = 0;
+          try {
+              const flowRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62&_=${Date.now()}`, 'cb');
+              if (flowRes?.data?.f62 !== undefined && flowRes.data.f62 !== '-') {
+                  netFlowVal = parseFloat(flowRes.data.f62);
+                  netFlowStr = this.formatFlowAmt(netFlowVal);
+              }
+          } catch(e) {}
+
+          const prices = klines.map(k => k.close);
+          const vols = klines.map(k => k.vol);
+          
+          const todayK = klines[klines.length - 1];
+          const yestK = klines[klines.length - 2];
+          const currentPrice = todayK.close;
+
+          const calcMA = (data, d) => data.slice(-d).reduce((a,b)=>a+b,0) / d;
+          const ma5 = calcMA(prices, 5), ma10 = calcMA(prices, 10), ma20 = calcMA(prices, 20);
+
+          let gains = 0, losses = 0;
+          for (let i = prices.length - 13; i < prices.length; i++) {
+              let diff = prices[i] - prices[i-1];
+              if (diff >= 0) gains += diff; else losses -= diff;
+          }
+          let rs = (gains / 14) / (losses / 14 || 0.0001);
+          const rsi14 = 100 - (100 / (1 + rs));
+
+          let score = 50; 
+          let trendAdv = '', shapeAdv = '', volAdv = '', intraAdv = '';
+
+          const body = todayK.close - todayK.open;
+          const upperShadow = todayK.high - Math.max(todayK.open, todayK.close);
+          const lowerShadow = Math.min(todayK.open, todayK.close) - todayK.low;
+          const bodyPercent = (Math.abs(body) / yestK.close) * 100;
+
+          if (lowerShadow > Math.abs(body) * 2 && lowerShadow > upperShadow) {
+              score += 12; shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">长下影线探底：</span>下方承接盘极强，俗称“定海神针”，短期反弹概率极大。`;
+          } else if (upperShadow > Math.abs(body) * 2 && upperShadow > lowerShadow) {
+              score -= 12; shapeAdv = `<span style="color:#10b981; font-weight:bold;">长上影线承压：</span>上方抛压极重，冲高回落，短期面临调整风险。`;
+          } else if (bodyPercent > 2.0 && body > 0) {
+              score += 10; shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">实体大阳线：</span>多头占据绝对主导，上攻意愿强烈。`;
+          } else if (bodyPercent > 2.0 && body < 0) {
+              score -= 10; shapeAdv = `<span style="color:#10b981; font-weight:bold;">实体大阴线：</span>空头肆虐，破位下杀迹象明显。`;
+          } else {
+              shapeAdv = `K线实体较小，多空双方处于焦灼试探期。`;
+          }
+
+          const avgVol5 = vols.slice(-6, -1).reduce((a,b)=>a+b,0) / 5;
+          const volRatio = todayK.vol / (avgVol5 || 1);
+
+          if (volRatio > 1.3 && body > 0) {
+              score += 15; volAdv = `<span style="color:#f43f5e; font-weight:bold;">放量上涨：</span>量比高达 ${volRatio.toFixed(2)}，增量资金抢筹，良性多头格局。`;
+          } else if (volRatio > 1.3 && body <= 0) {
+              score -= 15; volAdv = `<span style="color:#10b981; font-weight:bold;">放量滞涨/下跌：</span>量比 ${volRatio.toFixed(2)}，资金放量出逃或高位滞涨，极其危险。`;
+          } else if (volRatio < 0.7 && body < 0) {
+              score += 5; volAdv = `<span style="color:#f59e0b; font-weight:bold;">缩量回调：</span>量比仅 ${volRatio.toFixed(2)}，下跌无量，洗盘概率大于出货。`;
+          } else {
+              volAdv = `成交量表现平稳 (量比 ${volRatio.toFixed(2)})，未见异常异动。`;
+          }
+
+          if (currentPrice > ma5 && ma5 > ma10 && ma10 > ma20) {
+              score += 10; trendAdv = `均线呈<b style="color:#f43f5e;">标准多头排列</b>，趋势向上。`;
+          } else if (currentPrice < ma5 && ma5 < ma10 && ma10 < ma20) {
+              score -= 10; trendAdv = `均线呈<b style="color:#10b981;">典型空头排列</b>，犹如泰山压顶。`;
+          } else if (currentPrice > ma20) {
+              score += 5; trendAdv = `站稳 20 日生命线，结构偏暖。`;
+          } else {
+              score -= 5; trendAdv = `跌破 20 日生命线，趋势走弱。`;
+          }
+
+          if (rsi14 < 30) { score += 8; trendAdv += ` 且 RSI 极度超卖，存在报复性反弹需求。`; }
+          else if (rsi14 > 70) { score -= 8; trendAdv += ` 且 RSI 极度超买，面临技术性修正。`; }
+
+          if (intradayTrend && intradayTrend.length > 0) {
+              const lastMinParams = intradayTrend[intradayTrend.length - 1].split(',');
+              const closePrice = parseFloat(lastMinParams[1]);
+              const vwapPrice = parseFloat(lastMinParams[2]);
+              
+              if (closePrice > vwapPrice * 1.005) {
+                  score += 8; intraAdv = `收盘价高出均价线，<span style="color:#f43f5e;">尾盘存在抢筹或强势维持</span>。`;
+              } else if (closePrice < vwapPrice * 0.995) {
+                  score -= 8; intraAdv = `收盘价低于均价线，<span style="color:#10b981;">重心下移，尾盘承接乏力</span>。`;
+              } else {
+                  intraAdv = `日内价格紧贴均价线，走势平稳无大幅偏离。`;
+              }
+          } else {
+              intraAdv = `暂无当日分时微观数据。`;
+          }
+
+          if (netFlowVal > 0) score += 5;
+          else if (netFlowVal < 0) score -= 5;
+
+          score = Math.max(0, Math.min(100, score));
+
+          let finalConclusion = '';
+          let finalColor = '';
+          if (score >= 80) { finalConclusion = '🚀 强力看多 (闭眼上车)'; finalColor = '#f43f5e'; }
+          else if (score >= 60) { finalConclusion = '📈 偏向多头 (持仓待涨)'; finalColor = '#f59e0b'; }
+          else if (score >= 40) { finalConclusion = '👀 多空平衡 (横盘震荡)'; finalColor = '#64748b'; }
+          else if (score >= 20) { finalConclusion = '📉 偏向空头 (逢高减仓)'; finalColor = '#059669'; }
+          else { finalConclusion = '⚠️ 强力看空 (清仓规避)'; finalColor = '#10b981'; }
+
+          // 覆盖掉 Loading 动画
+          resultBox.innerHTML = `
+            <div class="card" style="border: 1px solid #e2e8f0; background: #fff;">
+                <div style="text-align:center; padding-bottom: 12px; border-bottom: 1px dashed #cbd5e1; margin-bottom: 15px;">
+                    <div style="font-size:12px; color:var(--text-sub); margin-bottom:4px;">技术面综合得分</div>
+                    <div style="font-size:32px; font-weight:900; color:${finalColor};">${score} <span style="font-size:14px; font-weight:bold;">分</span></div>
+                    <div style="font-size:15px; font-weight:900; color:${finalColor}; margin-top:4px;">${finalConclusion}</div>
+                </div>
+
+                <div style="display:flex; flex-direction:column; gap:10px; font-size:12px; color:#1e293b; line-height:1.6;">
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #64748b;">
+                        <b>🕯️ K线形态：</b>${shapeAdv}
+                    </div>
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #3b82f6;">
+                        <b>📊 量价配合：</b>${volAdv}
+                    </div>
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #8b5cf6;">
+                        <b>📈 趋势支撑：</b>${trendAdv}
+                    </div>
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #f59e0b;">
+                        <b>⏱️ 分时微观：</b>${intraAdv}
+                    </div>
+                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #ec4899;">
+                        <b>🌊 主力资金：</b>今日主力呈现 ${netFlowVal >= 0 ? '<span style="color:#f43f5e; font-weight:bold;">净流入</span>' : '<span style="color:#10b981; font-weight:bold;">净流出</span>'} (${netFlowStr})。
+                    </div>
+                </div>
+            </div>
+          `;
+
+      } catch (err) {
+          resultBox.innerHTML = `<div style="text-align:center; padding:20px; color:var(--red); font-weight:bold;">${err.message || '诊断失败'}</div>`;
+      } finally {
+          btn.innerText = '📡 立即生成技术面诊断报告';
+          btn.style.pointerEvents = 'auto';
+      }
   },
 
   zoomMarketChart(dir) {
@@ -7767,13 +6934,8 @@ async _renderHoldingsUI(code, stocks, bonds) {
             this.data.groups = parsedData.groups; 
             this.data.fundsCache = parsedData.fundsCache || {}; 
             this.data.customSectors = parsedData.customSectors || []; 
-            this.data.marketGroups = parsedData.marketGroups || { index: [], stock: [], etf: [] }; 
-            if (!this.data.marketGroups.etf) this.data.marketGroups.etf = [];
-            // 云端完整还原股票自定义分组
-            this.data.stockCustomGroups = parsedData.stockCustomGroups || [{ id: 'default', name: '全部', stockCodes: [] }];
+            this.data.marketGroups = parsedData.marketGroups || { index: [], stock: [] }; 
             if (parsedData.rtData) this.rtData = parsedData.rtData; 
-            
-            // 固化入本地 IndexedDB
             await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData }); 
             progressText.innerText = '拉取并固化成功，即将刷新'; 
             setTimeout(() => { location.reload(); }, 600); 
@@ -7793,17 +6955,12 @@ async _renderHoldingsUI(code, stocks, bonds) {
     if (!this.s3) return this.showToast('请先保存配置参数', 'error'); 
     
     const conf = JSON.parse(localStorage.getItem('r2_conf')); 
-    // 确保把 stockCustomGroups 完整写入上传包中
-    const fullDataStr = JSON.stringify({ 
-      ...this.data, 
-      stockCustomGroups: this.data.stockCustomGroups || [], 
-      rtData: this.rtData 
-    }); 
+    const fullDataStr = JSON.stringify({ ...this.data, rtData: this.rtData }); 
     this.showToast('正在备份完整数据，请稍候...'); 
     
     this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v6_full.json', Body: fullDataStr, ContentType: 'application/json' }, (err) => { 
       if (err) this.showToast('上传失败: ' + err.message, 'error'); 
-      else this.showToast('✅ 完整数据（含股票分组）已成功备份到云端！'); 
+      else this.showToast('✅ 完整历史和估值数据已成功备份到云端！'); 
     }); 
   },
   
@@ -8174,190 +7331,170 @@ ds(e, i) {
     }, 200);
     },
 
- // 【修复版】：业绩表格抓取引擎（支持 fetch 直连/Worker 与 script 双引擎降级，彻底解决 404）
-  async fetchArchiveTable(apiType, varName, code) {
-    const randomRt = Math.random();
-    const targetUrl = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${apiType}&code=${code}&rt=${randomRt}`;
-    
-    // 方案 1：优先使用 fetch 直连 / 智能反代拉取文本解析
-    try {
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 4000);
-      
-      let fetchUrl = targetUrl;
-      // 若配置了有效的 Worker 反代，则自动套用，彻底杜绝防盗链 404
-      if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-        fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetUrl)}`;
+ fetchArchiveTable(apiType, varName, code) {
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${apiType}&code=${code}&rt=${Date.now()}`;
+    script.onload = () => {
+      let generatedHtml = '<div style="padding:20px; text-align:center; color:#999;">暂无数据</div>';
+      if (window[varName] && window[varName].content) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(window[varName].content, 'text/html');
+        const nativeTables = doc.querySelectorAll('table.w782');
+        
+        // 处理季度、年度涨幅（原生表格）
+        if (nativeTables.length > 0) {
+          let table = nativeTables[0];
+          table.querySelectorAll('.infoTips, table').forEach(el => el.remove());
+          table.className = 'data-table perf-table';
+          table.querySelectorAll('th, td').forEach(cell => {
+            let rawText = cell.textContent.trim();
+            let num = parseFloat(rawText);
+            if (rawText.includes('%') && !isNaN(num)) {
+              if (num > 0) cell.innerHTML = `<span class="red">${rawText}</span>`;
+              else if (num < 0) cell.innerHTML = `<span class="green">${rawText}</span>`;
+            } else if (rawText.includes('优秀')) {
+              cell.innerHTML = `<span style="color:#f5222d; font-weight:bold;">${rawText}</span>`;
+            } else if (rawText.includes('不佳') || rawText.includes('一般')) {
+              cell.innerHTML = `<span style="color:#52c41a; font-weight:bold;">${rawText}</span>`;
+            } else if (rawText.includes('|')) {
+              let parts = rawText.split('|');
+              cell.innerHTML = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
+            } else {
+              cell.innerHTML = rawText;
+            }
+          });
+          generatedHtml = table.outerHTML;
+        } 
+        // 处理阶段涨幅（UL 列表）并转置
+        else {
+          const allUls = doc.querySelectorAll('ul');
+          if (allUls.length === 0) {
+            resolve(generatedHtml);
+            return;
+          }
+          
+          // 跳过表头 ul（class="fcol"）
+          const dataUls = Array.from(allUls).filter(ul => !ul.className.includes('fcol'));
+          
+          // 存储每个周期的数据
+          const rows = []; // 每个元素: { period, gain, avg, hs300, rank, change, quartile }
+          for (let ul of dataUls) {
+            const lis = ul.querySelectorAll('li');
+            if (lis.length === 0) continue;
+            
+            let period = '', gain = '', avg = '', hs300 = '', rank = '', change = '', quartile = '';
+            
+            for (let li of lis) {
+              const cls = li.className;
+              const text = li.innerText.trim();
+              if (cls.includes('title')) {
+                period = text;
+              } else if (cls.includes('tor') && !gain) {
+                gain = text;
+              } else if (cls.includes('tor') && gain && !avg) {
+                avg = text;
+              } else if (cls.includes('tor') && gain && avg && !hs300) {
+                hs300 = text;
+              } else if (cls.includes('tlpm')) {
+                rank = text;
+              } else if (cls.includes('pmbd')) {
+                // 排名变动：例如 "782↑" 或 "42↓"
+                let match = text.match(/(\d+)([↑↓])/);
+                if (match) {
+                  change = match[2] + match[1];
+                } else {
+                  change = text;
+                }
+              } else if (cls.includes('sf')) {
+                const sifen = li.querySelector('.sifen');
+                if (sifen) quartile = sifen.innerText.trim();
+              }
+            }
+            
+            if (period) {
+              rows.push({ period, gain, avg, hs300, rank, change, quartile });
+            }
+          }
+          
+          if (rows.length === 0) {
+            generatedHtml = '<div style="padding:20px; text-align:center; color:#999;">无阶段涨幅数据</div>';
+          } else {
+            // 转置表格：指标作为行，周期作为列
+            const periods = rows.map(r => r.period);
+            const indicators = [
+              { key: 'gain', label: '涨幅', isPercent: true },
+              { key: 'avg', label: '同类平均', isPercent: true },
+              { key: 'hs300', label: '沪深300', isPercent: true },
+              { key: 'rank', label: '同类排名', isPercent: false },
+              { key: 'change', label: '排名变动', isPercent: false },
+              { key: 'quartile', label: '四分位排名', isPercent: false }
+            ];
+            
+            let html = '<table class="data-table perf-table" style="min-width:600px;">';
+            // 表头：第一列留空，后续每列是一个周期
+            html += '<thead><tr><th>指标</th>';
+            for (let p of periods) {
+              html += `<th>${p}</th>`;
+            }
+            html += '</tr></thead><tbody>';
+            
+            // 逐指标输出行
+            for (let ind of indicators) {
+              html += '<tr>';
+              html += `<td class="indicator-cell"><strong>${ind.label}</strong></td>`;
+              for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                let val = row[ind.key] || '--';
+                let cellClass = '';
+                
+                if (ind.isPercent && val !== '--') {
+                  let num = parseFloat(val);
+                  if (!isNaN(num)) {
+                    if (num > 0) cellClass = 'red';
+                    else if (num < 0) cellClass = 'green';
+                  }
+                }
+                
+                // 特殊处理同类排名：格式化 排名|总数
+                if (ind.key === 'rank' && val.includes('|')) {
+                  let parts = val.split('|');
+                  val = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
+                }
+                // 特殊处理排名变动：提取箭头和数字，上色
+                else if (ind.key === 'change' && val !== '--') {
+                  let match = val.match(/([↑↓])(\d+)/);
+                  if (match) {
+                    let arrow = match[1];
+                    let num = match[2];
+                    val = arrow === '↑' ? `<span class="red">↑${num}</span>` : `<span class="green">↓${num}</span>`;
+                    cellClass = '';
+                  }
+                }
+                // 特殊处理四分位排名：上色
+                else if (ind.key === 'quartile' && val !== '--') {
+                  if (val.includes('优秀')) cellClass = 'red';
+                  else if (val.includes('良好')) cellClass = '#f59e0b';
+                  else if (val.includes('一般') || val.includes('不佳')) cellClass = 'green';
+                }
+                
+                html += `<td class="${cellClass}">${val}</td>`;
+              }
+              html += '</tr>';
+            }
+            html += '</tbody></table>';
+            generatedHtml = html;
+          }
+        }
+        window[varName] = undefined;
       }
-      
-      const resp = await fetch(fetchUrl, {
-        signal: controller.signal,
-        referrerPolicy: 'no-referrer'
-      });
-      clearTimeout(tid);
-
-      if (resp.ok) {
-        const text = await resp.text();
-        // 匹配 content:"..." 的 HTML 字符串
-        const match = text.match(/content\s*:\s*"((?:[^"\\]|\\.)*)"/);
-        if (match && match[1]) {
-          // 解码 Unicode 转义符
-          let contentHtml = JSON.parse(`"${match[1]}"`);
-          return this._parseArchiveHtmlToTable(contentHtml, apiType);
-        }
-      }
-    } catch (e) {
-      // fetch 遇跨域或失败，继续降级使用沙盒 script
-    }
-
-    // 方案 2：降级方案 —— 隔离沙盒 script 注入
-    return new Promise((resolve) => {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
-
-      const finish = (html) => {
-        if (iframe.parentNode) iframe.remove();
-        resolve(html || '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无业绩数据</div>');
-      };
-
-      const timer = setTimeout(() => finish(null), 5000);
-
-      const doc = iframe.contentWindow.document;
-      iframe.contentWindow.onerror = () => true;
-
-      const script = doc.createElement('script');
-      script.referrerPolicy = 'no-referrer';
-      script.src = targetUrl;
-
-      script.onload = () => {
-        clearTimeout(timer);
-        const win = iframe.contentWindow;
-        const dataObj = win[varName] || win.apidata || win.qapidata || win.yapidata;
-        if (dataObj && dataObj.content) {
-          finish(this._parseArchiveHtmlToTable(dataObj.content, apiType));
-        } else {
-          finish(null);
-        }
-      };
-
-      script.onerror = () => {
-        clearTimeout(timer);
-        finish('<div style="padding:20px; text-align:center; color:var(--red);">数据加载失败，请检查网络</div>');
-      };
-
-      doc.head.appendChild(script);
-    });
-  },
-
-  // 辅助解析：将原生 HTML 转换转置为统一风格的业绩表格
-  _parseArchiveHtmlToTable(contentHtml, apiType) {
-    if (!contentHtml || !contentHtml.trim()) {
-      return '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无数据</div>';
-    }
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(contentHtml, 'text/html');
-    const nativeTables = doc.querySelectorAll('table.w782, table');
-
-    // 季度/年度涨幅（原生即为完整表格）
-    if (nativeTables.length > 0 && (apiType === 'quarterzf' || apiType === 'yearzf')) {
-      let table = nativeTables[0];
-      table.querySelectorAll('.infoTips, table').forEach(el => el.remove());
-      table.className = 'data-table perf-table';
-      table.querySelectorAll('th, td').forEach(cell => {
-        let rawText = cell.textContent.trim();
-        let num = parseFloat(rawText);
-        if (rawText.includes('%') && !isNaN(num)) {
-          if (num > 0) cell.innerHTML = `<span class="red">${rawText}</span>`;
-          else if (num < 0) cell.innerHTML = `<span class="green">${rawText}</span>`;
-        } else if (rawText.includes('优秀')) {
-          cell.innerHTML = `<span style="color:#f5222d; font-weight:bold;">${rawText}</span>`;
-        } else if (rawText.includes('不佳') || rawText.includes('一般')) {
-          cell.innerHTML = `<span style="color:#52c41a; font-weight:bold;">${rawText}</span>`;
-        } else if (rawText.includes('|')) {
-          let parts = rawText.split('|');
-          cell.innerHTML = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
-        } else {
-          cell.innerHTML = rawText;
-        }
-      });
-      return table.outerHTML;
-    }
-
-    // 阶段涨幅（UL 列表转置表格）
-    const allUls = doc.querySelectorAll('ul');
-    if (allUls.length === 0) return contentHtml;
-
-    const dataUls = Array.from(allUls).filter(ul => !ul.className.includes('fcol'));
-    const rows = [];
-    for (let ul of dataUls) {
-      const lis = ul.querySelectorAll('li');
-      if (lis.length === 0) continue;
-      let period = '', gain = '', avg = '', hs300 = '', rank = '', change = '', quartile = '';
-      for (let li of lis) {
-        const cls = li.className;
-        const text = li.innerText.trim();
-        if (cls.includes('title')) period = text;
-        else if (cls.includes('tor') && !gain) gain = text;
-        else if (cls.includes('tor') && gain && !avg) avg = text;
-        else if (cls.includes('tor') && gain && avg && !hs300) hs300 = text;
-        else if (cls.includes('tlpm')) rank = text;
-        else if (cls.includes('pmbd')) {
-          let match = text.match(/(\d+)([↑↓])/);
-          change = match ? match[2] + match[1] : text;
-        } else if (cls.includes('sf')) {
-          const sifen = li.querySelector('.sifen');
-          if (sifen) quartile = sifen.innerText.trim();
-        }
-      }
-      if (period) rows.push({ period, gain, avg, hs300, rank, change, quartile });
-    }
-
-    if (rows.length === 0) return '<div style="padding:20px; text-align:center; color:#94a3b8;">无阶段涨幅数据</div>';
-
-    const periods = rows.map(r => r.period);
-    const indicators = [
-      { key: 'gain', label: '涨幅', isPercent: true },
-      { key: 'avg', label: '同类平均', isPercent: true },
-      { key: 'hs300', label: '沪深300', isPercent: true },
-      { key: 'rank', label: '同类排名', isPercent: false },
-      { key: 'change', label: '排名变动', isPercent: false },
-      { key: 'quartile', label: '四分位排名', isPercent: false }
-    ];
-
-    let html = '<table class="data-table perf-table" style="min-width:600px;">';
-    html += '<thead><tr><th>指标</th>';
-    for (let p of periods) html += `<th>${p}</th>`;
-    html += '</tr></thead><tbody>';
-
-    for (let ind of indicators) {
-      html += '<tr>';
-      html += `<td class="indicator-cell"><strong>${ind.label}</strong></td>`;
-      for (let row of rows) {
-        let val = row[ind.key] || '--';
-        let cellClass = '';
-        if (ind.isPercent && val !== '--') {
-          let num = parseFloat(val);
-          if (!isNaN(num)) cellClass = num > 0 ? 'red' : (num < 0 ? 'green' : '');
-        }
-        if (ind.key === 'rank' && val.includes('|')) {
-          let parts = val.split('|');
-          val = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
-        } else if (ind.key === 'change' && val !== '--') {
-          let match = val.match(/([↑↓])(\d+)/);
-          if (match) val = match[1] === '↑' ? `<span class="red">↑${match[2]}</span>` : `<span class="green">↓${match[2]}</span>`;
-        } else if (ind.key === 'quartile' && val !== '--') {
-          if (val.includes('优秀')) cellClass = 'red';
-          else if (val.includes('良好')) cellClass = '#f59e0b';
-          else if (val.includes('一般') || val.includes('不佳')) cellClass = 'green';
-        }
-        html += `<td class="${cellClass}">${val}</td>`;
-      }
-      html += '</tr>';
-    }
-    html += '</tbody></table>';
-    return html;
-  },
+      document.head.removeChild(script);
+      resolve(generatedHtml);
+    };
+    script.onerror = () => { document.head.removeChild(script); resolve('<div style="padding:20px; color:red;">数据加载失败</div>'); };
+    document.head.appendChild(script);
+  });
+},
   
 // 【最强直连版】：原生 fetch 配合 Function 沙盒解析，告别脆弱正则，100%成功率
   async fetchFundFullInfo(code) {

@@ -9,6 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
+  <meta name="referrer" content="no-referrer">
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/aws-sdk/2.1692.0/aws-sdk.min.js"></script>
 
@@ -1142,6 +1143,8 @@ function fetchJSONP(url, callbackName = 'callback') {
   return new Promise((resolve, reject) => {
     const cb = 'jsonp_cb_' + Math.floor(Math.random() * 1000000) + '_' + Date.now();
     const script = document.createElement('script');
+    // 关键修复：强制不发送当前外域 Referer，伪装为原生直接访问
+    script.referrerPolicy = 'no-referrer';
     const sep = url.includes('?') ? '&' : '?';
     script.src = `${url}${sep}${callbackName}=${cb}`;
     window[cb] = (data) => {
@@ -3975,75 +3978,112 @@ getCorrectSecid(savedSecid, code, groupType) {
         } 
       } catch(e) {} 
     } else { 
-      // K 线图渲染逻辑保持稳定
+      // 日K(101)、周K(102)、月K(103) 获取逻辑
       const klt = parseInt(this.marketState.chartType) || 101; 
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&_=${Date.now()}`; 
-      try { 
-        const res = await fetchJSONP(kUrl, 'cb'); 
-        const klines = res?.data?.klines || []; 
-        let finalPrevClose = this.marketState.currentPrevClose;
-        
-        if (klines.length > 0) { 
-          const parsed = klines.map(str => { 
-            const parts = str.split(','); 
-            return { date: parts[0], open: parseFloat(parts[1]) || 0, close: parseFloat(parts[2]) || 0, high: parseFloat(parts[3]) || 0, low: parseFloat(parts[4]) || 0, volume: parseInt(parts[5] || 0) }; 
-          }); 
-          if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].close || 1;
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
+      
+      let klines = [];
 
-          const calcMA = (data, days) => { 
-            let res = []; 
-            for(let i=0; i<data.length; i++){ 
-              if(i < days-1) { res.push(null); continue; } 
-              let sum=0; 
-              for(let j=0; j<days; j++) sum += data[i-j]; res.push(sum/days); 
-            } return res; 
-          }; 
-
-          const calcEMALocal = (data, days) => { 
-            let k = 2 / (days + 1); 
-            let ema = [data[0]]; 
-            for (let i = 1; i < data.length; i++) {
-              ema.push(data[i] * k + ema[i - 1] * (1 - k)); 
-            }
-            return ema; 
-          }; 
-
-          const closePrices = parsed.map(p => p.close);
-          const ema12 = calcEMALocal(closePrices, 12);
-          const ema26 = calcEMALocal(closePrices, 26);
-          const dif = [];
-          for (let i = 0; i < closePrices.length; i++) {
-            dif.push(ema12[i] - ema26[i]);
+      // 方案 A：优先尝试 Worker 反代 / fetch 直连（带 no-referrer 请求头，同新标签页打开效果）
+      try {
+        let fetchUrl = kUrl;
+        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+          fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
+        }
+        const resp = await fetch(fetchUrl, { referrerPolicy: 'no-referrer' });
+        if (resp.ok) {
+          const text = await resp.text();
+          let json = null;
+          try {
+            json = JSON.parse(text);
+          } catch(pe) {
+            const m = text.match(/\((.*)\)/);
+            if (m) json = JSON.parse(m[1]);
           }
-          const dea = calcEMALocal(dif, 9);
-          const macd = [];
-          for (let i = 0; i < closePrices.length; i++) {
-            macd.push((dif[i] - dea[i]) * 2);
-          }
-
-          this.marketChartData = { 
-            type: 'kline', 
-            xLabels: parsed.map(p => p.date), 
-            prices: closePrices,
-            opens: parsed.map(p => p.open),
-            highs: parsed.map(p => p.high),
-            lows: parsed.map(p => p.low),
-            ma5: calcMA(closePrices, 5), 
-            ma10: calcMA(closePrices, 10), 
-            ma20: calcMA(closePrices, 20), 
-            ma60: calcMA(closePrices, 60), 
-            dif: dif,
-            dea: dea,
-            macd: macd,
-            volumes: parsed.map(p => p.volume), 
-            prevClose: finalPrevClose, 
-            lastPrice: parsed[parsed.length-1]?.close || 0, 
-            timeStr: new Date().toLocaleTimeString() 
-          }; 
-          this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
-          this.bindChartEvents(); 
-        } 
+          if (json?.data?.klines) klines = json.data.klines;
+        }
       } catch(e) {}
+
+      // 方案 B：若 fetch 未成功，降级走无 Referer 的 fetchJSONP
+      if (!klines || klines.length === 0) {
+        try {
+          const res = await fetchJSONP(kUrl, 'cb');
+          klines = res?.data?.klines || [];
+        } catch(e) {}
+      }
+
+      let finalPrevClose = this.marketState.currentPrevClose;
+      
+      if (klines.length > 0) { 
+        const parsed = klines.map(str => { 
+          const parts = str.split(','); 
+          return { 
+            date: parts[0], 
+            open: parseFloat(parts[1]) || 0, 
+            close: parseFloat(parts[2]) || 0, 
+            high: parseFloat(parts[3]) || 0, 
+            low: parseFloat(parts[4]) || 0, 
+            volume: parseInt(parts[5] || 0) 
+          }; 
+        }); 
+        if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].close || 1;
+
+        const calcMA = (data, days) => { 
+          let res = []; 
+          for(let i = 0; i < data.length; i++){ 
+            if(i < days - 1) { res.push(null); continue; } 
+            let sum = 0; 
+            for(let j = 0; j < days; j++) sum += data[i - j]; 
+            res.push(sum / days); 
+          } 
+          return res; 
+        }; 
+
+        const calcEMALocal = (data, days) => { 
+          let k = 2 / (days + 1); 
+          let ema = [data[0]]; 
+          for (let i = 1; i < data.length; i++) {
+            ema.push(data[i] * k + ema[i - 1] * (1 - k)); 
+          }
+          return ema; 
+        }; 
+
+        const closePrices = parsed.map(p => p.close);
+        const ema12 = calcEMALocal(closePrices, 12);
+        const ema26 = calcEMALocal(closePrices, 26);
+        const dif = [];
+        for (let i = 0; i < closePrices.length; i++) {
+          dif.push(ema12[i] - ema26[i]);
+        }
+        const dea = calcEMALocal(dif, 9);
+        const macd = [];
+        for (let i = 0; i < closePrices.length; i++) {
+          macd.push((dif[i] - dea[i]) * 2);
+        }
+
+        this.marketChartData = { 
+          type: 'kline', 
+          xLabels: parsed.map(p => p.date), 
+          prices: closePrices,
+          opens: parsed.map(p => p.open),
+          highs: parsed.map(p => p.high),
+          lows: parsed.map(p => p.low),
+          ma5: calcMA(closePrices, 5), 
+          ma10: calcMA(closePrices, 10), 
+          ma20: calcMA(closePrices, 20), 
+          ma60: calcMA(closePrices, 60), 
+          dif: dif,
+          dea: dea,
+          macd: macd,
+          volumes: parsed.map(p => p.volume), 
+          prevClose: finalPrevClose, 
+          lastPrice: parsed[parsed.length - 1]?.close || 0, 
+          timeStr: new Date().toLocaleTimeString() 
+        }; 
+        this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
+        this.bindChartEvents(); 
+      } 
+    } catch(e) {}
     } 
   },
 
@@ -4979,46 +5019,41 @@ drawIntradayFlowCanvas(data) {
       `;
   },
 
-  // 3. 辅助：后台静默拉取历史日 K 线数据
-  // --- 修复版：后台抓取历史日K线（东财标准规范参数 + 双重容灾，解决图2中合富中国等股票请求报红失败）---
   async _fetchMarketHistoryKlines(secid, days) {
-      // 必须补齐 fields1 与 ut 授权参数，否则部分股票会被接口直接拒绝拦截
-      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
       
+      // 优先通过 Worker 反代或 no-referrer fetch 获取
       try {
-          const res = await fetchJSONP(url, 'cb');
+          let fetchUrl = kUrl;
+          if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+              fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
+          }
+          const resp = await fetch(fetchUrl, { referrerPolicy: 'no-referrer' });
+          if (resp.ok) {
+              const text = await resp.text();
+              let json = null;
+              try { json = JSON.parse(text); } catch(pe) {
+                  const m = text.match(/\((.*)\)/);
+                  if (m) json = JSON.parse(m[1]);
+              }
+              const klines = json?.data?.klines || [];
+              if (klines.length > 0) {
+                  return klines.map(str => {
+                      const p = str.split(',');
+                      return { date: p[0], open: parseFloat(p[1]) || 0, close: parseFloat(p[2]) || 0, high: parseFloat(p[3]) || 0, low: parseFloat(p[4]) || 0, vol: parseFloat(p[5]) || 0 };
+                  });
+              }
+          }
+      } catch (e) {}
+
+      // 降级使用 fetchJSONP
+      try {
+          const res = await fetchJSONP(kUrl, 'cb');
           const klines = res?.data?.klines || [];
           if (klines.length > 0) {
               return klines.map(str => {
                   const p = str.split(',');
-                  return { 
-                      date: p[0], 
-                      open: parseFloat(p[1]) || 0, 
-                      close: parseFloat(p[2]) || 0, 
-                      high: parseFloat(p[3]) || 0, 
-                      low: parseFloat(p[4]) || 0, 
-                      vol: parseFloat(p[5]) || 0 
-                  };
-              });
-          }
-      } catch (e) {}
-
-      // 备用降级重试：若主接口因网络抖动未响应，自动切换备用请求
-      try {
-          const fallbackUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&_=${Date.now()}`;
-          const res2 = await fetchJSONP(fallbackUrl, 'cb');
-          const klines2 = res2?.data?.klines || [];
-          if (klines2.length > 0) {
-              return klines2.map(str => {
-                  const p = str.split(',');
-                  return { 
-                      date: p[0], 
-                      open: parseFloat(p[1]) || 0, 
-                      close: parseFloat(p[2]) || 0, 
-                      high: parseFloat(p[3]) || 0, 
-                      low: parseFloat(p[4]) || 0, 
-                      vol: parseFloat(p[5]) || 0 
-                  };
+                  return { date: p[0], open: parseFloat(p[1]) || 0, close: parseFloat(p[2]) || 0, high: parseFloat(p[3]) || 0, low: parseFloat(p[4]) || 0, vol: parseFloat(p[5]) || 0 };
               });
           }
       } catch (e2) {}

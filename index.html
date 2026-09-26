@@ -2867,13 +2867,11 @@ getCorrectSecid(savedSecid, code, groupType) {
   async renderWatchedMarkets() { 
     const groupKey = this.currentMarketGroup; 
     // 在获取 list 处调整如下：
-    let list = this.data.marketGroups[groupKey] || [];
-    if (groupKey === 'stock' && this.currentStockGroupId !== 'default') {
-      const curGroup = (this.data.stockCustomGroups || []).find(g => g.id === this.currentStockGroupId);
-      if (curGroup && curGroup.stockCodes) {
-        list = list.filter(item => curGroup.stockCodes.includes(item.code));
-      }
-    } 
+    let list = this.data.marketGroups[groupKey] || []; 
+    // 股票/ETF 严格依据 item.bindStockGroup 过滤，未绑定的仅在「全部」中展示
+    if ((groupKey === 'stock' || groupKey === 'etf') && this.currentStockGroupId && this.currentStockGroupId !== 'default') {
+        list = list.filter(item => item.bindStockGroup === this.currentStockGroupId);
+    }
     const container = document.getElementById('market-watched-list'); 
     
     if (list.length === 0) { 
@@ -3008,10 +3006,10 @@ getCorrectSecid(savedSecid, code, groupType) {
             const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
             
             let groupTagHtml = '';
-            // 股票和 ETF：显示股票分组标签
             if (groupKey === 'stock' || groupKey === 'etf') {
                 const sGroups = this.data.stockCustomGroups || [];
-                const boundSGroup = sGroups.find(g => g.id === item.bindStockGroup || (g.stockCodes && g.stockCodes.includes(item.code)));
+                // 仅读取自身显式绑定的分组 ID，不再做任何模糊猜测
+                const boundSGroup = item.bindStockGroup ? sGroups.find(g => g.id === item.bindStockGroup) : null;
                 if (boundSGroup && boundSGroup.id !== 'default') {
                     groupTagHtml = `
                         <span class="c-tag" style="background:#0066ff; color:#fff; cursor:pointer;" onclick="app.switchStockGroupFilter(event, '${boundSGroup.id}')">📂 ${boundSGroup.name}</span>
@@ -3021,7 +3019,7 @@ getCorrectSecid(savedSecid, code, groupType) {
                     groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">+ 分组</span>`;
                 }
             } else {
-                // 指数：保持原样绑定基金分组
+                // 指数维持原状
                 let boundGroup = item.bindGroup ? this.data.groups.find(g => g.id === item.bindGroup) : null;
                 if (boundGroup) {
                     groupTagHtml = `
@@ -3108,7 +3106,6 @@ getCorrectSecid(savedSecid, code, groupType) {
     this.openModal('market-group-select');
   },
 
-  // --- 执行绑定/解绑 ---
   bindMarketToGroup(e, targetGroupId) {
     this.stopProp(e);
     const groupKey = this.targetMarketGroupType || this.currentMarketGroup;
@@ -3117,25 +3114,16 @@ getCorrectSecid(savedSecid, code, groupType) {
 
     if (marketItem) {
       if (groupKey === 'stock' || groupKey === 'etf') {
-        // 1. 先从原有股票分组的 stockCodes 中移除
-        (this.data.stockCustomGroups || []).forEach(g => {
-          if (g.stockCodes) g.stockCodes = g.stockCodes.filter(c => c !== marketItem.code);
-        });
-
         if (targetGroupId === null) {
           delete marketItem.bindStockGroup;
-          this.showToast('已取消股票分组绑定');
+          this.showToast('已取消分组绑定');
         } else {
           marketItem.bindStockGroup = targetGroupId;
           const targetG = (this.data.stockCustomGroups || []).find(g => g.id === targetGroupId);
-          if (targetG) {
-            if (!targetG.stockCodes) targetG.stockCodes = [];
-            if (!targetG.stockCodes.includes(marketItem.code)) targetG.stockCodes.push(marketItem.code);
-          }
-          this.showToast(`已绑定至股票分组 [${targetG?.name || ''}]`);
+          this.showToast(`已绑定至分组 [${targetG?.name || ''}]`);
         }
       } else {
-        // 指数分组绑定保持原状
+        // 指数分组绑定逻辑保持原样
         if (targetGroupId === null) {
           delete marketItem.bindGroup;
           this.showToast('已取消绑定');
@@ -3184,31 +3172,24 @@ getCorrectSecid(savedSecid, code, groupType) {
     } 
   },
   
-   // 3. 完全替换 addWatchedMarket (防止新增时存入被污染的前缀)
-  addWatchedMarket(secid, name, code) { 
+   addWatchedMarket(secid, name, code) { 
     const groupKey = this.currentMarketGroup; 
-    if (groupKey === 'stock' && this.currentStockGroupId !== 'default') {
-      const curGroup = (this.data.stockCustomGroups || []).find(g => g.id === this.currentStockGroupId);
-      if (curGroup && !curGroup.stockCodes.includes(code)) {
-        curGroup.stockCodes.push(code);
-      }
-    }
     if (!this.data.marketGroups[groupKey]) this.data.marketGroups[groupKey] = []; 
     
     const targetList = this.data.marketGroups[groupKey]; 
     
-    // 如果 secid 没有带小数点，再用规则生成；如果有小数点，说明是搜索接口返回的正确数据，直接信任！
     let finalSecid = secid;
     if (!String(finalSecid).includes('.')) {
         finalSecid = this.getCorrectSecid(secid, code, groupKey);
     }
     
     if (targetList.some(m => m.secid === finalSecid)) { 
-        this.showToast(`该${groupKey === 'index' ? '指数' : '股票'}已在自选列表中`, 'error'); 
+        this.showToast(`该${groupKey === 'index' ? '指数' : (groupKey === 'etf' ? 'ETF' : '股票')}已在自选列表中`, 'error'); 
     } else { 
+        // 纯净添加，默认不绑定任何具体分组，初始显示「+ 分组」
         targetList.push({ secid: finalSecid, name, code }); 
         this.saveData(); 
-        this.showToast(`✅ 添加至${groupKey === 'index' ? '指数' : '股票'}分组成功`); 
+        this.showToast(`✅ 添加成功`); 
         this.renderWatchedMarkets(); 
     } 
     document.getElementById('market-search-input').value = ''; 
@@ -3278,13 +3259,15 @@ getCorrectSecid(savedSecid, code, groupType) {
     }
   },
 
-  // --- 优股扫描引擎：扫描股票池下所有三指标全部看多的个股 ---
+  // --- 优股扫描引擎：同时扫描股票池与 ETF 池下所有三指标全部看多的标的 ---
   async renderSuperStocksScan() {
     const container = document.getElementById('market-watched-list');
-    const stockList = this.data.marketGroups.stock || [];
+    const stockList = (this.data.marketGroups.stock || []).map(i => ({ ...i, category: '股票' }));
+    const etfList = (this.data.marketGroups.etf || []).map(i => ({ ...i, category: 'ETF' }));
+    const allTargets = [...stockList, ...etfList];
 
-    if (stockList.length === 0) {
-      container.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#94a3b8; font-weight:bold;">自选股票池为空，请先在「股票」选项卡添加关注的股票</div>';
+    if (allTargets.length === 0) {
+      container.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#94a3b8; font-weight:bold;">自选股票与 ETF 池为空，请先在「股票」或「ETF」选项卡添加关注的标的</div>';
       return;
     }
 
@@ -3292,16 +3275,17 @@ getCorrectSecid(savedSecid, code, groupType) {
       <div style="text-align:center; padding:40px 20px; background:#fff; border-radius:12px; margin:10px 0; border:1px solid #e2e8f0; grid-column: 1 / -1;">
         <div class="loading-spinner" style="margin:0 auto 15px auto;"></div>
         <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">MACD + KDJ + BOLL 全指标扫描中</div>
-        <div style="font-size:12px; color:var(--text-sub);">正在对自选池内 ${stockList.length} 只股票进行技术面共振筛选...</div>
+        <div style="font-size:12px; color:var(--text-sub);">正在对自选池内 ${allTargets.length} 只标的 (含 ${stockList.length} 只股票、${etfList.length} 只 ETF) 进行技术面共振筛选...</div>
       </div>
     `;
 
-    const matchedStocks = [];
+    const matchedItems = [];
 
-    // 并发扫描
-    await Promise.all(stockList.map(async (item) => {
+    // 并发快速计算
+    await Promise.all(allTargets.map(async (item) => {
       try {
-        const querySecid = this.getCorrectSecid(item.secid, item.code, 'stock');
+        const targetType = item.category === 'ETF' ? 'etf' : 'stock';
+        const querySecid = this.getCorrectSecid(item.secid, item.code, targetType);
         const klines = await this._fetchMarketHistoryKlines(querySecid, 65);
         if (!klines || klines.length < 35) return;
 
@@ -3328,7 +3312,7 @@ getCorrectSecid(savedSecid, code, groupType) {
         const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
         const isMacdBuy = (prevDIF <= prevDEA && curDIF > curDEA) || (curDIF > curDEA && curMACD >= prevMACD) || (curDIF < 0 && curMACD > prevMACD && prevMACD < 0);
 
-        // 2. KDJ
+        // 2. KDJ(9,3,3)
         let kArr = [50], dArr = [50], jArr = [50];
         for (let i = 8; i < N; i++) {
           let periodHigh = Math.max(...highs.slice(i - 8, i + 1));
@@ -3343,7 +3327,7 @@ getCorrectSecid(savedSecid, code, groupType) {
         const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
         const isKdjBuy = (prevK <= prevD && curK > curD) || curJ < 5 || (curK < 40 && curK > prevK);
 
-        // 3. BOLL
+        // 3. BOLL(20,2)
         const bollSlice = closes.slice(-20);
         const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
         const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
@@ -3352,13 +3336,14 @@ getCorrectSecid(savedSecid, code, groupType) {
         const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
         const isBollBuy = bollPct <= 25 || (latestPrice > bollMid && closes[N - 1] >= closes[N - 2]);
 
-        // 三指标全部看多
+        // 三指标全部看多买入
         if (isMacdBuy && isKdjBuy && isBollBuy) {
           const chg = ((closes[N - 1] - closes[N - 2]) / closes[N - 2]) * 100;
-          matchedStocks.push({
+          matchedItems.push({
             name: item.name,
             code: item.code,
             secid: querySecid,
+            category: item.category,
             price: latestPrice.toFixed(2),
             chgRate: chg.toFixed(2),
             curJ: curJ.toFixed(1),
@@ -3368,27 +3353,30 @@ getCorrectSecid(savedSecid, code, groupType) {
       } catch(e) {}
     }));
 
-    if (matchedStocks.length === 0) {
+    if (matchedItems.length === 0) {
       container.innerHTML = `
         <div style="text-align:center; padding:50px 20px; color:#94a3b8; grid-column:1 / -1;">
           <div style="font-size:36px; margin-bottom:10px;">📉</div>
-          <div style="font-weight:bold; color:var(--text-main); font-size:15px;">当前暂无三指标全部看多的股票</div>
+          <div style="font-weight:bold; color:var(--text-main); font-size:15px;">当前暂无三指标全部看多的标的</div>
           <div style="font-size:12px; margin-top:6px;">建议防守观望，等待市场出现多头金叉共振</div>
         </div>
       `;
       return;
     }
 
-    // 渲染优股卡片
-    container.innerHTML = matchedStocks.map(s => {
+    // 渲染优股/优选 ETF 卡片
+    container.innerHTML = matchedItems.map(s => {
       const col = parseFloat(s.chgRate) >= 0 ? 'red' : 'green';
       const sign = parseFloat(s.chgRate) > 0 ? '+' : '';
+      const catColor = s.category === 'ETF' ? '#f59e0b' : '#0066ff';
+      const catBg = s.category === 'ETF' ? '#fef3c7' : '#e6f0ff';
       return `
         <div class="list-item" style="border-left:4px solid #f43f5e;" onclick="app.openMarketDetail('${s.secid}', '${s.name}')">
           <div style="flex:1;">
             <div style="display:flex; align-items:center; gap:8px;">
               <span style="font-weight:900; font-size:16px;">${s.name}</span>
               <span class="c-code">${s.code}</span>
+              <span class="c-tag" style="background:${catBg}; color:${catColor}; font-weight:900;">${s.category}</span>
               <span class="c-tag" style="background:#fff1f2; color:#f43f5e; font-weight:900;">🎯 三指标全多</span>
             </div>
             <div style="display:flex; gap:6px; margin-top:6px; font-size:11px;">

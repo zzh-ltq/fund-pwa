@@ -3448,8 +3448,8 @@ getCorrectSecid(savedSecid, code, groupType) {
     let historyFlowData = [];
     let latestHistoryDay = null;
 
-    // A. 尝试获取实时快照
-    const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f66,f67,f70,f72,f73,f76,f78,f79,f82,f84,f85,f138,f139,f141,f142,f144,f145,f147,f148&_=${Date.now()}`;
+    // A. 获取实时资金快照（完整补齐超大单、大单、中单、小单的流入、流出及净流入字段）
+    const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f65,f66,f70,f71,f72,f76,f77,f78,f82,f83,f84,f138,f139,f140,f141,f142,f143,f144,f145,f146,f147,f148,f149&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(flowUrl, 'cb');
         if (res?.data) {
@@ -3478,73 +3478,62 @@ getCorrectSecid(savedSecid, code, groupType) {
         }
     } catch(e) {}
 
-    // C. 混合渲染逻辑
+    // C. 规范解析真实资金流向
     if (snapshotFlow || latestHistoryDay) {
         if (flowArea) flowArea.style.display = 'block';
 
         let mainNet = 0, xlNet = 0, lNet = 0, mNet = 0, sNet = 0;
         let mainIn = 0, mainOut = 0, hasAbsoluteInOut = false;
 
-        // 优先使用实时快照
         if (snapshotFlow) {
-            // 【核心修复】：严格区分板块和个股的字段，绝不混用！
             const isSector = secid.startsWith('90.');
             
             if (isSector) {
-                // 板块专属字段 (f138 ~ f148)
+                // 板块资金字段 (f138 ~ f149)
                 const xlIn = parseFloat(snapshotFlow.f138) || 0;
                 const xlOut = parseFloat(snapshotFlow.f139) || 0;
-                xlNet = xlIn - xlOut;
+                xlNet = (snapshotFlow.f140 !== undefined && snapshotFlow.f140 !== '-') ? parseFloat(snapshotFlow.f140) : (xlIn - xlOut);
 
                 const lIn = parseFloat(snapshotFlow.f141) || 0;
                 const lOut = parseFloat(snapshotFlow.f142) || 0;
-                lNet = lIn - lOut;
+                lNet = (snapshotFlow.f143 !== undefined && snapshotFlow.f143 !== '-') ? parseFloat(snapshotFlow.f143) : (lIn - lOut);
 
                 const mIn = parseFloat(snapshotFlow.f144) || 0;
                 const mOut = parseFloat(snapshotFlow.f145) || 0;
-                mNet = mIn - mOut;
+                mNet = (snapshotFlow.f146 !== undefined && snapshotFlow.f146 !== '-') ? parseFloat(snapshotFlow.f146) : (mIn - mOut);
 
                 const sIn = parseFloat(snapshotFlow.f147) || 0;
                 const sOut = parseFloat(snapshotFlow.f148) || 0;
-                sNet = sIn - sOut;
+                sNet = (snapshotFlow.f149 !== undefined && snapshotFlow.f149 !== '-') ? parseFloat(snapshotFlow.f149) : (sIn - sOut);
 
                 mainIn = xlIn + lIn;
                 mainOut = xlOut + lOut;
-                mainNet = mainIn - mainOut; // 板块主力净流入自行相减最准
+                mainNet = (snapshotFlow.f62 !== undefined && snapshotFlow.f62 !== '-') ? parseFloat(snapshotFlow.f62) : (mainIn - mainOut);
             } else {
-                // 个股专属字段 (f62 ~ f85)
-                const xlIn = parseFloat(snapshotFlow.f66) || 0;
-                const xlOut = parseFloat(snapshotFlow.f67) || 0;
-                xlNet = parseFloat(snapshotFlow.f64) || (xlIn - xlOut);
+                // 个股/ETF 资金字段 (严格映射 f62 ~ f84)
+                const xlIn = parseFloat(snapshotFlow.f64) || 0;
+                const xlOut = parseFloat(snapshotFlow.f65) || 0;
+                xlNet = (snapshotFlow.f66 !== undefined && snapshotFlow.f66 !== '-') ? parseFloat(snapshotFlow.f66) : (xlIn - xlOut);
 
-                const lIn = parseFloat(snapshotFlow.f72) || 0;
-                const lOut = parseFloat(snapshotFlow.f73) || 0;
-                lNet = parseFloat(snapshotFlow.f70) || (lIn - lOut);
+                const lIn = parseFloat(snapshotFlow.f70) || 0;
+                const lOut = parseFloat(snapshotFlow.f71) || 0;
+                lNet = (snapshotFlow.f72 !== undefined && snapshotFlow.f72 !== '-') ? parseFloat(snapshotFlow.f72) : (lIn - lOut);
 
-                const mIn = parseFloat(snapshotFlow.f78) || 0;
-                const mOut = parseFloat(snapshotFlow.f79) || 0;
-                mNet = parseFloat(snapshotFlow.f76) || (mIn - mOut);
+                const mIn = parseFloat(snapshotFlow.f76) || 0;
+                const mOut = parseFloat(snapshotFlow.f77) || 0;
+                mNet = (snapshotFlow.f78 !== undefined && snapshotFlow.f78 !== '-') ? parseFloat(snapshotFlow.f78) : (mIn - mOut);
 
-                const sIn = parseFloat(snapshotFlow.f84) || 0;
-                const sOut = parseFloat(snapshotFlow.f85) || 0;
-                sNet = parseFloat(snapshotFlow.f82) || (sIn - sOut);
+                const sIn = parseFloat(snapshotFlow.f82) || 0;
+                const sOut = parseFloat(snapshotFlow.f83) || 0;
+                sNet = (snapshotFlow.f84 !== undefined && snapshotFlow.f84 !== '-') ? parseFloat(snapshotFlow.f84) : (sIn - sOut);
 
                 mainIn = xlIn + lIn;
                 mainOut = xlOut + lOut;
-                
-                // 个股直接取 f62 净流入
-                if (snapshotFlow.f62 !== undefined && snapshotFlow.f62 !== '-') {
-                    mainNet = parseFloat(snapshotFlow.f62);
-                } else {
-                    mainNet = mainIn - mainOut;
-                }
+                mainNet = (snapshotFlow.f62 !== undefined && snapshotFlow.f62 !== '-') ? parseFloat(snapshotFlow.f62) : (mainIn - mainOut);
             }
 
             if (mainIn > 0 || mainOut > 0) hasAbsoluteInOut = true;
-            
-        } 
-        // 实时快照失效（如周末），则无缝降级使用历史数据的最后一天
-        else if (latestHistoryDay) {
+        } else if (latestHistoryDay) {
             xlNet = latestHistoryDay.xlNet;
             lNet = latestHistoryDay.lNet;
             mNet = latestHistoryDay.mNet;
@@ -3615,9 +3604,33 @@ getCorrectSecid(savedSecid, code, groupType) {
         let finalPrevClose = (prePrice && !isNaN(prePrice) && prePrice > 0) ? prePrice : this.marketState.currentPrevClose;
         
         if (trends.length > 0) { 
+          // 增加累计成交金额与累计成交量计算，用于防范接口未返回 parts[7] 时的平滑均线兜底
+          let accAmount = 0;
+          let accVolume = 0;
+
           const parsed = trends.map(str => { 
-            const parts = str.split(','); 
-            return { time: parts[0], price: parseFloat(parts[1]) || 0, avgPrice: parseFloat(parts[2]) || 0, volume: parseInt(parts[5] || 0) }; 
+            const parts = str.split(',');
+            const time = parts[0];
+            const realPrice = parseFloat(parts[2]) || 0; // f53: 真实分时现价（实时线）
+            const vol = parseInt(parts[5] || 0);         // f56: 分时成交量
+            const amt = parseFloat(parts[6] || 0);       // f57: 分时成交额
+
+            accAmount += amt;
+            accVolume += vol;
+
+            // f58: 当日均价；若无则通过 (累计成交额 / 累计成交量) 动态精确算出
+            let realAvgPrice = parseFloat(parts[7]) || 0;
+            if (realAvgPrice <= 0 && accVolume > 0) {
+              realAvgPrice = accAmount / (accVolume * 100);
+            }
+            if (realAvgPrice <= 0) realAvgPrice = realPrice;
+
+            return { 
+              time: time, 
+              price: realPrice, 
+              avgPrice: realAvgPrice, 
+              volume: vol 
+            }; 
           }); 
           
           if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].price || 1;
@@ -3745,23 +3758,26 @@ getCorrectSecid(savedSecid, code, groupType) {
     } 
   },
 
-   renderFundFlowChart(data) {
+   // 【优化版】：近 20 日主力净流入柱状图（数值根据 >= 1亿 动态显示“亿”或“万”）
+  renderFundFlowChart(data) {
     const container = document.getElementById('ff-history-chart');
     if (!container || !data || data.length === 0) {
         container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;">暂无历史资金数据</div>';
         return;
     }
 
-    const processedData = data.map(item => {
-        const netFlow = item.netFlow / 100000000;
-        return { ...item, netFlow: netFlow, absFlow: Math.abs(netFlow) };
-    });
+    // 保留原始元单位数值用于计算比例与单位判断
+    const processedData = data.map(item => ({
+        ...item,
+        rawFlow: item.netFlow,
+        absFlow: Math.abs(item.netFlow)
+    }));
 
-    const maxAbs = Math.max(...processedData.map(d => d.absFlow), 0.01);
+    const maxAbs = Math.max(...processedData.map(d => d.absFlow), 1);
     
-    const barMaxHeight = 80;          
+    const barMaxHeight = 75;          
     const barMinHeight = 4;
-    const itemWidth = 65; 
+    const itemWidth = 72; // 略微放宽间距以保证“万”字文本完整展示
     const canvasHeight = 240;          
     const yZero = 120;                 
 
@@ -3771,7 +3787,6 @@ getCorrectSecid(savedSecid, code, groupType) {
     scrollDiv.style.webkitOverflowScrolling = 'touch';
     scrollDiv.style.margin = '0 -12px';
     scrollDiv.style.padding = '0 12px';
-    // 增加平滑滚动特性
     scrollDiv.style.scrollBehavior = 'smooth';
 
     const canvas = document.createElement('canvas');
@@ -3798,9 +3813,22 @@ getCorrectSecid(savedSecid, code, groupType) {
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // 金额单位智能格式化：>=1亿显示“亿”，<1亿显示“万”
+    const formatFlowUnit = (val) => {
+        const abs = Math.abs(val);
+        const sign = val > 0 ? '+' : (val < 0 ? '-' : '');
+        if (abs >= 100000000) {
+            return `${sign}${(abs / 100000000).toFixed(2)}亿`;
+        } else if (abs >= 10000) {
+            return `${sign}${(abs / 10000).toFixed(2)}万`;
+        } else {
+            return `${sign}${abs.toFixed(0)}元`;
+        }
+    };
+
     processedData.forEach((item, idx) => {
         const x = idx * itemWidth + itemWidth / 2;
-        const isInflow = item.netFlow >= 0;
+        const isInflow = item.rawFlow >= 0;
         const barHeight = Math.max(barMinHeight, (item.absFlow / maxAbs) * barMaxHeight);
         
         let barY, barColor, valueY;
@@ -3818,20 +3846,19 @@ getCorrectSecid(savedSecid, code, groupType) {
         ctx.fillStyle = barColor;
         ctx.fillRect(x - 6, barY, 12, barHeight); 
 
-        // 数值文字
-        const valueText = `${item.netFlow > 0 ? '+' : ''}${item.netFlow.toFixed(2)}亿`;
-        ctx.font = 'bold 10px sans-serif';
+        // 绘制数值文本
+        const valueText = formatFlowUnit(item.rawFlow);
+        ctx.font = 'bold 9px sans-serif';
         ctx.fillStyle = barColor;
         ctx.textAlign = 'center';
         ctx.fillText(valueText, x, valueY);
 
-        // 日期文字
+        // 绘制日期文本
         ctx.font = '10px sans-serif';
         ctx.fillStyle = '#64748b';
         ctx.fillText(item.date, x, canvasHeight - 10);
     });
 
-    // 绘制完毕后，使用 setTimeout 强制滚动条滑动到最右侧（最新数据）
     setTimeout(() => {
         scrollDiv.scrollLeft = scrollDiv.scrollWidth;
     }, 50);

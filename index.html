@@ -2966,7 +2966,6 @@ getCorrectSecid(savedSecid, code, groupType) {
             let dec = (quote.f1 !== undefined && !isNaN(quote.f1)) ? parseInt(quote.f1) : 2;
             if (item.querySecid.includes('USDCNH') || item.name.includes('人民币')) dec = 4;
 
-            // 【修改点4】严密的停盘价格读取顺序兜底显示，保证周末绝不显示 '--'
             let price = '--';
             if (quote.f2 !== undefined && quote.f2 !== '-' && !isNaN(quote.f2)) {
                 price = parseFloat(quote.f2).toFixed(dec);
@@ -2993,84 +2992,103 @@ getCorrectSecid(savedSecid, code, groupType) {
                 chgVal = (0).toFixed(dec);
             }
 
+            // 主力资金流向标签美化
             let rawFlowAmt = quote.f62 !== undefined && quote.f62 !== '-' ? parseFloat(quote.f62) : 0;
             let flowDisplay = '';
             if (rawFlowAmt !== 0) {
                 let mainCol = rawFlowAmt > 0 ? 'red' : 'green';
+                let bgCol = rawFlowAmt > 0 ? '#fff1f2' : '#ecfdf5';
+                let borderCol = rawFlowAmt > 0 ? '#ffe4e6' : '#d1fae5';
                 flowDisplay = `
-                <div style="display:flex; gap: 6px; margin-top: 4px;">
-                    <div class="${mainCol}" style="font-size:10px; font-weight:bold; background:rgba(0,0,0,0.02); padding:2px 6px; border-radius:4px;">主力 ${rawFlowAmt>0?'+':''}${this.formatFlowAmt(rawFlowAmt)}</div>
-                </div>`;
+                    <span class="${mainCol}" style="font-size:11px; font-weight:800; background:${bgCol}; border:1px solid ${borderCol}; padding:2px 8px; border-radius:6px; display:inline-flex; align-items:center;">
+                        主力 ${rawFlowAmt > 0 ? '+' : ''}${this.formatFlowAmt(rawFlowAmt)}
+                    </span>`;
+            } else {
+                flowDisplay = `<span style="font-size:11px; color:#cbd5e1; font-weight:600;">主力资金暂无异动</span>`;
             }
             
             const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : (chgRate !== '--' && parseFloat(chgRate) < 0 ? 'green' : ''); 
             const rateSign = (chgRate !== '--' && parseFloat(chgRate) > 0) ? '+' : ''; 
             const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
             
+            // 底部多标签逻辑组装
             let groupTagHtml = '';
             if (groupKey === 'stock' || groupKey === 'etf') {
                 const sGroups = this.data.stockCustomGroups || [];
-                // 兼容数组
                 if (!Array.isArray(item.stockGroups)) {
                     item.stockGroups = item.bindStockGroup ? [item.bindStockGroup] : [];
                 }
 
-                // 筛选出该股票绑定的所有有效自定义分组（不显示“全部”）
                 const activeSGroups = sGroups.filter(g => g.id !== 'default' && item.stockGroups.includes(g.id));
 
                 if (activeSGroups.length > 0) {
-                    // 渲染每一个独立的已绑定标签，带小 ✕ 键用于单独移除
                     const tagsListHtml = activeSGroups.map(g => `
-                        <span class="c-tag" style="background:#0066ff; color:#fff; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px; margin-right:4px;">
+                        <span class="c-tag" style="background:#e6f0ff; color:#0066ff; border:1px solid #bfdbfe; font-size:11px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
                             <span style="cursor:pointer;" onclick="app.switchStockGroupFilter(event, '${g.id}')">📂 ${g.name}</span>
-                            <span style="cursor:pointer; font-weight:900; font-size:11px; opacity:0.85; margin-left:2px;" onclick="app.removeStockFromGroup(event, '${item.secid}', '${g.id}')" title="从该分组移出">✕</span>
+                            <span style="cursor:pointer; font-weight:900; font-size:12px; margin-left:2px; color:#93c5fd;" onmouseover="this.style.color='#f43f5e'" onmouseout="this.style.color='#93c5fd'" onclick="app.removeStockFromGroup(event, '${item.secid}', '${g.id}')" title="从该分组移出">✕</span>
                         </span>
                     `).join('');
 
-                    // 紧跟一个 + 号键，方便快捷添加更多分组
                     groupTagHtml = `
-                        <div style="display:inline-flex; align-items:center; flex-wrap:wrap; gap:4px;">
+                        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
                             ${tagsListHtml}
-                            <span class="c-tag c-add-tag" style="cursor:pointer; padding:2px 6px; border-radius:12px; font-weight:bold;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')" title="添加其他分组">+</span>
+                            <span class="c-tag c-add-tag" style="cursor:pointer; padding:2px 7px; border-radius:12px; font-weight:900; font-size:11px; border:1px dashed #cbd5e1; color:#64748b; background:#f8fafc;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')" title="添加其他分组">＋</span>
                         </div>
                     `;
                 } else {
-                    // 没有绑定任何分组时显示 + 分组
-                    groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">+ 分组</span>`;
+                    groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:11px; border:1px dashed #93c5fd; color:#0066ff; background:#eff6ff;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">+ 添加分组</span>`;
                 }
             } else {
-                // 指数维持原状绑定基金分组
                 let boundGroup = item.bindGroup ? this.data.groups.find(g => g.id === item.bindGroup) : null;
                 if (boundGroup) {
                     groupTagHtml = `
-                        <span class="c-tag" style="background:var(--blue); color:#fff; cursor:pointer;" onclick="app.jumpToFundGroup(event, '${boundGroup.id}')">📂 ${boundGroup.name}</span>
-                        <span class="c-tag" style="background:#f1f5f9; color:#94a3b8; cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">🔄</span>
+                        <span class="c-tag" style="background:#e6f0ff; color:#0066ff; border:1px solid #bfdbfe; font-size:11px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:12px;">
+                            <span style="cursor:pointer;" onclick="app.jumpToFundGroup(event, '${boundGroup.id}')">📂 ${boundGroup.name}</span>
+                            <span style="cursor:pointer; font-weight:bold; font-size:11px; margin-left:2px; color:#0066ff;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">🔄</span>
+                        </span>
                     `;
                 } else {
-                    groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">+ 分组</span>`;
+                    groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer; padding:3px 10px; border-radius:12px; font-weight:bold; font-size:11px; border:1px dashed #93c5fd; color:#0066ff; background:#eff6ff;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">+ 绑定基金分组</span>`;
                 }
             }
 
-            const html = `<div class="list-item" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')">
-                <div class="c-del-btn" onclick="app.delWatchedMarket(event, '${item.secid}')">✕</div>
-                <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:2px;">
-                    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px;">
-                        <div style="font-weight:800; font-size:16px;">${item.name}</div>
-                        <div style="font-size:11px; font-weight:700; color:#64748b; background:#f1f5f9; padding:2px 6px; border-radius:4px;">${item.code || ''}</div>
-                        ${groupTagHtml}
+            // 【全新布局】：三段式卡片（顶部名称价格 + 中间资金 + 底部专属分组标签栏）
+            const html = `
+            <div class="card" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')" style="position:relative; padding:14px; margin-bottom:0; display:flex; flex-direction:column; justify-content:space-between; background:var(--surface-color); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); border:1px solid rgba(255,255,255,0.8); cursor:pointer; transition:all 0.3s cubic-bezier(0.25,0.8,0.25,1);">
+                <!-- 右上角优雅删除按钮 -->
+                <div class="c-del-btn" style="top:10px; right:10px; width:22px; height:22px; font-size:12px;" onclick="app.delWatchedMarket(event, '${item.secid}')" title="从自选删除">✕</div>
+
+                <!-- 1. 顶部核心区：左侧名称与代码，右侧最新价格与涨跌 -->
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; padding-right:24px;">
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <div style="font-weight:900; font-size:16px; color:var(--text-main); line-height:1.2;">${item.name}</div>
+                        <div style="font-size:11px; font-weight:700; color:#64748b; background:#f1f5f9; padding:1px 6px; border-radius:4px; align-self:flex-start;">${item.code || ''}</div>
                     </div>
+                    <div style="text-align:right;">
+                        <div class="${col}" style="font-size:18px; font-weight:900; line-height:1.2;">${price}</div>
+                        <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:3px;">
+                            <span class="${col}" style="font-size:11px; font-weight:bold;">${valSign}${chgVal}</span>
+                            <span class="${col}" style="font-size:11px; font-weight:bold; background:rgba(0,0,0,0.03); padding:1px 4px; border-radius:4px;">${rateSign}${chgRate}%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 中部区：主力资金流动标签 -->
+                <div style="margin-top:10px; display:flex; align-items:center;">
                     ${flowDisplay}
                 </div>
-                <div style="width:110px; text-align:right; margin-right:30px;">
-                    <div class="${col}" style="font-size:16px; font-weight:900;">${price}</div>
-                    <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:2px;">
-                        <span class="${col}" style="font-size:11px; font-weight:bold;">${valSign}${chgVal}</span>
-                        <span class="${col}" style="font-size:11px; font-weight:bold; background:rgba(0,0,0,0.03); padding:1px 4px; border-radius:4px;">${rateSign}${chgRate}%</span>
+
+                <!-- 3. 底部区：专属分组标签栏（置底对齐） -->
+                <div style="margin-top:12px; padding-top:8px; border-top:1px dashed #e2e8f0; display:flex; align-items:center; justify-content:space-between; min-height:30px;">
+                    <span style="font-size:11px; color:#94a3b8; font-weight:bold; flex-shrink:0;">分组</span>
+                    <div style="display:flex; align-items:center; justify-content:flex-end; overflow-x:auto;">
+                        ${groupTagHtml}
                     </div>
                 </div>
             </div>`; 
+
             return { html, rawChgRate, rawFlowAmt, originalIndex: index };
-        }); 
+        });
 
         renderItems.sort((a, b) => {
             if (this.marketSortRule === 'chg') return this.marketSortDir === 'desc' ? b.rawChgRate - a.rawChgRate : a.rawChgRate - b.rawChgRate;

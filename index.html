@@ -2872,7 +2872,7 @@ getCorrectSecid(savedSecid, code, groupType) {
    // --- 1. 完全替换 renderWatchedMarkets 函数 ---
   async renderWatchedMarkets() { 
     const groupKey = this.currentMarketGroup; 
-    / 在获取 list 处调整如下：
+    // 在获取 list 处调整如下：
     let list = this.data.marketGroups[groupKey] || [];
     if (groupKey === 'stock' && this.currentStockGroupId !== 'default') {
       const curGroup = (this.data.stockCustomGroups || []).find(g => g.id === this.currentStockGroupId);

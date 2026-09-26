@@ -3671,421 +3671,7 @@ getCorrectSecid(savedSecid, code, groupType) {
     }
   },
   
-  async refreshMarketDetail() { 
-    const secid = this.marketState.currentSecid; 
-    if (!secid) return; 
-    
-    // 获取资金流向 DOM 容器，先隐藏
-    const flowArea = document.getElementById('md-fund-flow-area');
-    if (flowArea) flowArea.style.display = 'none'; 
-    
-    // 注意 fields 中加入了 f116(总市值), f162/f167(市盈率), f168(换手率)
-    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f116,f162,f167,f168,f169,f170&_=${Date.now()}`; 
-    try { 
-      const res = await fetchJSONP(pkUrl, 'cb'); 
-      const d = res?.data; 
-      if (d) { 
-        if (d.f59 !== undefined && !isNaN(d.f59)) {
-            this.marketState.currentDecimals = parseInt(d.f59);
-        }
-        let dec = this.marketState.currentDecimals || 2;
-
-        const curPrice = parseFloat(d.f43); 
-        const price = !isNaN(curPrice) ? curPrice.toFixed(dec) : '--'; 
-        let chgVal = '--', chgRate = '--'; 
-        if (d.f169 !== undefined && d.f169 !== '-' && !isNaN(d.f169)) chgVal = parseFloat(d.f169).toFixed(dec); 
-        if (d.f170 !== undefined && d.f170 !== '-' && !isNaN(d.f170)) chgRate = parseFloat(d.f170).toFixed(2); 
-        const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green'; 
-        
-        const prevCloseRaw = parseFloat(d.f60);
-        let calculatedPrev = (!isNaN(curPrice) && chgVal !== '--') ? (curPrice - parseFloat(chgVal)) : 0;
-        this.marketState.currentPrevClose = (!isNaN(prevCloseRaw) && prevCloseRaw > 0) ? prevCloseRaw : calculatedPrev;
-        
-        document.getElementById('md-price').innerText = price; 
-        document.getElementById('md-price').className = col; 
-        document.getElementById('md-chg-val').innerText = (chgVal !== '--' && parseFloat(chgVal) > 0 ? '+' : '') + chgVal; 
-        document.getElementById('md-chg-val').className = col; 
-        document.getElementById('md-chg-rate').innerText = (chgRate !== '--' && parseFloat(chgRate) > 0 ? '+' : '') + chgRate + '%'; 
-        document.getElementById('md-chg-rate').className = col; 
-        
-        const fmt = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v).toFixed(dec) : '--'; 
-        const fmtVol = (v) => { 
-          if (v === undefined || v === '-' || isNaN(v)) return '--'; 
-          const n = parseFloat(v); 
-          if (n >= 100000000) return (n/100000000).toFixed(2)+'亿'; 
-          if (n >= 10000) return (n/10000).toFixed(0)+'万'; 
-          return n.toFixed(0); 
-        }; 
-        document.getElementById('md-high').innerText = fmt(d.f44); 
-        document.getElementById('md-open').innerText = fmt(d.f46); 
-        document.getElementById('md-low').innerText = fmt(d.f45); 
-        document.getElementById('md-prev').innerText = this.marketState.currentPrevClose > 0 ? this.marketState.currentPrevClose.toFixed(dec) : '--'; 
-        document.getElementById('md-vol').innerText = fmtVol(d.f47); 
-        document.getElementById('md-amt').innerText = fmtVol(d.f48); 
-        
-        const chgAbsEl = document.getElementById('md-chg-abs'); 
-        if (chgAbsEl) chgAbsEl.innerHTML = `<span class="${col}">${chgVal !== '--' && parseFloat(chgVal)>0?'+':''}${chgVal}</span>`; 
-        const ampEl = document.getElementById('md-amp'); 
-        if (ampEl) { 
-          const hi = parseFloat(d.f44), lo = parseFloat(d.f45); 
-          if (!isNaN(hi) && !isNaN(lo) && this.marketState.currentPrevClose > 0) ampEl.innerText = ((hi - lo) / this.marketState.currentPrevClose * 100).toFixed(2) + '%'; else ampEl.innerText = '--'; 
-        } 
-        const vrEl = document.getElementById('md-volratio'); 
-        if (vrEl) vrEl.innerText = (d.f50 !== undefined && d.f50 !== '-' && !isNaN(d.f50)) ? parseFloat(d.f50).toFixed(2) : '--'; 
-
-        // 赋值：换手率、总市值、市盈率
-        const turnoverEl = document.getElementById('md-turnover'); 
-        if (turnoverEl) turnoverEl.innerText = (d.f168 !== undefined && d.f168 !== '-' && !isNaN(d.f168)) ? parseFloat(d.f168).toFixed(2) + '%' : '--'; 
-        const totalValEl = document.getElementById('md-totalval');
-        if (totalValEl) totalValEl.innerText = fmtVol(d.f116);
-        const peEl = document.getElementById('md-pe');
-        if (peEl) {
-            const peVal = d.f162 ?? d.f167;
-            peEl.innerText = (peVal !== undefined && peVal !== '-' && !isNaN(peVal)) ? parseFloat(peVal).toFixed(2) : '--';
-        }
-
-        const dTime = new Date(); 
-        document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
-      } 
-    } catch(e) {} 
-
-    // --- 2. 获取资金流向（调用官方 getZJLXData 专用资金接口 + 历史资金无缝兜底）---
-    const inOutEl = document.getElementById('ff-main-inout');
-    const breakdownEl = document.getElementById('ff-daily-breakdown');
-    const historyEl = document.getElementById('ff-history-chart');
-    if (inOutEl) inOutEl.innerHTML = '';
-    if (breakdownEl) breakdownEl.innerHTML = '<div style="text-align:center; padding:10px; color:#94a3b8;">数据加载中...</div>';
-    if (historyEl) historyEl.innerHTML = '';
-
-    let snapshotFlow = null;
-    let historyFlowData = [];
-    let latestHistoryDay = null;
-
-    // A. 抓取今日资金官方接口 (fetch 直连 / 代理 / fetchJSONP 三级自适应，确保百分百拿到)
-    const zjlxUrl = `https://emdatah5.eastmoney.com/dc/ZJLX/getZJLXData?secid=${secid}&fields=f57,f58,f135,f136,f137,f138,f139,f140,f141,f142,f143,f144,f145,f146,f147,f148,f149,f86&_=${Date.now()}`;
-    try {
-        let fetchUrl = zjlxUrl;
-        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-            fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(zjlxUrl)}`;
-        }
-        const resp = await fetch(fetchUrl);
-        if (resp.ok) {
-            const json = await resp.json();
-            if (json?.data) snapshotFlow = json.data;
-        }
-    } catch(e) {
-        try {
-            const jsonpRes = await fetchJSONP(zjlxUrl, 'callback');
-            if (jsonpRes?.data) snapshotFlow = jsonpRes.data;
-        } catch(e2) {}
-    }
-
-    // B. 获取近 20 天历史主力资金
-    const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=20&secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&_=${Date.now()}`;
-    try {
-        const res = await fetchJSONP(hisFlowUrl, 'cb');
-        const klines = res?.data?.klines;
-        if (klines && klines.length > 0) {
-            historyFlowData = klines.map(str => {
-                const p = str.split(',');
-                return {
-                    date: p[0].slice(5),
-                    mainNet: parseFloat(p[1]) || 0,
-                    sNet: parseFloat(p[2]) || 0,
-                    mNet: parseFloat(p[3]) || 0,
-                    lNet: parseFloat(p[4]) || 0,
-                    xlNet: parseFloat(p[5]) || 0
-                };
-            });
-            latestHistoryDay = historyFlowData[historyFlowData.length - 1]; 
-        }
-    } catch(e) {}
-
-    // C. 准确解析与渲染资金数据
-    if (snapshotFlow || latestHistoryDay) {
-        if (flowArea) flowArea.style.display = 'block';
-
-        const parseNum = (v) => (v !== undefined && v !== '-' && !isNaN(parseFloat(v))) ? parseFloat(v) : null;
-
-        // 直接读取官方标准字段
-        let xlNet = parseNum(snapshotFlow?.f140); // 超大单净额（特大单）
-        let lNet = parseNum(snapshotFlow?.f143);  // 大单净额
-        let mNet = parseNum(snapshotFlow?.f146);  // 中单净额
-        let sNet = parseNum(snapshotFlow?.f149);  // 小单净额
-        let mainNet = parseNum(snapshotFlow?.f137); // 主力净额
-        let mainIn = parseNum(snapshotFlow?.f135);  // 主力流入
-        let mainOut = parseNum(snapshotFlow?.f136); // 主力流出
-
-        // 若遇收盘结算或无实时明细，自动使用历史数据最后一天平滑填充
-        const hasValidSnapshot = (xlNet !== null && lNet !== null && (xlNet !== 0 || lNet !== 0 || mNet !== 0 || sNet !== 0));
-        if (!hasValidSnapshot && latestHistoryDay) {
-            xlNet = latestHistoryDay.xlNet;
-            lNet = latestHistoryDay.lNet;
-            mNet = latestHistoryDay.mNet;
-            sNet = latestHistoryDay.sNet;
-            mainNet = latestHistoryDay.mainNet;
-            mainIn = null;
-            mainOut = null;
-        }
-
-        xlNet = xlNet || 0;
-        lNet = lNet || 0;
-        mNet = mNet || 0;
-        sNet = sNet || 0;
-        if (mainNet === null || isNaN(mainNet)) mainNet = xlNet + lNet;
-
-        // 1. 渲染头部汇总信息（主力流入、主力流出、净流入）
-        if (inOutEl) {
-            if (mainIn !== null && mainOut !== null && (mainIn > 0 || mainOut > 0)) {
-                inOutEl.innerHTML = `
-                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流入</span><span class="red" style="font-size:14px; font-weight:900;">${this.formatFlowAmt(mainIn)}</span></div>
-                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流出</span><span class="green" style="font-size:14px; font-weight:900;">${this.formatFlowAmt(mainOut)}</span></div>
-                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力净流入</span><span class="${mainNet >= 0 ? 'red' : 'green'}" style="font-size:14px; font-weight:900;">${mainNet > 0 ? '+' : ''}${this.formatFlowAmt(mainNet)}</span></div>
-                `;
-            } else {
-                inOutEl.innerHTML = `
-                    <div style="width:100%; text-align:center; padding: 4px 0;">
-                        <span>主力资金净流入</span>
-                        <span class="${mainNet >= 0 ? 'red' : 'green'}" style="font-size:18px; margin-left:12px; font-weight:900;">${mainNet > 0 ? '+' : ''}${this.formatFlowAmt(mainNet)}</span>
-                    </div>`;
-            }
-        }
-
-        // 2. 渲染特大单、大单、中单、小单横向条形图
-        if (breakdownEl) {
-            const maxAbs = Math.max(Math.abs(xlNet), Math.abs(lNet), Math.abs(mNet), Math.abs(sNet), 1);
-            const buildRow = (label, val) => {
-                const isPos = val >= 0;
-                const pct = Math.min((Math.abs(val) / maxAbs) * 100, 100);
-                const colorCls = isPos ? 'red' : 'green';
-                const sign = isPos && val !== 0 ? '+' : '';
-                return `
-                <div class="flow-row">
-                    <span class="flow-label">${label}</span>
-                    <div class="flow-bar-container">
-                        <div class="flow-bar-left">${!isPos ? `<div class="f-bar green" style="width: ${pct}%;"></div>` : ''}</div>
-                        <div class="flow-bar-right">${isPos ? `<div class="f-bar red" style="width: ${pct}%;"></div>` : ''}</div>
-                    </div>
-                    <span class="flow-val ${colorCls}">${sign}${this.formatFlowAmt(val)}</span>
-                </div>`;
-            };
-
-            breakdownEl.innerHTML = 
-                buildRow('特大单', xlNet) + 
-                buildRow('大单', lNet) + 
-                buildRow('中单', mNet) + 
-                buildRow('小单', sNet);
-        }
-
-        // 3. 渲染近 20 日主力资金柱状图
-        if (historyFlowData.length > 0) {
-            const chartData = historyFlowData.map(d => ({ date: d.date, netFlow: d.mainNet }));
-            this.renderFundFlowChart(chartData);
-        } else if (historyEl) {
-            historyEl.innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">暂无历史资金数据</div>';
-        }
-    } else {
-        if (flowArea) flowArea.style.display = 'none';
-    }
-
-    // --- 3. 抓取分时走势或 K 线数据（修复蓝线现价与黄线均价映射）---
-    if (this.marketState.chartType === 'trend') { 
-      const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`; 
-      try { 
-        const res = await fetchJSONP(trendUrl, 'cb'); 
-        const trends = res?.data?.trends || []; 
-        const prePrice = res?.data?.prePrice;
-        let finalPrevClose = (prePrice && !isNaN(prePrice) && prePrice > 0) ? prePrice : this.marketState.currentPrevClose;
-        
-        if (trends.length > 0) { 
-          let accAmount = 0;
-          let accVolume = 0;
-
-          const parsed = trends.map(str => { 
-            const parts = str.split(','); 
-            const time = parts[0];
-            const realPrice = parseFloat(parts[2]) || 0; // f53: 真实分时现价（实时线/蓝线）
-            const vol = parseInt(parts[5] || 0);         // f56: 分时成交量
-            const amt = parseFloat(parts[6] || 0);       // f57: 分时成交额
-
-            accAmount += amt;
-            accVolume += vol;
-
-            // f58: 真实当日均价（均线/黄线），累计成交额/累计成交量精确兜底
-            let realAvgPrice = parseFloat(parts[7]) || 0;
-            if (realAvgPrice <= 0 && accVolume > 0) {
-              realAvgPrice = accAmount / (accVolume * 100);
-            }
-            if (realAvgPrice <= 0) realAvgPrice = realPrice;
-
-            return { 
-              time: time, 
-              price: realPrice, 
-              avgPrice: realAvgPrice, 
-              volume: vol 
-            }; 
-          }); 
-          
-          if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].price || 1;
-
-          const curPriceText = document.getElementById('md-price').innerText;
-          if (curPriceText === '--' || curPriceText === 'NaN') {
-               let validPrices = parsed.map(p => p.price).filter(p => p > 0);
-               if (validPrices.length > 0) {
-                   let latest = validPrices[validPrices.length - 1];
-                   let high = Math.max(...validPrices);
-                   let low = Math.min(...validPrices);
-                   let open = validPrices[0];
-                   let chgVal = latest - finalPrevClose;
-                   let chgRate = (chgVal / finalPrevClose) * 100;
-                   let col = chgRate >= 0 ? 'red' : 'green';
-
-                   let dec = this.marketState.currentDecimals || 2;
-                   document.getElementById('md-price').innerText = latest.toFixed(dec);
-                   document.getElementById('md-price').className = col;
-                   document.getElementById('md-chg-val').innerText = (chgVal > 0 ? '+' : '') + chgVal.toFixed(dec);
-                   document.getElementById('md-chg-val').className = col;
-                   document.getElementById('md-chg-rate').innerText = (chgRate > 0 ? '+' : '') + chgRate.toFixed(2) + '%';
-                   document.getElementById('md-chg-rate').className = col;
-
-                   document.getElementById('md-high').innerText = high.toFixed(dec);
-                   document.getElementById('md-low').innerText = low.toFixed(dec);
-                   document.getElementById('md-open').innerText = open.toFixed(dec);
-                   document.getElementById('md-prev').innerText = finalPrevClose.toFixed(dec);
-                   const dTime = new Date(); 
-                   document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`;
-               }
-          }
-
-          let totalPts = parsed.length;
-          if (this.marketState.currentTab === 'A') totalPts = 241;
-          else if (this.marketState.currentTab === 'HK') totalPts = 331;
-          else if (this.marketState.currentTab === 'US') totalPts = 391;
-
-          this.marketChartData = { 
-            type: 'trend', 
-            xLabels: parsed.map(p => p.time), 
-            prices: parsed.map(p => p.price), 
-            avgPrices: parsed.map(p => p.avgPrice), 
-            volumes: parsed.map(p => p.volume), 
-            prevClose: finalPrevClose, 
-            lastPrice: parsed[parsed.length-1]?.price || 0, 
-            timeStr: new Date().toLocaleTimeString(),
-            totalPoints: totalPts
-          }; 
-          this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
-          this.bindChartEvents(); 
-        } 
-      } catch(e) {} 
-    } else { 
-      // 日K(101)、周K(102)、月K(103) 获取逻辑
-      const klt = parseInt(this.marketState.chartType) || 101; 
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
-      
-      let klines = [];
-
-      // 方案 A：优先尝试 Worker 反代 / fetch 直连（带 no-referrer 请求头，同新标签页打开效果）
-      try {
-        let fetchUrl = kUrl;
-        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-          fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
-        }
-        const resp = await fetch(fetchUrl, { referrerPolicy: 'no-referrer' });
-        if (resp.ok) {
-          const text = await resp.text();
-          let json = null;
-          try {
-            json = JSON.parse(text);
-          } catch(pe) {
-            const m = text.match(/\((.*)\)/);
-            if (m) json = JSON.parse(m[1]);
-          }
-          if (json?.data?.klines) klines = json.data.klines;
-        }
-      } catch(e) {}
-
-      // 方案 B：若 fetch 未成功，降级走无 Referer 的 fetchJSONP
-      if (!klines || klines.length === 0) {
-        try {
-          const res = await fetchJSONP(kUrl, 'cb');
-          klines = res?.data?.klines || [];
-        } catch(e) {}
-      }
-
-      let finalPrevClose = this.marketState.currentPrevClose;
-      
-      if (klines.length > 0) { 
-        const parsed = klines.map(str => { 
-          const parts = str.split(','); 
-          return { 
-            date: parts[0], 
-            open: parseFloat(parts[1]) || 0, 
-            close: parseFloat(parts[2]) || 0, 
-            high: parseFloat(parts[3]) || 0, 
-            low: parseFloat(parts[4]) || 0, 
-            volume: parseInt(parts[5] || 0) 
-          }; 
-        }); 
-        if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].close || 1;
-
-        const calcMA = (data, days) => { 
-          let res = []; 
-          for(let i = 0; i < data.length; i++){ 
-            if(i < days - 1) { res.push(null); continue; } 
-            let sum = 0; 
-            for(let j = 0; j < days; j++) sum += data[i - j]; 
-            res.push(sum / days); 
-          } 
-          return res; 
-        }; 
-
-        const calcEMALocal = (data, days) => { 
-          let k = 2 / (days + 1); 
-          let ema = [data[0]]; 
-          for (let i = 1; i < data.length; i++) {
-            ema.push(data[i] * k + ema[i - 1] * (1 - k)); 
-          }
-          return ema; 
-        }; 
-
-        const closePrices = parsed.map(p => p.close);
-        const ema12 = calcEMALocal(closePrices, 12);
-        const ema26 = calcEMALocal(closePrices, 26);
-        const dif = [];
-        for (let i = 0; i < closePrices.length; i++) {
-          dif.push(ema12[i] - ema26[i]);
-        }
-        const dea = calcEMALocal(dif, 9);
-        const macd = [];
-        for (let i = 0; i < closePrices.length; i++) {
-          macd.push((dif[i] - dea[i]) * 2);
-        }
-
-        this.marketChartData = { 
-          type: 'kline', 
-          xLabels: parsed.map(p => p.date), 
-          prices: closePrices,
-          opens: parsed.map(p => p.open),
-          highs: parsed.map(p => p.high),
-          lows: parsed.map(p => p.low),
-          ma5: calcMA(closePrices, 5), 
-          ma10: calcMA(closePrices, 10), 
-          ma20: calcMA(closePrices, 20), 
-          ma60: calcMA(closePrices, 60), 
-          dif: dif,
-          dea: dea,
-          macd: macd,
-          volumes: parsed.map(p => p.volume), 
-          prevClose: finalPrevClose, 
-          lastPrice: parsed[parsed.length - 1]?.close || 0, 
-          timeStr: new Date().toLocaleTimeString() 
-        }; 
-        this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
-        this.bindChartEvents(); 
-      } 
-    } catch(e) {}
-    } 
-  },
+  
 
    // 【优化版】：近 20 日主力净流入柱状图（数值根据 >= 1亿 动态显示“亿”或“万”）
   renderFundFlowChart(data) {
@@ -5019,10 +4605,425 @@ drawIntradayFlowCanvas(data) {
       `;
   },
 
+  // ==============================================================
+  // 行情详情刷新核心函数（严格语法校验闭合版）
+  // ==============================================================
+  async refreshMarketDetail() { 
+    const secid = this.marketState.currentSecid; 
+    if (!secid) return; 
+    
+    // 获取资金流向 DOM 容器
+    const flowArea = document.getElementById('md-fund-flow-area');
+    if (flowArea) flowArea.style.display = 'none'; 
+    
+    // --- 1. 获取基础报价与盘口数据 ---
+    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f116,f162,f167,f168,f169,f170&_=${Date.now()}`; 
+    try { 
+      const res = await fetchJSONP(pkUrl, 'cb'); 
+      const d = res?.data; 
+      if (d) { 
+        if (d.f59 !== undefined && !isNaN(d.f59)) {
+            this.marketState.currentDecimals = parseInt(d.f59);
+        }
+        let dec = this.marketState.currentDecimals || 2;
+
+        const curPrice = parseFloat(d.f43); 
+        const price = !isNaN(curPrice) ? curPrice.toFixed(dec) : '--'; 
+        let chgVal = '--', chgRate = '--'; 
+        if (d.f169 !== undefined && d.f169 !== '-' && !isNaN(d.f169)) chgVal = parseFloat(d.f169).toFixed(dec); 
+        if (d.f170 !== undefined && d.f170 !== '-' && !isNaN(d.f170)) chgRate = parseFloat(d.f170).toFixed(2); 
+        const col = (chgRate !== '--' && parseFloat(chgRate) >= 0) ? 'red' : 'green'; 
+        
+        const prevCloseRaw = parseFloat(d.f60);
+        let calculatedPrev = (!isNaN(curPrice) && chgVal !== '--') ? (curPrice - parseFloat(chgVal)) : 0;
+        this.marketState.currentPrevClose = (!isNaN(prevCloseRaw) && prevCloseRaw > 0) ? prevCloseRaw : calculatedPrev;
+        
+        document.getElementById('md-price').innerText = price; 
+        document.getElementById('md-price').className = col; 
+        document.getElementById('md-chg-val').innerText = (chgVal !== '--' && parseFloat(chgVal) > 0 ? '+' : '') + chgVal; 
+        document.getElementById('md-chg-val').className = col; 
+        document.getElementById('md-chg-rate').innerText = (chgRate !== '--' && parseFloat(chgRate) > 0 ? '+' : '') + chgRate + '%'; 
+        document.getElementById('md-chg-rate').className = col; 
+        
+        const fmt = (v) => (v !== undefined && v !== '-' && !isNaN(v)) ? parseFloat(v).toFixed(dec) : '--'; 
+        const fmtVol = (v) => { 
+          if (v === undefined || v === '-' || isNaN(v)) return '--'; 
+          const n = parseFloat(v); 
+          if (n >= 100000000) return (n/100000000).toFixed(2)+'亿'; 
+          if (n >= 10000) return (n/10000).toFixed(0)+'万'; 
+          return n.toFixed(0); 
+        }; 
+        document.getElementById('md-high').innerText = fmt(d.f44); 
+        document.getElementById('md-open').innerText = fmt(d.f46); 
+        document.getElementById('md-low').innerText = fmt(d.f45); 
+        document.getElementById('md-prev').innerText = this.marketState.currentPrevClose > 0 ? this.marketState.currentPrevClose.toFixed(dec) : '--'; 
+        document.getElementById('md-vol').innerText = fmtVol(d.f47); 
+        document.getElementById('md-amt').innerText = fmtVol(d.f48); 
+        
+        const chgAbsEl = document.getElementById('md-chg-abs'); 
+        if (chgAbsEl) chgAbsEl.innerHTML = `<span class="${col}">${chgVal !== '--' && parseFloat(chgVal)>0?'+':''}${chgVal}</span>`; 
+        const ampEl = document.getElementById('md-amp'); 
+        if (ampEl) { 
+          const hi = parseFloat(d.f44), lo = parseFloat(d.f45); 
+          if (!isNaN(hi) && !isNaN(lo) && this.marketState.currentPrevClose > 0) ampEl.innerText = ((hi - lo) / this.marketState.currentPrevClose * 100).toFixed(2) + '%'; else ampEl.innerText = '--'; 
+        } 
+        const vrEl = document.getElementById('md-volratio'); 
+        if (vrEl) vrEl.innerText = (d.f50 !== undefined && d.f50 !== '-' && !isNaN(d.f50)) ? parseFloat(d.f50).toFixed(2) : '--'; 
+
+        // 换手率、总市值、市盈率
+        const turnoverEl = document.getElementById('md-turnover'); 
+        if (turnoverEl) turnoverEl.innerText = (d.f168 !== undefined && d.f168 !== '-' && !isNaN(d.f168)) ? parseFloat(d.f168).toFixed(2) + '%' : '--'; 
+        const totalValEl = document.getElementById('md-totalval');
+        if (totalValEl) totalValEl.innerText = fmtVol(d.f116);
+        const peEl = document.getElementById('md-pe');
+        if (peEl) {
+            const peVal = d.f162 ?? d.f167;
+            peEl.innerText = (peVal !== undefined && peVal !== '-' && !isNaN(peVal)) ? parseFloat(peVal).toFixed(2) : '--';
+        }
+
+        const dTime = new Date(); 
+        document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
+      } 
+    } catch(e) {} 
+
+    // --- 2. 获取资金流向 ---
+    const inOutEl = document.getElementById('ff-main-inout');
+    const breakdownEl = document.getElementById('ff-daily-breakdown');
+    const historyEl = document.getElementById('ff-history-chart');
+    if (inOutEl) inOutEl.innerHTML = '';
+    if (breakdownEl) breakdownEl.innerHTML = '<div style="text-align:center; padding:10px; color:#94a3b8;">数据加载中...</div>';
+    if (historyEl) historyEl.innerHTML = '';
+
+    let snapshotFlow = null;
+    let historyFlowData = [];
+    let latestHistoryDay = null;
+
+    // A. 抓取今日资金
+    const zjlxUrl = `https://emdatah5.eastmoney.com/dc/ZJLX/getZJLXData?secid=${secid}&fields=f57,f58,f135,f136,f137,f138,f139,f140,f141,f142,f143,f144,f145,f146,f147,f148,f149,f86&_=${Date.now()}`;
+    try {
+        let fetchUrl = zjlxUrl;
+        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+            fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(zjlxUrl)}`;
+        }
+        const resp = await fetch(fetchUrl);
+        if (resp.ok) {
+            const json = await resp.json();
+            if (json?.data) snapshotFlow = json.data;
+        }
+    } catch(e) {
+        try {
+            const jsonpRes = await fetchJSONP(zjlxUrl, 'callback');
+            if (jsonpRes?.data) snapshotFlow = jsonpRes.data;
+        } catch(e2) {}
+    }
+
+    // B. 获取近 20 天历史资金
+    const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=20&secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&_=${Date.now()}`;
+    try {
+        const res = await fetchJSONP(hisFlowUrl, 'cb');
+        const klines = res?.data?.klines;
+        if (klines && klines.length > 0) {
+            historyFlowData = klines.map(str => {
+                const p = str.split(',');
+                return {
+                    date: p[0].slice(5),
+                    mainNet: parseFloat(p[1]) || 0,
+                    sNet: parseFloat(p[2]) || 0,
+                    mNet: parseFloat(p[3]) || 0,
+                    lNet: parseFloat(p[4]) || 0,
+                    xlNet: parseFloat(p[5]) || 0
+                };
+            });
+            latestHistoryDay = historyFlowData[historyFlowData.length - 1]; 
+        }
+    } catch(e) {}
+
+    // C. 准确解析与渲染资金数据
+    if (snapshotFlow || latestHistoryDay) {
+        if (flowArea) flowArea.style.display = 'block';
+
+        const parseNum = (v) => (v !== undefined && v !== '-' && !isNaN(parseFloat(v))) ? parseFloat(v) : null;
+
+        let xlNet = parseNum(snapshotFlow?.f140);
+        let lNet = parseNum(snapshotFlow?.f143);
+        let mNet = parseNum(snapshotFlow?.f146);
+        let sNet = parseNum(snapshotFlow?.f149);
+        let mainNet = parseNum(snapshotFlow?.f137);
+        let mainIn = parseNum(snapshotFlow?.f135);
+        let mainOut = parseNum(snapshotFlow?.f136);
+
+        const hasValidSnapshot = (xlNet !== null && lNet !== null && (xlNet !== 0 || lNet !== 0 || mNet !== 0 || sNet !== 0));
+        if (!hasValidSnapshot && latestHistoryDay) {
+            xlNet = latestHistoryDay.xlNet;
+            lNet = latestHistoryDay.lNet;
+            mNet = latestHistoryDay.mNet;
+            sNet = latestHistoryDay.sNet;
+            mainNet = latestHistoryDay.mainNet;
+            mainIn = null;
+            mainOut = null;
+        }
+
+        xlNet = xlNet || 0;
+        lNet = lNet || 0;
+        mNet = mNet || 0;
+        sNet = sNet || 0;
+        if (mainNet === null || isNaN(mainNet)) mainNet = xlNet + lNet;
+
+        // 1. 顶部汇总渲染
+        if (inOutEl) {
+            if (mainIn !== null && mainOut !== null && (mainIn > 0 || mainOut > 0)) {
+                inOutEl.innerHTML = `
+                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流入</span><span class="red" style="font-size:14px; font-weight:900;">${this.formatFlowAmt(mainIn)}</span></div>
+                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流出</span><span class="green" style="font-size:14px; font-weight:900;">${this.formatFlowAmt(mainOut)}</span></div>
+                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力净流入</span><span class="${mainNet >= 0 ? 'red' : 'green'}" style="font-size:14px; font-weight:900;">${mainNet > 0 ? '+' : ''}${this.formatFlowAmt(mainNet)}</span></div>
+                `;
+            } else {
+                inOutEl.innerHTML = `
+                    <div style="width:100%; text-align:center; padding: 4px 0;">
+                        <span>主力资金净流入</span>
+                        <span class="${mainNet >= 0 ? 'red' : 'green'}" style="font-size:18px; margin-left:12px; font-weight:900;">${mainNet > 0 ? '+' : ''}${this.formatFlowAmt(mainNet)}</span>
+                    </div>`;
+            }
+        }
+
+        // 2. 渲染条形图
+        if (breakdownEl) {
+            const maxAbs = Math.max(Math.abs(xlNet), Math.abs(lNet), Math.abs(mNet), Math.abs(sNet), 1);
+            const buildRow = (label, val) => {
+                const isPos = val >= 0;
+                const pct = Math.min((Math.abs(val) / maxAbs) * 100, 100);
+                const colorCls = isPos ? 'red' : 'green';
+                const sign = isPos && val !== 0 ? '+' : '';
+                return `
+                <div class="flow-row">
+                    <span class="flow-label">${label}</span>
+                    <div class="flow-bar-container">
+                        <div class="flow-bar-left">${!isPos ? `<div class="f-bar green" style="width: ${pct}%;"></div>` : ''}</div>
+                        <div class="flow-bar-right">${isPos ? `<div class="f-bar red" style="width: ${pct}%;"></div>` : ''}</div>
+                    </div>
+                    <span class="flow-val ${colorCls}">${sign}${this.formatFlowAmt(val)}</span>
+                </div>`;
+            };
+
+            breakdownEl.innerHTML = 
+                buildRow('特大单', xlNet) + 
+                buildRow('大单', lNet) + 
+                buildRow('中单', mNet) + 
+                buildRow('小单', sNet);
+        }
+
+        // 3. 渲染近20日柱状图
+        if (historyFlowData.length > 0) {
+            const chartData = historyFlowData.map(d => ({ date: d.date, netFlow: d.mainNet }));
+            this.renderFundFlowChart(chartData);
+        } else if (historyEl) {
+            historyEl.innerHTML = '<div style="text-align:center; color:#999; padding:10px 0;">暂无历史资金数据</div>';
+        }
+    } else {
+        if (flowArea) flowArea.style.display = 'none';
+    }
+
+    // --- 3. 走势图数据分支（分时线 或 K线）---
+    if (this.marketState.chartType === 'trend') { 
+      const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`; 
+      try { 
+        const res = await fetchJSONP(trendUrl, 'cb'); 
+        const trends = res?.data?.trends || []; 
+        const prePrice = res?.data?.prePrice;
+        let finalPrevClose = (prePrice && !isNaN(prePrice) && prePrice > 0) ? prePrice : this.marketState.currentPrevClose;
+        
+        if (trends.length > 0) { 
+          let accAmount = 0;
+          let accVolume = 0;
+
+          const parsed = trends.map(str => { 
+            const parts = str.split(','); 
+            const time = parts[0];
+            const realPrice = parseFloat(parts[2]) || 0; 
+            const vol = parseInt(parts[5] || 0);         
+            const amt = parseFloat(parts[6] || 0);       
+
+            accAmount += amt;
+            accVolume += vol;
+
+            let realAvgPrice = parseFloat(parts[7]) || 0;
+            if (realAvgPrice <= 0 && accVolume > 0) {
+              realAvgPrice = accAmount / (accVolume * 100);
+            }
+            if (realAvgPrice <= 0) realAvgPrice = realPrice;
+
+            return { 
+              time: time, 
+              price: realPrice, 
+              avgPrice: realAvgPrice, 
+              volume: vol 
+            }; 
+          }); 
+          
+          if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].price || 1;
+
+          const curPriceText = document.getElementById('md-price').innerText;
+          if (curPriceText === '--' || curPriceText === 'NaN') {
+               let validPrices = parsed.map(p => p.price).filter(p => p > 0);
+               if (validPrices.length > 0) {
+                   let latest = validPrices[validPrices.length - 1];
+                   let high = Math.max(...validPrices);
+                   let low = Math.min(...validPrices);
+                   let open = validPrices[0];
+                   let chgVal = latest - finalPrevClose;
+                   let chgRate = (chgVal / finalPrevClose) * 100;
+                   let col = chgRate >= 0 ? 'red' : 'green';
+
+                   let dec = this.marketState.currentDecimals || 2;
+                   document.getElementById('md-price').innerText = latest.toFixed(dec);
+                   document.getElementById('md-price').className = col;
+                   document.getElementById('md-chg-val').innerText = (chgVal > 0 ? '+' : '') + chgVal.toFixed(dec);
+                   document.getElementById('md-chg-val').className = col;
+                   document.getElementById('md-chg-rate').innerText = (chgRate > 0 ? '+' : '') + chgRate.toFixed(2) + '%';
+                   document.getElementById('md-chg-rate').className = col;
+
+                   document.getElementById('md-high').innerText = high.toFixed(dec);
+                   document.getElementById('md-low').innerText = low.toFixed(dec);
+                   document.getElementById('md-open').innerText = open.toFixed(dec);
+                   document.getElementById('md-prev').innerText = finalPrevClose.toFixed(dec);
+                   const dTime = new Date(); 
+                   document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`;
+               }
+          }
+
+          let totalPts = parsed.length;
+          if (this.marketState.currentTab === 'A') totalPts = 241;
+          else if (this.marketState.currentTab === 'HK') totalPts = 331;
+          else if (this.marketState.currentTab === 'US') totalPts = 391;
+
+          this.marketChartData = { 
+            type: 'trend', 
+            xLabels: parsed.map(p => p.time), 
+            prices: parsed.map(p => p.price), 
+            avgPrices: parsed.map(p => p.avgPrice), 
+            volumes: parsed.map(p => p.volume), 
+            prevClose: finalPrevClose, 
+            lastPrice: parsed[parsed.length-1]?.price || 0, 
+            timeStr: new Date().toLocaleTimeString(),
+            totalPoints: totalPts
+          }; 
+          this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
+          this.bindChartEvents(); 
+        } 
+      } catch(e) {} 
+    } else { 
+      // 日K(101)、周K(102)、月K(103) 获取分支
+      const klt = parseInt(this.marketState.chartType) || 101; 
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
+      
+      let klines = [];
+
+      try {
+        let fetchUrl = kUrl;
+        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+          fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(kUrl)}`;
+        }
+        const resp = await fetch(fetchUrl, { referrerPolicy: 'no-referrer' });
+        if (resp.ok) {
+          const text = await resp.text();
+          let json = null;
+          try {
+            json = JSON.parse(text);
+          } catch(pe) {
+            const m = text.match(/\((.*)\)/);
+            if (m) json = JSON.parse(m[1]);
+          }
+          if (json?.data?.klines) klines = json.data.klines;
+        }
+      } catch(e) {}
+
+      if (!klines || klines.length === 0) {
+        try {
+          const res = await fetchJSONP(kUrl, 'cb');
+          klines = res?.data?.klines || [];
+        } catch(e) {}
+      }
+
+      let finalPrevClose = this.marketState.currentPrevClose;
+      
+      if (klines && klines.length > 0) { 
+        const parsed = klines.map(str => { 
+          const parts = str.split(','); 
+          return { 
+            date: parts[0], 
+            open: parseFloat(parts[1]) || 0, 
+            close: parseFloat(parts[2]) || 0, 
+            high: parseFloat(parts[3]) || 0, 
+            low: parseFloat(parts[4]) || 0, 
+            volume: parseInt(parts[5] || 0) 
+          }; 
+        }); 
+        if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].close || 1;
+
+        const calcMA = (data, days) => { 
+          let res = []; 
+          for(let i = 0; i < data.length; i++){ 
+            if(i < days - 1) { res.push(null); continue; } 
+            let sum = 0; 
+            for(let j = 0; j < days; j++) sum += data[i - j]; 
+            res.push(sum / days); 
+          } 
+          return res; 
+        }; 
+
+        const calcEMALocal = (data, days) => { 
+          let k = 2 / (days + 1); 
+          let ema = [data[0]]; 
+          for (let i = 1; i < data.length; i++) {
+            ema.push(data[i] * k + ema[i - 1] * (1 - k)); 
+          }
+          return ema; 
+        }; 
+
+        const closePrices = parsed.map(p => p.close);
+        const ema12 = calcEMALocal(closePrices, 12);
+        const ema26 = calcEMALocal(closePrices, 26);
+        const dif = [];
+        for (let i = 0; i < closePrices.length; i++) {
+          dif.push(ema12[i] - ema26[i]);
+        }
+        const dea = calcEMALocal(dif, 9);
+        const macd = [];
+        for (let i = 0; i < closePrices.length; i++) {
+          macd.push((dif[i] - dea[i]) * 2);
+        }
+
+        this.marketChartData = { 
+          type: 'kline', 
+          xLabels: parsed.map(p => p.date), 
+          prices: closePrices,
+          opens: parsed.map(p => p.open),
+          highs: parsed.map(p => p.high),
+          lows: parsed.map(p => p.low),
+          ma5: calcMA(closePrices, 5), 
+          ma10: calcMA(closePrices, 10), 
+          ma20: calcMA(closePrices, 20), 
+          ma60: calcMA(closePrices, 60), 
+          dif: dif,
+          dea: dea,
+          macd: macd,
+          volumes: parsed.map(p => p.volume), 
+          prevClose: finalPrevClose, 
+          lastPrice: parsed[parsed.length - 1]?.close || 0, 
+          timeStr: new Date().toLocaleTimeString() 
+        }; 
+        this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
+        this.bindChartEvents(); 
+      } 
+    }
+  },
+
+  // ==============================================================
+  // 提取历史日K线通用函数（闭合修复版）
+  // ==============================================================
   async _fetchMarketHistoryKlines(secid, days) {
       const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
       
-      // 优先通过 Worker 反代或 no-referrer fetch 获取
       try {
           let fetchUrl = kUrl;
           if (this.workerUrl && !this.workerUrl.includes('example.com')) {
@@ -5046,7 +5047,6 @@ drawIntradayFlowCanvas(data) {
           }
       } catch (e) {}
 
-      // 降级使用 fetchJSONP
       try {
           const res = await fetchJSONP(kUrl, 'cb');
           const klines = res?.data?.klines || [];

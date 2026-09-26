@@ -1080,6 +1080,10 @@ canvas#compare-canvas {
           <div class="pk-row"><span>涨跌额</span><span id="md-chg-abs">--</span></div>
           <div class="pk-row"><span>振幅</span><span id="md-amp">--</span></div>
           <div class="pk-row"><span>量比</span><span id="md-volratio">--</span></div>
+          <!-- 新增：换手率、总市值、市盈率，凑满12格整齐排列 -->
+          <div class="pk-row"><span>换手率</span><span id="md-turnover" style="font-weight:900; color:#0066ff;">--</span></div>
+          <div class="pk-row"><span>总市值</span><span id="md-totalval">--</span></div>
+          <div class="pk-row"><span>市盈率</span><span id="md-pe">--</span></div>
         </div>
         <div style="background:#fff; padding:10px 15px 0;">
           <div class="detail-tabs" id="md-chart-tabs">
@@ -3617,6 +3621,9 @@ getCorrectSecid(savedSecid, code, groupType) {
       document.getElementById('md-open').innerText = '--';
       document.getElementById('md-high').innerText = '--';
       document.getElementById('md-low').innerText = '--';
+      if (document.getElementById('md-turnover')) document.getElementById('md-turnover').innerText = '--';
+      if (document.getElementById('md-totalval')) document.getElementById('md-totalval').innerText = '--';
+      if (document.getElementById('md-pe')) document.getElementById('md-pe').innerText = '--';
     
       // 2. 标题更新
       document.getElementById('md-title').innerText = name; 
@@ -3669,8 +3676,8 @@ getCorrectSecid(savedSecid, code, groupType) {
     const flowArea = document.getElementById('md-fund-flow-area');
     if (flowArea) flowArea.style.display = 'none'; 
     
-    // --- 1. 获取基础报价与盘口数据 ---
-    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170&_=${Date.now()}`; 
+    // 注意 fields 中加入了 f116(总市值), f162/f167(市盈率), f168(换手率)
+    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f116,f162,f167,f168,f169,f170&_=${Date.now()}`; 
     try { 
       const res = await fetchJSONP(pkUrl, 'cb'); 
       const d = res?.data; 
@@ -3722,6 +3729,18 @@ getCorrectSecid(savedSecid, code, groupType) {
         } 
         const vrEl = document.getElementById('md-volratio'); 
         if (vrEl) vrEl.innerText = (d.f50 !== undefined && d.f50 !== '-' && !isNaN(d.f50)) ? parseFloat(d.f50).toFixed(2) : '--'; 
+
+        // 赋值：换手率、总市值、市盈率
+        const turnoverEl = document.getElementById('md-turnover'); 
+        if (turnoverEl) turnoverEl.innerText = (d.f168 !== undefined && d.f168 !== '-' && !isNaN(d.f168)) ? parseFloat(d.f168).toFixed(2) + '%' : '--'; 
+        const totalValEl = document.getElementById('md-totalval');
+        if (totalValEl) totalValEl.innerText = fmtVol(d.f116);
+        const peEl = document.getElementById('md-pe');
+        if (peEl) {
+            const peVal = d.f162 ?? d.f167;
+            peEl.innerText = (peVal !== undefined && peVal !== '-' && !isNaN(peVal)) ? parseFloat(peVal).toFixed(2) : '--';
+        }
+
         const dTime = new Date(); 
         document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
       } 
@@ -4961,19 +4980,50 @@ drawIntradayFlowCanvas(data) {
   },
 
   // 3. 辅助：后台静默拉取历史日 K 线数据
+  // --- 修复版：后台抓取历史日K线（东财标准规范参数 + 双重容灾，解决图2中合富中国等股票请求报红失败）---
   async _fetchMarketHistoryKlines(secid, days) {
-      // 拉取日 K 线 (klt=101)
-      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&_=${Date.now()}`;
+      // 必须补齐 fields1 与 ut 授权参数，否则部分股票会被接口直接拒绝拦截
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
+      
       try {
           const res = await fetchJSONP(url, 'cb');
           const klines = res?.data?.klines || [];
-          if (klines.length === 0) return null;
-          
-          return klines.map(str => {
-              const p = str.split(',');
-              return { date: p[0], open: parseFloat(p[1]), close: parseFloat(p[2]), high: parseFloat(p[3]), low: parseFloat(p[4]), vol: parseFloat(p[5]) };
-          });
-      } catch (e) { return null; }
+          if (klines.length > 0) {
+              return klines.map(str => {
+                  const p = str.split(',');
+                  return { 
+                      date: p[0], 
+                      open: parseFloat(p[1]) || 0, 
+                      close: parseFloat(p[2]) || 0, 
+                      high: parseFloat(p[3]) || 0, 
+                      low: parseFloat(p[4]) || 0, 
+                      vol: parseFloat(p[5]) || 0 
+                  };
+              });
+          }
+      } catch (e) {}
+
+      // 备用降级重试：若主接口因网络抖动未响应，自动切换备用请求
+      try {
+          const fallbackUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&_=${Date.now()}`;
+          const res2 = await fetchJSONP(fallbackUrl, 'cb');
+          const klines2 = res2?.data?.klines || [];
+          if (klines2.length > 0) {
+              return klines2.map(str => {
+                  const p = str.split(',');
+                  return { 
+                      date: p[0], 
+                      open: parseFloat(p[1]) || 0, 
+                      close: parseFloat(p[2]) || 0, 
+                      high: parseFloat(p[3]) || 0, 
+                      low: parseFloat(p[4]) || 0, 
+                      vol: parseFloat(p[5]) || 0 
+                  };
+              });
+          }
+      } catch (e2) {}
+
+      return null;
   },
 
   // 4. 执行行情大模型预测

@@ -3436,7 +3436,7 @@ getCorrectSecid(savedSecid, code, groupType) {
       } 
     } catch(e) {} 
 
-    // --- 2. 获取资金流向 (实时快照 + 历史兜底双擎模式) ---
+    // --- 2. 获取资金流向 (标准 f135~f149 字段解析 + 历史日K无缝兜底) ---
     const inOutEl = document.getElementById('ff-main-inout');
     const breakdownEl = document.getElementById('ff-daily-breakdown');
     const historyEl = document.getElementById('ff-history-chart');
@@ -3448,8 +3448,8 @@ getCorrectSecid(savedSecid, code, groupType) {
     let historyFlowData = [];
     let latestHistoryDay = null;
 
-    // A. 获取实时资金快照（完整补齐超大单、大单、中单、小单的流入、流出及净流入字段）
-    const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f64,f65,f66,f70,f71,f72,f76,f77,f78,f82,f83,f84,f138,f139,f140,f141,f142,f143,f144,f145,f146,f147,f148,f149&_=${Date.now()}`;
+    // A. 获取实时资金快照（核心字段：f135~f149，涵盖超大/大/中/小单各档流入、流出及净额）
+    const flowUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f135,f136,f137,f138,f139,f140,f141,f142,f143,f144,f145,f146,f147,f148,f149&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(flowUrl, 'cb');
         if (res?.data) {
@@ -3457,7 +3457,7 @@ getCorrectSecid(savedSecid, code, groupType) {
         }
     } catch(e) {}
 
-    // B. 获取近 20 天历史资金
+    // B. 获取近 20 天历史资金流向（每项依次为：日期, 主力净额, 小单净额, 中单净额, 大单净额, 超大单净额）
     const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=20&secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&_=${Date.now()}`;
     try {
         const res = await fetchJSONP(hisFlowUrl, 'cb');
@@ -3478,109 +3478,95 @@ getCorrectSecid(savedSecid, code, groupType) {
         }
     } catch(e) {}
 
-    // C. 规范解析真实资金流向
+    // C. 准确提取数据与渲染
     if (snapshotFlow || latestHistoryDay) {
         if (flowArea) flowArea.style.display = 'block';
 
-        let mainNet = 0, xlNet = 0, lNet = 0, mNet = 0, sNet = 0;
-        let mainIn = 0, mainOut = 0, hasAbsoluteInOut = false;
+        const parseNum = (v) => (v !== undefined && v !== '-' && !isNaN(parseFloat(v))) ? parseFloat(v) : null;
 
-        if (snapshotFlow) {
-            const isSector = secid.startsWith('90.');
-            
-            if (isSector) {
-                // 板块资金字段 (f138 ~ f149)
-                const xlIn = parseFloat(snapshotFlow.f138) || 0;
-                const xlOut = parseFloat(snapshotFlow.f139) || 0;
-                xlNet = (snapshotFlow.f140 !== undefined && snapshotFlow.f140 !== '-') ? parseFloat(snapshotFlow.f140) : (xlIn - xlOut);
+        // 优先读取东财官方资金快照字段
+        let xlNet = parseNum(snapshotFlow?.f140); // 超大单净额
+        let lNet = parseNum(snapshotFlow?.f143);  // 大单净额
+        let mNet = parseNum(snapshotFlow?.f146);  // 中单净额
+        let sNet = parseNum(snapshotFlow?.f149);  // 小单净额
+        let mainNet = parseNum(snapshotFlow?.f137) ?? parseNum(snapshotFlow?.f62); // 主力净额
 
-                const lIn = parseFloat(snapshotFlow.f141) || 0;
-                const lOut = parseFloat(snapshotFlow.f142) || 0;
-                lNet = (snapshotFlow.f143 !== undefined && snapshotFlow.f143 !== '-') ? parseFloat(snapshotFlow.f143) : (lIn - lOut);
+        let mainIn = parseNum(snapshotFlow?.f135);
+        let mainOut = parseNum(snapshotFlow?.f136);
 
-                const mIn = parseFloat(snapshotFlow.f144) || 0;
-                const mOut = parseFloat(snapshotFlow.f145) || 0;
-                mNet = (snapshotFlow.f146 !== undefined && snapshotFlow.f146 !== '-') ? parseFloat(snapshotFlow.f146) : (mIn - mOut);
+        // 流入流出分项汇总兜底
+        const xlIn = parseNum(snapshotFlow?.f138) || 0;
+        const xlOut = parseNum(snapshotFlow?.f139) || 0;
+        const lIn = parseNum(snapshotFlow?.f141) || 0;
+        const lOut = parseNum(snapshotFlow?.f142) || 0;
 
-                const sIn = parseFloat(snapshotFlow.f147) || 0;
-                const sOut = parseFloat(snapshotFlow.f148) || 0;
-                sNet = (snapshotFlow.f149 !== undefined && snapshotFlow.f149 !== '-') ? parseFloat(snapshotFlow.f149) : (sIn - sOut);
+        if (mainIn === null && (xlIn > 0 || lIn > 0)) mainIn = xlIn + lIn;
+        if (mainOut === null && (xlOut > 0 || lOut > 0)) mainOut = xlOut + lOut;
 
-                mainIn = xlIn + lIn;
-                mainOut = xlOut + lOut;
-                mainNet = (snapshotFlow.f62 !== undefined && snapshotFlow.f62 !== '-') ? parseFloat(snapshotFlow.f62) : (mainIn - mainOut);
-            } else {
-                // 个股/ETF 资金字段 (严格映射 f62 ~ f84)
-                const xlIn = parseFloat(snapshotFlow.f64) || 0;
-                const xlOut = parseFloat(snapshotFlow.f65) || 0;
-                xlNet = (snapshotFlow.f66 !== undefined && snapshotFlow.f66 !== '-') ? parseFloat(snapshotFlow.f66) : (xlIn - xlOut);
-
-                const lIn = parseFloat(snapshotFlow.f70) || 0;
-                const lOut = parseFloat(snapshotFlow.f71) || 0;
-                lNet = (snapshotFlow.f72 !== undefined && snapshotFlow.f72 !== '-') ? parseFloat(snapshotFlow.f72) : (lIn - lOut);
-
-                const mIn = parseFloat(snapshotFlow.f76) || 0;
-                const mOut = parseFloat(snapshotFlow.f77) || 0;
-                mNet = (snapshotFlow.f78 !== undefined && snapshotFlow.f78 !== '-') ? parseFloat(snapshotFlow.f78) : (mIn - mOut);
-
-                const sIn = parseFloat(snapshotFlow.f82) || 0;
-                const sOut = parseFloat(snapshotFlow.f83) || 0;
-                sNet = (snapshotFlow.f84 !== undefined && snapshotFlow.f84 !== '-') ? parseFloat(snapshotFlow.f84) : (sIn - sOut);
-
-                mainIn = xlIn + lIn;
-                mainOut = xlOut + lOut;
-                mainNet = (snapshotFlow.f62 !== undefined && snapshotFlow.f62 !== '-') ? parseFloat(snapshotFlow.f62) : (mainIn - mainOut);
-            }
-
-            if (mainIn > 0 || mainOut > 0) hasAbsoluteInOut = true;
-        } else if (latestHistoryDay) {
+        // 若遇收盘后结算或接口无实时快照，自动使用历史数据最后一天的数据平滑兜底
+        const hasValidSnapshot = (xlNet !== null && lNet !== null && (xlNet !== 0 || lNet !== 0 || mNet !== 0 || sNet !== 0));
+        if (!hasValidSnapshot && latestHistoryDay) {
             xlNet = latestHistoryDay.xlNet;
             lNet = latestHistoryDay.lNet;
             mNet = latestHistoryDay.mNet;
             sNet = latestHistoryDay.sNet;
             mainNet = latestHistoryDay.mainNet;
-            hasAbsoluteInOut = false; 
+            mainIn = null;
+            mainOut = null;
         }
 
-        // 防拦截拦截：如果全都为0，说明接口可能返回空包
-        if (xlNet === 0 && lNet === 0 && mNet === 0 && sNet === 0 && mainNet === 0 && breakdownEl) {
-             breakdownEl.innerHTML = '<div style="text-align:center; padding:10px; color:#94a3b8;">暂无资金明细数据</div>';
-             if (inOutEl) inOutEl.innerHTML = '';
-        } else {
-            // 1. 渲染头部汇总信息
-            if (inOutEl) {
-                if (hasAbsoluteInOut) {
-                    inOutEl.innerHTML = `
-                        <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流入</span><span class="red" style="font-size:14px;">${this.formatFlowAmt(mainIn)}</span></div>
-                        <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流出</span><span class="green" style="font-size:14px;">${this.formatFlowAmt(mainOut)}</span></div>
-                        <div style="display:flex; flex-direction:column; align-items:center;"><span>净流入</span><span class="${mainNet>=0?'red':'green'}" style="font-size:14px;">${mainNet>0?'+':''}${this.formatFlowAmt(mainNet)}</span></div>
-                    `;
-                } else {
-                    inOutEl.innerHTML = `<div style="width:100%; text-align:center; padding: 4px 0;"><span>主力资金净流入</span><span class="${mainNet>=0?'red':'green'}" style="font-size:18px; margin-left:12px; font-weight:900;">${mainNet>0?'+':''}${this.formatFlowAmt(mainNet)}</span></div>`;
-                }
-            }
+        // 保证基本数值存在
+        xlNet = xlNet || 0;
+        lNet = lNet || 0;
+        mNet = mNet || 0;
+        sNet = sNet || 0;
+        if (mainNet === null || isNaN(mainNet)) mainNet = xlNet + lNet;
 
-            // 2. 渲染特大单、大单、中单、小单横向条形图
-            if (breakdownEl) {
-                const maxAbs = Math.max(Math.abs(xlNet), Math.abs(lNet), Math.abs(mNet), Math.abs(sNet), 1);
-                const buildRow = (label, val) => {
-                    const isPos = val >= 0;
-                    const pct = Math.min((Math.abs(val) / maxAbs) * 100, 100);
-                    const colorCls = isPos ? 'red' : 'green';
-                    const sign = isPos && val !== 0 ? '+' : '';
-                    return `
-                    <div class="flow-row">
-                        <span class="flow-label">${label}</span>
-                        <div class="flow-bar-container">
-                            <div class="flow-bar-left">${!isPos ? `<div class="f-bar green" style="width: ${pct}%;"></div>` : ''}</div>
-                            <div class="flow-bar-right">${isPos ? `<div class="f-bar red" style="width: ${pct}%;"></div>` : ''}</div>
-                        </div>
-                        <span class="flow-val ${colorCls}">${sign}${this.formatFlowAmt(val)}</span>
+        // 1. 顶部汇总渲染（主力流入、主力流出、净流入）
+        if (inOutEl) {
+            if (mainIn !== null && mainOut !== null && (mainIn > 0 || mainOut > 0)) {
+                inOutEl.innerHTML = `
+                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流入</span><span class="red" style="font-size:14px; font-weight:900;">${this.formatFlowAmt(mainIn)}</span></div>
+                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力流出</span><span class="green" style="font-size:14px; font-weight:900;">${this.formatFlowAmt(mainOut)}</span></div>
+                    <div style="display:flex; flex-direction:column; align-items:center;"><span>主力净流入</span><span class="${mainNet >= 0 ? 'red' : 'green'}" style="font-size:14px; font-weight:900;">${mainNet > 0 ? '+' : ''}${this.formatFlowAmt(mainNet)}</span></div>
+                `;
+            } else {
+                inOutEl.innerHTML = `
+                    <div style="width:100%; text-align:center; padding: 4px 0;">
+                        <span>主力资金净流入</span>
+                        <span class="${mainNet >= 0 ? 'red' : 'green'}" style="font-size:18px; margin-left:12px; font-weight:900;">${mainNet > 0 ? '+' : ''}${this.formatFlowAmt(mainNet)}</span>
                     </div>`;
-                };
-                breakdownEl.innerHTML = buildRow('特大单', xlNet) + buildRow('大单', lNet) + buildRow('中单', mNet) + buildRow('小单', sNet);
             }
         }
+
+        // 2. 特大单、大单、中单、小单条形图渲染
+        if (breakdownEl) {
+            const maxAbs = Math.max(Math.abs(xlNet), Math.abs(lNet), Math.abs(mNet), Math.abs(sNet), 1);
+            const buildRow = (label, val) => {
+                const isPos = val >= 0;
+                const pct = Math.min((Math.abs(val) / maxAbs) * 100, 100);
+                const colorCls = isPos ? 'red' : 'green';
+                const sign = isPos && val !== 0 ? '+' : '';
+                return `
+                <div class="flow-row">
+                    <span class="flow-label">${label}</span>
+                    <div class="flow-bar-container">
+                        <div class="flow-bar-left">${!isPos ? `<div class="f-bar green" style="width: ${pct}%;"></div>` : ''}</div>
+                        <div class="flow-bar-right">${isPos ? `<div class="f-bar red" style="width: ${pct}%;"></div>` : ''}</div>
+                    </div>
+                    <span class="flow-val ${colorCls}">${sign}${this.formatFlowAmt(val)}</span>
+                </div>`;
+            };
+
+            breakdownEl.innerHTML = 
+                buildRow('特大单', xlNet) + 
+                buildRow('大单', lNet) + 
+                buildRow('中单', mNet) + 
+                buildRow('小单', sNet);
+        }
+    } else {
+        if (flowArea) flowArea.style.display = 'none';
+    }
 
         // 3. 渲染近20日柱状图
         if (historyFlowData.length > 0) {

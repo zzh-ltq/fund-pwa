@@ -701,6 +701,7 @@ canvas#compare-canvas {
       <div id="market-group-index" class="action-pill active" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('index')">📈 指数</div>
       <div id="market-group-stock" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('stock')">📊 股票</div>
       <div id="market-group-etf" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('etf')">📦 ETF</div>
+      <div id="market-group-super" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('super')">🏆 优股</div>
     </div>
     <!-- 新增：仅在股票选项卡下显示的专属分组管理胶囊栏 -->
     <div id="stock-group-bar" class="tabs-wrapper" style="display: none; margin: 10px 12px 6px;">
@@ -1728,8 +1729,9 @@ async _fetchSingleFundHoldings(code) {
       this.data.fundsCache = savedData.fundsCache || {};
       this.data.customSectors = savedData.customSectors || [];
       this.data.marketGroups = savedData.marketGroups || { index: [], stock: [], etf: [] };
-      // 容错处理：确保已有老旧缓存数据安全升级，增加 etf 节点
       if (!this.data.marketGroups.etf) this.data.marketGroups.etf = [];
+      // 保证股票分组正确加载
+      this.data.stockCustomGroups = savedData.stockCustomGroups || [{ id: 'default', name: '全部', stockCodes: [] }];
       if (savedData.rtData) this.rtData = savedData.rtData;
     } else {
       const local = localStorage.getItem('fund_pwa_v6');
@@ -2816,14 +2818,6 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     this.renderMarketTabs(); 
   },
   
-  switchMarketGroup(group) { 
-    this.currentMarketGroup = group; 
-    document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
-    document.getElementById('market-group-stock').className = group === 'stock' ? 'action-pill active' : 'action-pill'; 
-    document.getElementById('market-group-etf').className = group === 'etf' ? 'action-pill active' : 'action-pill'; 
-    this.renderWatchedMarkets(); 
-  },
-  
   setMarketSort(mode) { 
     this.marketSortMode = mode; 
     document.getElementById('mkt-sort-default').className = mode === 'default' ? 'active' : ''; 
@@ -3014,14 +3008,29 @@ getCorrectSecid(savedSecid, code, groupType) {
             const valSign = (chgVal !== '--' && parseFloat(chgVal) > 0) ? '+' : ''; 
             
             let groupTagHtml = '';
-            let boundGroup = item.bindGroup ? this.data.groups.find(g => g.id === item.bindGroup) : null;
-            if (boundGroup) {
-                groupTagHtml = `
-                    <span class="c-tag" style="background:var(--blue); color:#fff; cursor:pointer; box-shadow: 0 2px 6px rgba(0,102,255,0.2);" onclick="app.jumpToFundGroup(event, '${boundGroup.id}')">📂 ${boundGroup.name}</span>
-                    <span class="c-tag" style="background:#f1f5f9; color:#94a3b8; cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}')">🔄</span>
-                `;
+            // 股票和 ETF：显示股票分组标签
+            if (groupKey === 'stock' || groupKey === 'etf') {
+                const sGroups = this.data.stockCustomGroups || [];
+                const boundSGroup = sGroups.find(g => g.id === item.bindStockGroup || (g.stockCodes && g.stockCodes.includes(item.code)));
+                if (boundSGroup && boundSGroup.id !== 'default') {
+                    groupTagHtml = `
+                        <span class="c-tag" style="background:#0066ff; color:#fff; cursor:pointer;" onclick="app.switchStockGroupFilter(event, '${boundSGroup.id}')">📂 ${boundSGroup.name}</span>
+                        <span class="c-tag" style="background:#f1f5f9; color:#94a3b8; cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">🔄</span>
+                    `;
+                } else {
+                    groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">+ 分组</span>`;
+                }
             } else {
-                groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}')">+ 分组</span>`;
+                // 指数：保持原样绑定基金分组
+                let boundGroup = item.bindGroup ? this.data.groups.find(g => g.id === item.bindGroup) : null;
+                if (boundGroup) {
+                    groupTagHtml = `
+                        <span class="c-tag" style="background:var(--blue); color:#fff; cursor:pointer;" onclick="app.jumpToFundGroup(event, '${boundGroup.id}')">📂 ${boundGroup.name}</span>
+                        <span class="c-tag" style="background:#f1f5f9; color:#94a3b8; cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">🔄</span>
+                    `;
+                } else {
+                    groupTagHtml = `<span class="c-tag c-add-tag" style="cursor:pointer;" onclick="app.openMarketGroupSelect(event, '${item.secid}', '${groupKey}')">+ 分组</span>`;
+                }
             }
 
             const html = `<div class="list-item" onclick="app.openMarketDetail('${item.querySecid}', '${item.name}')">
@@ -3057,45 +3066,97 @@ getCorrectSecid(savedSecid, code, groupType) {
     } 
   },
 
+  // --- 打开行情分组绑定弹窗（自适应股票分组与基金分组）---
+  openMarketGroupSelect(e, secid, targetGroupType) {
+    this.stopProp(e);
+    const groupKey = targetGroupType || this.currentMarketGroup;
+    this.targetMarketSecid = secid;
+    this.targetMarketGroupType = groupKey;
 
-  // --- 2. 新增：打开行情绑定分组弹窗 ---
-  openMarketGroupSelect(e, secid) {
-      this.stopProp(e);
-      this.targetMarketSecid = secid;
-      const groupKey = this.currentMarketGroup;
-      const marketItem = this.data.marketGroups[groupKey].find(m => m.secid === secid || m.querySecid === secid);
+    const marketList = this.data.marketGroups[groupKey] || [];
+    const marketItem = marketList.find(m => m.secid === secid || m.querySecid === secid);
 
-      // 渲染已有分组列表
-      let html = this.data.groups.map(g => {
-          let isSel = marketItem && marketItem.bindGroup === g.id;
-          return `<div class="action-pill ${isSel ? 'active' : ''}" onclick="app.bindMarketToGroup(event, '${g.id}')">${g.name}</div>`;
-      }).join('');
+    let html = '';
+    const modalTitleEl = document.querySelector('#modal-market-group-select .nav-bar span') || document.querySelector('#modal-market-group-select div[style*="font-weight:800"] span');
+
+    // 针对 股票(stock) 和 ETF(etf)：绑定新建的股票分组
+    if (groupKey === 'stock' || groupKey === 'etf') {
+      if (modalTitleEl) modalTitleEl.innerText = '绑定所属股票分组';
+      const sGroups = this.data.stockCustomGroups || [{ id: 'default', name: '全部', stockCodes: [] }];
       
-      // 增加一个清除绑定的按钮
-      html += `<div class="action-pill" style="background:#fff1f2; color:var(--red); border: 1px solid #ffe4e6;" onclick="app.bindMarketToGroup(event, null)">取消绑定</div>`;
+      html = sGroups.filter(g => g.id !== 'default').map(g => {
+        const isSel = marketItem && (marketItem.bindStockGroup === g.id || (g.stockCodes && g.stockCodes.includes(marketItem.code)));
+        return `<div class="action-pill ${isSel ? 'active' : ''}" onclick="app.bindMarketToGroup(event, '${g.id}')">📂 ${g.name}</div>`;
+      }).join('');
 
-      document.getElementById('market-group-select-list').innerHTML = html;
-      this.openModal('market-group-select');
+      if (!html) {
+        html = '<div style="padding:15px; color:#94a3b8; font-size:12px; width:100%; text-align:center;">暂无自定义股票分组，请先在上方点击“＋”号新建分组</div>';
+      }
+    } else {
+      // 针对 指数(index)：保持原状绑定基金分组
+      if (modalTitleEl) modalTitleEl.innerText = '绑定基金分组 (单选)';
+      html = this.data.groups.map(g => {
+        const isSel = marketItem && marketItem.bindGroup === g.id;
+        return `<div class="action-pill ${isSel ? 'active' : ''}" onclick="app.bindMarketToGroup(event, '${g.id}')">${g.name}</div>`;
+      }).join('');
+    }
+
+    // 取消绑定选项
+    html += `<div class="action-pill" style="background:#fff1f2; color:var(--red); border:1px solid #ffe4e6; margin-top:8px;" onclick="app.bindMarketToGroup(event, null)">取消绑定</div>`;
+
+    document.getElementById('market-group-select-list').innerHTML = html;
+    this.openModal('market-group-select');
   },
 
-  // --- 3. 新增：执行绑定/解绑行情到分组 ---
-  bindMarketToGroup(e, groupId) {
-      this.stopProp(e);
-      const groupKey = this.currentMarketGroup;
-      const marketItem = this.data.marketGroups[groupKey].find(m => m.secid === this.targetMarketSecid || m.querySecid === this.targetMarketSecid);
-      
-      if (marketItem) {
-          if (groupId === null) {
-              delete marketItem.bindGroup;
-              this.showToast('已取消绑定');
-          } else {
-              marketItem.bindGroup = groupId;
-              this.showToast('绑定分组成功');
+  // --- 执行绑定/解绑 ---
+  bindMarketToGroup(e, targetGroupId) {
+    this.stopProp(e);
+    const groupKey = this.targetMarketGroupType || this.currentMarketGroup;
+    const marketList = this.data.marketGroups[groupKey] || [];
+    const marketItem = marketList.find(m => m.secid === this.targetMarketSecid || m.querySecid === this.targetMarketSecid);
+
+    if (marketItem) {
+      if (groupKey === 'stock' || groupKey === 'etf') {
+        // 1. 先从原有股票分组的 stockCodes 中移除
+        (this.data.stockCustomGroups || []).forEach(g => {
+          if (g.stockCodes) g.stockCodes = g.stockCodes.filter(c => c !== marketItem.code);
+        });
+
+        if (targetGroupId === null) {
+          delete marketItem.bindStockGroup;
+          this.showToast('已取消股票分组绑定');
+        } else {
+          marketItem.bindStockGroup = targetGroupId;
+          const targetG = (this.data.stockCustomGroups || []).find(g => g.id === targetGroupId);
+          if (targetG) {
+            if (!targetG.stockCodes) targetG.stockCodes = [];
+            if (!targetG.stockCodes.includes(marketItem.code)) targetG.stockCodes.push(marketItem.code);
           }
-          this.saveData(); // 保存到本地存储
-          this.renderWatchedMarkets(); // 重新渲染列表刷新UI
+          this.showToast(`已绑定至股票分组 [${targetG?.name || ''}]`);
+        }
+      } else {
+        // 指数分组绑定保持原状
+        if (targetGroupId === null) {
+          delete marketItem.bindGroup;
+          this.showToast('已取消绑定');
+        } else {
+          marketItem.bindGroup = targetGroupId;
+          this.showToast('绑定基金分组成功');
+        }
       }
-      this.closeModal('market-group-select');
+
+      this.saveData();
+      this.renderWatchedMarkets();
+    }
+    this.closeModal('market-group-select');
+  },
+
+  // --- 点击股票卡片上的股票分组标签，快捷切换并筛选该股票分组 ---
+  switchStockGroupFilter(e, stockGroupId) {
+    this.stopProp(e);
+    this.currentStockGroupId = stockGroupId;
+    this.renderStockGroups();
+    this.renderWatchedMarkets();
   },
 
   // --- 4. 新增：点击已绑定的标签，跳转到自选页对应的分组 ---
@@ -3194,22 +3255,155 @@ getCorrectSecid(savedSecid, code, groupType) {
   // 1. 初始化中补齐股票分组状态
   currentStockGroupId: 'default',
 
-  // 2. 切换市场类型（指数、股票、ETF）联动控制
+  // 切换类型（指数、股票、ETF、优股）
   switchMarketGroup(group) { 
     this.currentMarketGroup = group; 
     document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
     document.getElementById('market-group-stock').className = group === 'stock' ? 'action-pill active' : 'action-pill'; 
     document.getElementById('market-group-etf').className = group === 'etf' ? 'action-pill active' : 'action-pill'; 
-    
-    // 控制股票专属分组栏的显隐
+    const superBtn = document.getElementById('market-group-super');
+    if (superBtn) superBtn.className = group === 'super' ? 'action-pill active' : 'action-pill'; 
+
+    // 仅在股票菜单下展示分组管理胶囊条
     const stockBar = document.getElementById('stock-group-bar');
     if (stockBar) {
       stockBar.style.display = group === 'stock' ? 'flex' : 'none';
-      if (group === 'stock') {
-        this.renderStockGroups();
-      }
+      if (group === 'stock') this.renderStockGroups();
     }
-    this.renderWatchedMarkets(); 
+
+    if (group === 'super') {
+      this.renderSuperStocksScan();
+    } else {
+      this.renderWatchedMarkets(); 
+    }
+  },
+
+  // --- 优股扫描引擎：扫描股票池下所有三指标全部看多的个股 ---
+  async renderSuperStocksScan() {
+    const container = document.getElementById('market-watched-list');
+    const stockList = this.data.marketGroups.stock || [];
+
+    if (stockList.length === 0) {
+      container.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#94a3b8; font-weight:bold;">自选股票池为空，请先在「股票」选项卡添加关注的股票</div>';
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="text-align:center; padding:40px 20px; background:#fff; border-radius:12px; margin:10px 0; border:1px solid #e2e8f0; grid-column: 1 / -1;">
+        <div class="loading-spinner" style="margin:0 auto 15px auto;"></div>
+        <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">MACD + KDJ + BOLL 全指标扫描中</div>
+        <div style="font-size:12px; color:var(--text-sub);">正在对自选池内 ${stockList.length} 只股票进行技术面共振筛选...</div>
+      </div>
+    `;
+
+    const matchedStocks = [];
+
+    // 并发扫描
+    await Promise.all(stockList.map(async (item) => {
+      try {
+        const querySecid = this.getCorrectSecid(item.secid, item.code, 'stock');
+        const klines = await this._fetchMarketHistoryKlines(querySecid, 65);
+        if (!klines || klines.length < 35) return;
+
+        const closes = klines.map(k => k.close);
+        const highs = klines.map(k => k.high);
+        const lows = klines.map(k => k.low);
+        const N = closes.length;
+        const latestPrice = closes[N - 1];
+
+        // 1. MACD
+        const calcEMA = (data, p) => {
+          let k = 2 / (p + 1);
+          let ema = [data[0]];
+          for (let i = 1; i < data.length; i++) ema.push(data[i] * k + ema[i - 1] * (1 - k));
+          return ema;
+        };
+        const ema12 = calcEMA(closes, 12);
+        const ema26 = calcEMA(closes, 26);
+        const dif = ema12.map((val, idx) => val - ema26[idx]);
+        const dea = calcEMA(dif, 9);
+        const macd = dif.map((val, idx) => (val - dea[idx]) * 2);
+
+        const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
+        const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
+        const isMacdBuy = (prevDIF <= prevDEA && curDIF > curDEA) || (curDIF > curDEA && curMACD >= prevMACD) || (curDIF < 0 && curMACD > prevMACD && prevMACD < 0);
+
+        // 2. KDJ
+        let kArr = [50], dArr = [50], jArr = [50];
+        for (let i = 8; i < N; i++) {
+          let periodHigh = Math.max(...highs.slice(i - 8, i + 1));
+          let periodLow = Math.min(...lows.slice(i - 8, i + 1));
+          let rsv = periodHigh === periodLow ? 50 : ((closes[i] - periodLow) / (periodHigh - periodLow)) * 100;
+          let nextK = (2 / 3) * kArr[kArr.length - 1] + (1 / 3) * rsv;
+          let nextD = (2 / 3) * dArr[dArr.length - 1] + (1 / 3) * nextK;
+          let nextJ = 3 * nextK - 2 * nextD;
+          kArr.push(nextK); dArr.push(nextD); jArr.push(nextJ);
+        }
+        const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
+        const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
+        const isKdjBuy = (prevK <= prevD && curK > curD) || curJ < 5 || (curK < 40 && curK > prevK);
+
+        // 3. BOLL
+        const bollSlice = closes.slice(-20);
+        const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
+        const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
+        const bollUpper = bollMid + 2 * bollStd;
+        const bollLower = bollMid - 2 * bollStd;
+        const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
+        const isBollBuy = bollPct <= 25 || (latestPrice > bollMid && closes[N - 1] >= closes[N - 2]);
+
+        // 三指标全部看多
+        if (isMacdBuy && isKdjBuy && isBollBuy) {
+          const chg = ((closes[N - 1] - closes[N - 2]) / closes[N - 2]) * 100;
+          matchedStocks.push({
+            name: item.name,
+            code: item.code,
+            secid: querySecid,
+            price: latestPrice.toFixed(2),
+            chgRate: chg.toFixed(2),
+            curJ: curJ.toFixed(1),
+            bollPct: bollPct.toFixed(0)
+          });
+        }
+      } catch(e) {}
+    }));
+
+    if (matchedStocks.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:50px 20px; color:#94a3b8; grid-column:1 / -1;">
+          <div style="font-size:36px; margin-bottom:10px;">📉</div>
+          <div style="font-weight:bold; color:var(--text-main); font-size:15px;">当前暂无三指标全部看多的股票</div>
+          <div style="font-size:12px; margin-top:6px;">建议防守观望，等待市场出现多头金叉共振</div>
+        </div>
+      `;
+      return;
+    }
+
+    // 渲染优股卡片
+    container.innerHTML = matchedStocks.map(s => {
+      const col = parseFloat(s.chgRate) >= 0 ? 'red' : 'green';
+      const sign = parseFloat(s.chgRate) > 0 ? '+' : '';
+      return `
+        <div class="list-item" style="border-left:4px solid #f43f5e;" onclick="app.openMarketDetail('${s.secid}', '${s.name}')">
+          <div style="flex:1;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-weight:900; font-size:16px;">${s.name}</span>
+              <span class="c-code">${s.code}</span>
+              <span class="c-tag" style="background:#fff1f2; color:#f43f5e; font-weight:900;">🎯 三指标全多</span>
+            </div>
+            <div style="display:flex; gap:6px; margin-top:6px; font-size:11px;">
+              <span class="c-tag" style="background:#eff6ff; color:#3b82f6;">MACD 看多</span>
+              <span class="c-tag" style="background:#fffbeb; color:#d97706;">KDJ 拐点</span>
+              <span class="c-tag" style="background:#f5f3ff; color:#7c3aed;">BOLL 支撑</span>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <div class="${col}" style="font-size:18px; font-weight:900;">${s.price}</div>
+            <div class="${col}" style="font-size:12px; font-weight:bold; margin-top:2px;">${sign}${s.chgRate}%</div>
+          </div>
+        </div>
+      `;
+    }).join('');
   },
 
   // 3. 渲染股票分组 Tabs
@@ -7222,8 +7416,13 @@ async _renderHoldingsUI(code, stocks, bonds) {
             this.data.groups = parsedData.groups; 
             this.data.fundsCache = parsedData.fundsCache || {}; 
             this.data.customSectors = parsedData.customSectors || []; 
-            this.data.marketGroups = parsedData.marketGroups || { index: [], stock: [] }; 
+            this.data.marketGroups = parsedData.marketGroups || { index: [], stock: [], etf: [] }; 
+            if (!this.data.marketGroups.etf) this.data.marketGroups.etf = [];
+            // 云端完整还原股票自定义分组
+            this.data.stockCustomGroups = parsedData.stockCustomGroups || [{ id: 'default', name: '全部', stockCodes: [] }];
             if (parsedData.rtData) this.rtData = parsedData.rtData; 
+            
+            // 固化入本地 IndexedDB
             await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData }); 
             progressText.innerText = '拉取并固化成功，即将刷新'; 
             setTimeout(() => { location.reload(); }, 600); 
@@ -7243,12 +7442,17 @@ async _renderHoldingsUI(code, stocks, bonds) {
     if (!this.s3) return this.showToast('请先保存配置参数', 'error'); 
     
     const conf = JSON.parse(localStorage.getItem('r2_conf')); 
-    const fullDataStr = JSON.stringify({ ...this.data, rtData: this.rtData }); 
+    // 确保把 stockCustomGroups 完整写入上传包中
+    const fullDataStr = JSON.stringify({ 
+      ...this.data, 
+      stockCustomGroups: this.data.stockCustomGroups || [], 
+      rtData: this.rtData 
+    }); 
     this.showToast('正在备份完整数据，请稍候...'); 
     
     this.s3.putObject({ Bucket: conf.bucket, Key: 'fund_pwa_v6_full.json', Body: fullDataStr, ContentType: 'application/json' }, (err) => { 
       if (err) this.showToast('上传失败: ' + err.message, 'error'); 
-      else this.showToast('✅ 完整历史和估值数据已成功备份到云端！'); 
+      else this.showToast('✅ 完整数据（含股票分组）已成功备份到云端！'); 
     }); 
   },
   

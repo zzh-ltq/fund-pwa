@@ -702,6 +702,14 @@ canvas#compare-canvas {
       <div id="market-group-stock" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('stock')">📊 股票</div>
       <div id="market-group-etf" class="action-pill" style="width: 100px; justify-content: center; margin: 0; font-size: 14px; padding: 8px 0;" onclick="app.switchMarketGroup('etf')">📦 ETF</div>
     </div>
+    <!-- 新增：仅在股票选项卡下显示的专属分组管理胶囊栏 -->
+    <div id="stock-group-bar" class="tabs-wrapper" style="display: none; margin: 10px 12px 6px;">
+      <div class="tabs-scroll" id="stock-groups-scroll"></div>
+      <div class="tabs-fixed-right">
+        <div class="mgr-btn" title="新建股票分组" onclick="app.createStockGroup()">＋</div>
+        <div class="mgr-btn" title="管理股票分组" onclick="app.openStockGroupMgr()">☰</div>
+      </div>
+    </div>
 
     <div class="m-search-wrap">
       <input type="text" id="market-search-input" placeholder="🔍 搜索板块、指数、ETF添加至自选" oninput="app.searchMarket()" autocomplete="off">
@@ -907,7 +915,28 @@ canvas#compare-canvas {
       <div id="market-group-select-list" class="tabs-scroll" style="flex-wrap:wrap; white-space:normal; gap:8px; cursor:auto;"></div>
     </div>
   </div>
-
+  <!-- 弹窗: 股票分组管理 -->
+  <div id="modal-stock-group-mgr" class="modal-view" onclick="app.closeOutside(event, 'stock-group-mgr')">
+    <div class="modal-content" onclick="app.stopProp(event)">
+      <div class="nav-bar">
+        <div class="nav-btn left" onclick="app.closeModal('stock-group-mgr')">‹ 返回</div>
+        <div class="nav-title">股票分组管理</div>
+        <div style="width:60px;"></div>
+      </div>
+      <div class="mgr-header">
+        <span style="flex:1;">分组名称</span>
+        <div style="display:flex; width:100px; justify-content:space-between;">
+          <span>修改</span><span>清空</span><span>删除</span>
+        </div>
+      </div>
+      <div class="mgr-list-wrap" id="stock-mgr-scroll-box">
+        <div id="stock-group-mgr-list" style="position:relative;"></div>
+      </div>
+      <div class="mgr-bottom-bar" style="position: relative; padding: 12px;">
+        <button class="btn-primary" style="border-radius:20px; margin-bottom: 0;" onclick="app.createStockGroup()">＋ 新建股票分组</button>
+      </div>
+    </div>
+  </div>
   <!-- 弹窗:基金搜索 -->
   <div id="modal-search" class="modal-view" onclick="app.closeOutside(event, 'search')"><div class="modal-content" onclick="app.stopProp(event)"><div class="nav-bar"><input type="text" id="search-input" placeholder="输入代码或拼音" oninput="app.doSearch()" style="margin:0; width:75%; border-radius: 14px; padding: 6px 12px;"><div class="nav-btn" style="background:none; box-shadow:none; color: var(--text-sub);" onclick="app.closeModal('search')">取消</div></div><div class="scroll-area" id="search-results"></div></div></div>
 
@@ -2843,7 +2872,14 @@ getCorrectSecid(savedSecid, code, groupType) {
    // --- 1. 完全替换 renderWatchedMarkets 函数 ---
   async renderWatchedMarkets() { 
     const groupKey = this.currentMarketGroup; 
-    const list = this.data.marketGroups[groupKey] || []; 
+    / 在获取 list 处调整如下：
+    let list = this.data.marketGroups[groupKey] || [];
+    if (groupKey === 'stock' && this.currentStockGroupId !== 'default') {
+      const curGroup = (this.data.stockCustomGroups || []).find(g => g.id === this.currentStockGroupId);
+      if (curGroup && curGroup.stockCodes) {
+        list = list.filter(item => curGroup.stockCodes.includes(item.code));
+      }
+    } 
     const container = document.getElementById('market-watched-list'); 
     
     if (list.length === 0) { 
@@ -3090,6 +3126,12 @@ getCorrectSecid(savedSecid, code, groupType) {
    // 3. 完全替换 addWatchedMarket (防止新增时存入被污染的前缀)
   addWatchedMarket(secid, name, code) { 
     const groupKey = this.currentMarketGroup; 
+    if (groupKey === 'stock' && this.currentStockGroupId !== 'default') {
+      const curGroup = (this.data.stockCustomGroups || []).find(g => g.id === this.currentStockGroupId);
+      if (curGroup && !curGroup.stockCodes.includes(code)) {
+        curGroup.stockCodes.push(code);
+      }
+    }
     if (!this.data.marketGroups[groupKey]) this.data.marketGroups[groupKey] = []; 
     
     const targetList = this.data.marketGroups[groupKey]; 
@@ -3149,6 +3191,124 @@ getCorrectSecid(savedSecid, code, groupType) {
 // ==========================================
   // 10. 股票行情大厅模块 (含弹窗初始化清理)
   // ==========================================
+  // 1. 初始化中补齐股票分组状态
+  currentStockGroupId: 'default',
+
+  // 2. 切换市场类型（指数、股票、ETF）联动控制
+  switchMarketGroup(group) { 
+    this.currentMarketGroup = group; 
+    document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
+    document.getElementById('market-group-stock').className = group === 'stock' ? 'action-pill active' : 'action-pill'; 
+    document.getElementById('market-group-etf').className = group === 'etf' ? 'action-pill active' : 'action-pill'; 
+    
+    // 控制股票专属分组栏的显隐
+    const stockBar = document.getElementById('stock-group-bar');
+    if (stockBar) {
+      stockBar.style.display = group === 'stock' ? 'flex' : 'none';
+      if (group === 'stock') {
+        this.renderStockGroups();
+      }
+    }
+    this.renderWatchedMarkets(); 
+  },
+
+  // 3. 渲染股票分组 Tabs
+  renderStockGroups() {
+    if (!this.data.stockCustomGroups || this.data.stockCustomGroups.length === 0) {
+      this.data.stockCustomGroups = [{ id: 'default', name: '全部', stockCodes: [] }];
+    }
+    const scrollBox = document.getElementById('stock-groups-scroll');
+    if (!scrollBox) return;
+    scrollBox.innerHTML = this.data.stockCustomGroups.map(g => {
+      return `<div class="action-pill ${g.id === this.currentStockGroupId ? 'active' : ''}" onclick="app.currentStockGroupId='${g.id}'; app.renderStockGroups(); app.renderWatchedMarkets();">${g.name}</div>`;
+    }).join('');
+  },
+
+  // 4. 新建股票分组
+  createStockGroup() {
+    let name = prompt('请输入新股票分组名称:');
+    if (name && name.trim()) {
+      name = name.trim();
+      if (!this.data.stockCustomGroups) this.data.stockCustomGroups = [{ id: 'default', name: '全部', stockCodes: [] }];
+      if (this.data.stockCustomGroups.some(g => g.name === name)) {
+        return alert('该分组名称已存在');
+      }
+      this.data.stockCustomGroups.push({ id: 'sg_' + Date.now(), name, stockCodes: [] });
+      this.saveData();
+      this.renderStockGroups();
+      if (document.getElementById('modal-stock-group-mgr').classList.contains('active')) {
+        this.renderStockGroupMgrList();
+      }
+      this.showToast('✅ 股票分组创建成功');
+    }
+  },
+
+  // 5. 打开股票分组管理弹窗
+  openStockGroupMgr() {
+    this.openModal('stock-group-mgr');
+    this.renderStockGroupMgrList();
+  },
+
+  // 6. 渲染股票分组管理列表
+  renderStockGroupMgrList() {
+    const box = document.getElementById('stock-group-mgr-list');
+    if (!box) return;
+    const h = 50;
+    const list = this.data.stockCustomGroups || [];
+    box.style.height = (list.length * h) + 'px';
+    box.innerHTML = list.map((g, i) => {
+      const top = i * h;
+      const isDefault = g.id === 'default';
+      const right = isDefault 
+        ? `<div class="m-btn disabled"></div><div class="m-btn" style="background:#f1f5f9;" onclick="app.clearStockGroup('${g.id}')">▤</div><div style="width:30px;"></div>`
+        : `<div class="m-btn" style="background:var(--blue-light); color:var(--blue);" onclick="app.renameStockGroup('${g.id}')">✎</div>
+           <div class="m-btn" style="background:#f1f5f9; color:var(--text-sub);" onclick="app.clearStockGroup('${g.id}')">▤</div>
+           <div class="m-del" onclick="app.delStockGroup('${g.id}')"></div>`;
+      return `
+        <div class="mgr-item" style="top:${top}px;">
+          <div class="m-left"><b>${g.name}</b></div>
+          <div class="m-actions" style="width:110px; justify-content:space-between;">${right}</div>
+        </div>`;
+    }).join('');
+  },
+
+  // 7. 股票分组的改名、清空、删除
+  renameStockGroup(id) {
+    const g = (this.data.stockCustomGroups || []).find(x => x.id === id);
+    if (!g) return;
+    const nn = prompt('修改分组名称:', g.name);
+    if (nn && nn.trim() && nn.trim() !== g.name) {
+      g.name = nn.trim();
+      this.saveData();
+      this.renderStockGroupMgrList();
+      this.renderStockGroups();
+    }
+  },
+
+  clearStockGroup(id) {
+    if (confirm('确认清空该股票分组内的代码？')) {
+      const g = (this.data.stockCustomGroups || []).find(x => x.id === id);
+      if (g) {
+        g.stockCodes = [];
+        this.saveData();
+        this.renderStockGroups();
+        this.renderWatchedMarkets();
+        this.showToast('已清空');
+      }
+    }
+  },
+
+  delStockGroup(id) {
+    if (confirm('确定删除该股票分组？')) {
+      this.data.stockCustomGroups = (this.data.stockCustomGroups || []).filter(x => x.id !== id);
+      if (this.currentStockGroupId === id) this.currentStockGroupId = 'default';
+      this.saveData();
+      this.renderStockGroupMgrList();
+      this.renderStockGroups();
+      this.renderWatchedMarkets();
+      this.showToast('已删除');
+    }
+  },
   openMarketDetail(secid, name) { 
       this.marketState.currentSecid = secid; 
       this.marketState.chartType = 'trend'; 
@@ -4607,172 +4767,295 @@ drawIntradayFlowCanvas(data) {
       }
   },
 
-  // 5. 执行技术面综合诊断
+ // 【全新重构】：MACD + KDJ + BOLL 三指标共振与量价分时技术面诊断引擎
   async runMarketTechnicalAnalysis(secid, name) {
-      const btn = document.getElementById('m-tech-run-btn');
-      btn.innerText = '📡 全维数据提取与扫描中...';
-      btn.style.pointerEvents = 'none';
-      
-      const resultBox = document.getElementById('m-tech-result');
-      // 【修改】：点击立刻清空旧数据，并显示 Loading 动画
-      resultBox.innerHTML = `
-          <div style="text-align:center; padding: 40px 20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; box-shadow:0 8px 20px rgba(0,0,0,0.02);">
-              <div class="loading-spinner" style="margin: 0 auto 15px auto;"></div>
-              <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">技术面全维度雷达扫描中</div>
-              <div style="font-size:12px; color:var(--text-sub);">正在提取并分析 <b>${name}</b> 的形态与量价流向...</div>
-          </div>
-      `;
-      resultBox.style.display = 'block';
+    const btn = document.getElementById('m-tech-run-btn');
+    btn.innerText = '📡 指标多维共振计算中...';
+    btn.style.pointerEvents = 'none';
 
+    const resultBox = document.getElementById('m-tech-result');
+    resultBox.innerHTML = `
+      <div style="text-align:center; padding: 40px 20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; box-shadow:0 8px 20px rgba(0,0,0,0.02);">
+        <div class="loading-spinner" style="margin: 0 auto 15px auto;"></div>
+        <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">MACD + KDJ + BOLL 深度共振推演中</div>
+        <div style="font-size:12px; color:var(--text-sub);">正在提取 <b>${name}</b> 的全量量价数据与分时盘口...</div>
+      </div>
+    `;
+    resultBox.style.display = 'block';
+
+    try {
+      // 1. 获取近 120 天日 K 线数据
+      const klines = await this._fetchMarketHistoryKlines(secid, 120);
+      if (!klines || klines.length < 35) throw new Error("历史 K 线样本不足，无法完成多指标共振拟合");
+
+      // 2. 异步获取分时与主力流向
+      let intradayTrends = [];
       try {
-          const klines = await this._fetchMarketHistoryKlines(secid, 100);
-          if (!klines || klines.length < 60) throw new Error("K线数据不足，无法生成报告");
+        const trendRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53&_=${Date.now()}`, 'cb');
+        intradayTrends = trendRes?.data?.trends || [];
+      } catch(e) {}
 
-          let intradayTrend = null;
-          try {
-              const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53&_=${Date.now()}`;
-              const trendRes = await fetchJSONP(trendUrl, 'cb');
-              intradayTrend = trendRes?.data?.trends || [];
-          } catch(e) {}
+      let mainFlowAmt = 0;
+      try {
+        const quoteRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62&_=${Date.now()}`, 'cb');
+        if (quoteRes?.data?.f62 && quoteRes.data.f62 !== '-') {
+          mainFlowAmt = parseFloat(quoteRes.data.f62);
+        }
+      } catch(e) {}
 
-          let netFlowStr = '--';
-          let netFlowVal = 0;
-          try {
-              const flowRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62&_=${Date.now()}`, 'cb');
-              if (flowRes?.data?.f62 !== undefined && flowRes.data.f62 !== '-') {
-                  netFlowVal = parseFloat(flowRes.data.f62);
-                  netFlowStr = this.formatFlowAmt(netFlowVal);
-              }
-          } catch(e) {}
+      const closes = klines.map(k => k.close);
+      const highs = klines.map(k => k.high);
+      const lows = klines.map(k => k.low);
+      const vols = klines.map(k => k.vol);
+      const N = closes.length;
+      const latestPrice = closes[N - 1];
 
-          const prices = klines.map(k => k.close);
-          const vols = klines.map(k => k.vol);
-          
-          const todayK = klines[klines.length - 1];
-          const yestK = klines[klines.length - 2];
-          const currentPrice = todayK.close;
+      // ----------------- 指标 1：MACD 计算 -----------------
+      const calcEMA = (data, p) => {
+        let k = 2 / (p + 1);
+        let ema = [data[0]];
+        for (let i = 1; i < data.length; i++) ema.push(data[i] * k + ema[i - 1] * (1 - k));
+        return ema;
+      };
+      const ema12 = calcEMA(closes, 12);
+      const ema26 = calcEMA(closes, 26);
+      const dif = ema12.map((val, idx) => val - ema26[idx]);
+      const dea = calcEMA(dif, 9);
+      const macd = dif.map((val, idx) => (val - dea[idx]) * 2);
 
-          const calcMA = (data, d) => data.slice(-d).reduce((a,b)=>a+b,0) / d;
-          const ma5 = calcMA(prices, 5), ma10 = calcMA(prices, 10), ma20 = calcMA(prices, 20);
+      const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
+      const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
 
-          let gains = 0, losses = 0;
-          for (let i = prices.length - 13; i < prices.length; i++) {
-              let diff = prices[i] - prices[i-1];
-              if (diff >= 0) gains += diff; else losses -= diff;
-          }
-          let rs = (gains / 14) / (losses / 14 || 0.0001);
-          const rsi14 = 100 - (100 / (1 + rs));
+      let macdSignal = 'HOLD'; // BUY, SELL, HOLD
+      let macdScore = 0;
+      let macdDesc = '';
 
-          let score = 50; 
-          let trendAdv = '', shapeAdv = '', volAdv = '', intraAdv = '';
-
-          const body = todayK.close - todayK.open;
-          const upperShadow = todayK.high - Math.max(todayK.open, todayK.close);
-          const lowerShadow = Math.min(todayK.open, todayK.close) - todayK.low;
-          const bodyPercent = (Math.abs(body) / yestK.close) * 100;
-
-          if (lowerShadow > Math.abs(body) * 2 && lowerShadow > upperShadow) {
-              score += 12; shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">长下影线探底：</span>下方承接盘极强，俗称“定海神针”，短期反弹概率极大。`;
-          } else if (upperShadow > Math.abs(body) * 2 && upperShadow > lowerShadow) {
-              score -= 12; shapeAdv = `<span style="color:#10b981; font-weight:bold;">长上影线承压：</span>上方抛压极重，冲高回落，短期面临调整风险。`;
-          } else if (bodyPercent > 2.0 && body > 0) {
-              score += 10; shapeAdv = `<span style="color:#f43f5e; font-weight:bold;">实体大阳线：</span>多头占据绝对主导，上攻意愿强烈。`;
-          } else if (bodyPercent > 2.0 && body < 0) {
-              score -= 10; shapeAdv = `<span style="color:#10b981; font-weight:bold;">实体大阴线：</span>空头肆虐，破位下杀迹象明显。`;
-          } else {
-              shapeAdv = `K线实体较小，多空双方处于焦灼试探期。`;
-          }
-
-          const avgVol5 = vols.slice(-6, -1).reduce((a,b)=>a+b,0) / 5;
-          const volRatio = todayK.vol / (avgVol5 || 1);
-
-          if (volRatio > 1.3 && body > 0) {
-              score += 15; volAdv = `<span style="color:#f43f5e; font-weight:bold;">放量上涨：</span>量比高达 ${volRatio.toFixed(2)}，增量资金抢筹，良性多头格局。`;
-          } else if (volRatio > 1.3 && body <= 0) {
-              score -= 15; volAdv = `<span style="color:#10b981; font-weight:bold;">放量滞涨/下跌：</span>量比 ${volRatio.toFixed(2)}，资金放量出逃或高位滞涨，极其危险。`;
-          } else if (volRatio < 0.7 && body < 0) {
-              score += 5; volAdv = `<span style="color:#f59e0b; font-weight:bold;">缩量回调：</span>量比仅 ${volRatio.toFixed(2)}，下跌无量，洗盘概率大于出货。`;
-          } else {
-              volAdv = `成交量表现平稳 (量比 ${volRatio.toFixed(2)})，未见异常异动。`;
-          }
-
-          if (currentPrice > ma5 && ma5 > ma10 && ma10 > ma20) {
-              score += 10; trendAdv = `均线呈<b style="color:#f43f5e;">标准多头排列</b>，趋势向上。`;
-          } else if (currentPrice < ma5 && ma5 < ma10 && ma10 < ma20) {
-              score -= 10; trendAdv = `均线呈<b style="color:#10b981;">典型空头排列</b>，犹如泰山压顶。`;
-          } else if (currentPrice > ma20) {
-              score += 5; trendAdv = `站稳 20 日生命线，结构偏暖。`;
-          } else {
-              score -= 5; trendAdv = `跌破 20 日生命线，趋势走弱。`;
-          }
-
-          if (rsi14 < 30) { score += 8; trendAdv += ` 且 RSI 极度超卖，存在报复性反弹需求。`; }
-          else if (rsi14 > 70) { score -= 8; trendAdv += ` 且 RSI 极度超买，面临技术性修正。`; }
-
-          if (intradayTrend && intradayTrend.length > 0) {
-              const lastMinParams = intradayTrend[intradayTrend.length - 1].split(',');
-              const closePrice = parseFloat(lastMinParams[1]);
-              const vwapPrice = parseFloat(lastMinParams[2]);
-              
-              if (closePrice > vwapPrice * 1.005) {
-                  score += 8; intraAdv = `收盘价高出均价线，<span style="color:#f43f5e;">尾盘存在抢筹或强势维持</span>。`;
-              } else if (closePrice < vwapPrice * 0.995) {
-                  score -= 8; intraAdv = `收盘价低于均价线，<span style="color:#10b981;">重心下移，尾盘承接乏力</span>。`;
-              } else {
-                  intraAdv = `日内价格紧贴均价线，走势平稳无大幅偏离。`;
-              }
-          } else {
-              intraAdv = `暂无当日分时微观数据。`;
-          }
-
-          if (netFlowVal > 0) score += 5;
-          else if (netFlowVal < 0) score -= 5;
-
-          score = Math.max(0, Math.min(100, score));
-
-          let finalConclusion = '';
-          let finalColor = '';
-          if (score >= 80) { finalConclusion = '🚀 强力看多 (闭眼上车)'; finalColor = '#f43f5e'; }
-          else if (score >= 60) { finalConclusion = '📈 偏向多头 (持仓待涨)'; finalColor = '#f59e0b'; }
-          else if (score >= 40) { finalConclusion = '👀 多空平衡 (横盘震荡)'; finalColor = '#64748b'; }
-          else if (score >= 20) { finalConclusion = '📉 偏向空头 (逢高减仓)'; finalColor = '#059669'; }
-          else { finalConclusion = '⚠️ 强力看空 (清仓规避)'; finalColor = '#10b981'; }
-
-          // 覆盖掉 Loading 动画
-          resultBox.innerHTML = `
-            <div class="card" style="border: 1px solid #e2e8f0; background: #fff;">
-                <div style="text-align:center; padding-bottom: 12px; border-bottom: 1px dashed #cbd5e1; margin-bottom: 15px;">
-                    <div style="font-size:12px; color:var(--text-sub); margin-bottom:4px;">技术面综合得分</div>
-                    <div style="font-size:32px; font-weight:900; color:${finalColor};">${score} <span style="font-size:14px; font-weight:bold;">分</span></div>
-                    <div style="font-size:15px; font-weight:900; color:${finalColor}; margin-top:4px;">${finalConclusion}</div>
-                </div>
-
-                <div style="display:flex; flex-direction:column; gap:10px; font-size:12px; color:#1e293b; line-height:1.6;">
-                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #64748b;">
-                        <b>🕯️ K线形态：</b>${shapeAdv}
-                    </div>
-                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #3b82f6;">
-                        <b>📊 量价配合：</b>${volAdv}
-                    </div>
-                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #8b5cf6;">
-                        <b>📈 趋势支撑：</b>${trendAdv}
-                    </div>
-                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #f59e0b;">
-                        <b>⏱️ 分时微观：</b>${intraAdv}
-                    </div>
-                    <div style="background:#f8fafc; padding:10px; border-radius:8px; border-left:3px solid #ec4899;">
-                        <b>🌊 主力资金：</b>今日主力呈现 ${netFlowVal >= 0 ? '<span style="color:#f43f5e; font-weight:bold;">净流入</span>' : '<span style="color:#10b981; font-weight:bold;">净流出</span>'} (${netFlowStr})。
-                    </div>
-                </div>
-            </div>
-          `;
-
-      } catch (err) {
-          resultBox.innerHTML = `<div style="text-align:center; padding:20px; color:var(--red); font-weight:bold;">${err.message || '诊断失败'}</div>`;
-      } finally {
-          btn.innerText = '📡 立即生成技术面诊断报告';
-          btn.style.pointerEvents = 'auto';
+      if (prevDIF <= prevDEA && curDIF > curDEA) {
+        macdSignal = 'BUY';
+        macdScore = curDIF >= 0 ? 30 : 25;
+        macdDesc = curDIF >= 0 ? 'DIF 零轴上方强力金叉，主升浪上攻信号明确。' : 'DIF 零轴下方低位金叉，超跌反弹动能确立。';
+      } else if (prevDIF >= prevDEA && curDIF < curDEA) {
+        macdSignal = 'SELL';
+        macdScore = curDIF >= 0 ? -25 : -30;
+        macdDesc = curDIF >= 0 ? '高位死叉成型，多头动能衰竭，面临见顶回落。' : '零轴下方加速死叉，空头力量发散，破位下行。';
+      } else if (curDIF > curDEA) {
+        macdSignal = curMACD >= prevMACD ? 'BUY' : 'HOLD';
+        macdScore = curMACD >= prevMACD ? 15 : 5;
+        macdDesc = curMACD >= prevMACD ? '处于多头运行区间，红柱持续发散增长。' : '多头区间红柱轻微收缩，上涨斜率放缓。';
+      } else {
+        macdSignal = curMACD <= prevMACD ? 'SELL' : 'HOLD';
+        macdScore = curMACD <= prevMACD ? -15 : -5;
+        macdDesc = curMACD <= prevMACD ? '处于空头弱势区间，绿柱延展，抛压沉重。' : '空头弱势区间绿柱收敛，砸盘动能开始钝化。';
       }
+
+      // ----------------- 指标 2：KDJ(9,3,3) 计算 -----------------
+      let kArr = [50], dArr = [50], jArr = [50];
+      for (let i = 8; i < N; i++) {
+        let periodHigh = Math.max(...highs.slice(i - 8, i + 1));
+        let periodLow = Math.min(...lows.slice(i - 8, i + 1));
+        let rsv = periodHigh === periodLow ? 50 : ((closes[i] - periodLow) / (periodHigh - periodLow)) * 100;
+        let lastK = kArr[kArr.length - 1];
+        let lastD = dArr[dArr.length - 1];
+        let nextK = (2 / 3) * lastK + (1 / 3) * rsv;
+        let nextD = (2 / 3) * lastD + (1 / 3) * nextK;
+        let nextJ = 3 * nextK - 2 * nextD;
+        kArr.push(nextK); dArr.push(nextD); jArr.push(nextJ);
+      }
+      const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
+      const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
+
+      let kdjSignal = 'HOLD';
+      let kdjScore = 0;
+      let kdjDesc = '';
+
+      if (prevK <= prevD && curK > curD) {
+        if (curK <= 30) {
+          kdjSignal = 'BUY'; kdjScore = 30;
+          kdjDesc = `KDJ在超卖区 (${curK.toFixed(1)}) 形成黄金交叉，强反转拐点出现！`;
+        } else {
+          kdjSignal = 'BUY'; kdjScore = 18;
+          kdjDesc = `KDJ低位震荡金叉上行，多头短期回暖反弹。`;
+        }
+      } else if (prevK >= prevD && curK < curD) {
+        if (curK >= 70) {
+          kdjSignal = 'SELL'; kdjScore = -30;
+          kdjDesc = `KDJ在超买区 (${curK.toFixed(1)}) 形成高位死叉，短线严重承压见顶。`;
+        } else {
+          kdjSignal = 'SELL'; kdjScore = -18;
+          kdjDesc = `KDJ形成高位死叉，下行拐点显现。`;
+        }
+      } else {
+        if (curJ < 0) {
+          kdjSignal = 'BUY'; kdjScore = 20;
+          kdjDesc = `J值 (${curJ.toFixed(1)}) 进入极度负值钝化区，随时可能暴力反抽。`;
+        } else if (curJ > 100) {
+          kdjSignal = 'SELL'; kdjScore = -20;
+          kdjDesc = `J值 (${curJ.toFixed(1)}) 严重超买钝化，乖离率过大，谨防高台跳水。`;
+        } else {
+          kdjSignal = 'HOLD'; kdjScore = 0;
+          kdjDesc = `K/D/J 三线平稳居中运行 (${curK.toFixed(1)} / ${curD.toFixed(1)} / ${curJ.toFixed(1)})，方向中性。`;
+        }
+      }
+
+      // ----------------- 指标 3：BOLL(20,2) 计算 -----------------
+      const bollSlice = closes.slice(-20);
+      const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
+      const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
+      const bollUpper = bollMid + 2 * bollStd;
+      const bollLower = bollMid - 2 * bollStd;
+      const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
+
+      let bollSignal = 'HOLD';
+      let bollScore = 0;
+      let bollDesc = '';
+
+      if (bollPct <= 10) {
+        bollSignal = 'BUY'; bollScore = 25;
+        bollDesc = `股价紧贴/跌破布林下轨 (轨道位置 ${bollPct.toFixed(1)}%)，超跌触底，支撑力极强。`;
+      } else if (bollPct >= 90) {
+        bollSignal = 'SELL'; bollScore = -25;
+        bollDesc = `突破或刺穿布林上轨 (轨道位置 ${bollPct.toFixed(1)}%)，上方压力巨大，面临通道回归。`;
+      } else if (latestPrice > bollMid) {
+        bollSignal = 'BUY'; bollScore = 10;
+        bollDesc = `运行于布林中轨上方，通道呈现良好向上发散态势。`;
+      } else {
+        bollSignal = 'SELL'; bollScore = -10;
+        bollDesc = `受到布林中轨压制，位于弱势下行半区。`;
+      }
+
+      // ----------------- 量能、换手与分时评估 -----------------
+      const avgVol5 = vols.slice(-6, -1).reduce((a, b) => a + b, 0) / 5;
+      const volRatio = vols[N - 1] / (avgVol5 || 1);
+      let volDesc = '';
+      let volScore = 0;
+      const isTodayUp = closes[N - 1] >= closes[N - 2];
+
+      if (volRatio > 1.3 && isTodayUp) {
+        volScore += 10; volDesc = `量比达 <b>${volRatio.toFixed(2)}</b>，放量拉升，资金建仓抢筹意愿坚决。`;
+      } else if (volRatio > 1.3 && !isTodayUp) {
+        volScore -= 12; volDesc = `量比达 <b>${volRatio.toFixed(2)}</b>，放量下杀，主力资金出逃明显。`;
+      } else if (volRatio < 0.7 && !isTodayUp) {
+        volScore += 5; volDesc = `量比仅 <b>${volRatio.toFixed(2)}</b>，缩量调整，呈良性洗盘特征。`;
+      } else {
+        volDesc = `量比平稳 (<b>${volRatio.toFixed(2)}</b>)，无明显异动。`;
+      }
+
+      // 分时重心
+      let intraDesc = '无日内分时数据。';
+      if (intradayTrends.length > 0) {
+        const lastP = intradayTrends[intradayTrends.length - 1].split(',');
+        const curPx = parseFloat(lastP[1]);
+        const vwap = parseFloat(lastP[2]);
+        if (curPx >= vwap * 1.003) {
+          volScore += 5; intraDesc = `收盘价站稳当日均价线上方，尾盘买盘有力，重心稳定抬升。`;
+        } else if (curPx <= vwap * 0.997) {
+          volScore -= 5; intraDesc = `收盘价跌破当日分时均价线，日内承接不足，重心回落。`;
+        } else {
+          intraDesc = `日内价格紧随均线缠绕，多空双方平稳换手。`;
+        }
+      }
+
+      // 主力流向
+      if (mainFlowAmt > 0) volScore += 5;
+      else if (mainFlowAmt < 0) volScore -= 5;
+
+      // ----------------- 三指标共振总决断 -----------------
+      const buyVotes = [macdSignal, kdjSignal, bollSignal].filter(s => s === 'BUY').length;
+      const sellVotes = [macdSignal, kdjSignal, bollSignal].filter(s => s === 'SELL').length;
+
+      let totalScore = 50 + macdScore + kdjScore + bollScore + volScore;
+      totalScore = Math.max(5, Math.min(98, totalScore));
+
+      let actionTitle = '';
+      let actionColor = '';
+      let actionTag = '';
+
+      if (buyVotes >= 3 || (buyVotes >= 2 && totalScore >= 75)) {
+        actionTitle = '🚀 强烈买入 (三指标多头共振)';
+        actionColor = '#f43f5e';
+        actionTag = '多头共振金叉，确定性极高，可果断建仓或重仓布局';
+      } else if (buyVotes >= 2 || totalScore >= 60) {
+        actionTitle = '📈 偏多买入 / 分批加仓';
+        actionColor = '#f59e0b';
+        actionTag = '技术面拐点显现，两项以上指标看多，适合逢低逢回调吸纳';
+      } else if (sellVotes >= 3 || (sellVotes >= 2 && totalScore <= 35)) {
+        actionTitle = '🚨 果断卖出 / 清仓避险';
+        actionColor = '#10b981';
+        actionTag = '空头三指标死叉共振，承压极重，强烈建议锁定利润或止损规避';
+      } else if (sellVotes >= 2 || totalScore <= 45) {
+        actionTitle = '📉 逢高减仓 / 谨慎防守';
+        actionColor = '#059669';
+        actionTag = '上涨动能乏力且现指标背离死叉，宜减仓规避潜在调整';
+      } else {
+        actionTitle = '👀 持股观望 / 静待趋势';
+        actionColor = '#64748b';
+        actionTag = '多空力量对峙均衡，暂未出现明确共振拐点，维持底仓观望';
+      }
+
+      const getTagHtml = (sig) => {
+        if (sig === 'BUY') return '<span style="color:#f43f5e; background:#fff1f2; padding:2px 8px; border-radius:12px; font-weight:900; font-size:11px;">看多买入</span>';
+        if (sig === 'SELL') return '<span style="color:#10b981; background:#f0fdf4; padding:2px 8px; border-radius:12px; font-weight:900; font-size:11px;">看空卖出</span>';
+        return '<span style="color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:12px; font-weight:bold; font-size:11px;">中性震荡</span>';
+      };
+
+      // 渲染最终结果看板
+      resultBox.innerHTML = `
+        <div class="card" style="border: 2px solid ${actionColor}; background: #fff; box-shadow: 0 10px 25px ${actionColor}15; margin-bottom: 12px; padding: 16px;">
+          <!-- 顶部总决策 -->
+          <div style="text-align:center; padding-bottom: 14px; border-bottom: 1px dashed #e2e8f0;">
+            <div style="font-size:12px; font-weight:bold; color:var(--text-sub); margin-bottom:4px;">三指标共振智能决策</div>
+            <div style="font-size: 24px; font-weight: 900; color: ${actionColor}; margin-bottom: 6px;">${actionTitle}</div>
+            <div style="font-size: 13px; color: #475569; font-weight: bold; background: #f8fafc; display:inline-block; padding: 4px 14px; border-radius: 20px;">
+              综合得分: <span style="color:${actionColor}; font-size:16px;">${totalScore}</span> 分 | ${actionTag}
+            </div>
+          </div>
+
+          <!-- 三指标卡片分块 -->
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top: 14px;">
+            <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #3b82f6;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-weight:900; font-size:13px; color:var(--text-main);">📈 MACD 趋势动量判断</span>
+                ${getTagHtml(macdSignal)}
+              </div>
+              <div style="font-size:11px; color:#64748b; margin-bottom:4px;">DIF: <b>${curDIF.toFixed(2)}</b> | DEA: <b>${curDEA.toFixed(2)}</b> | MACD: <b>${curMACD.toFixed(2)}</b></div>
+              <div style="font-size:12px; color:#1e293b; line-height:1.4;">${macdDesc}</div>
+            </div>
+
+            <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #f59e0b;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-weight:900; font-size:13px; color:var(--text-main);">🎯 KDJ 超买超卖与拐点识别</span>
+                ${getTagHtml(kdjSignal)}
+              </div>
+              <div style="font-size:11px; color:#64748b; margin-bottom:4px;">K: <b>${curK.toFixed(1)}</b> | D: <b>${curD.toFixed(1)}</b> | J: <b>${curJ.toFixed(1)}</b></div>
+              <div style="font-size:12px; color:#1e293b; line-height:1.4;">${kdjDesc}</div>
+            </div>
+
+            <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #8b5cf6;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-weight:900; font-size:13px; color:var(--text-main);">🌐 BOLL 布林带空间与支撑压力</span>
+                ${getTagHtml(bollSignal)}
+              </div>
+              <div style="font-size:11px; color:#64748b; margin-bottom:4px;">上轨: <b>${bollUpper.toFixed(2)}</b> | 中轨: <b>${bollMid.toFixed(2)}</b> | 下轨: <b>${bollLower.toFixed(2)}</b></div>
+              <div style="font-size:12px; color:#1e293b; line-height:1.4;">${bollDesc}</div>
+            </div>
+
+            <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #06b6d4;">
+              <div style="font-weight:900; font-size:13px; color:var(--text-main); margin-bottom:6px;">📊 量能、换手与分时盘口评估</div>
+              <div style="font-size:12px; color:#1e293b; line-height:1.6;">
+                <div>• <b>量能量比：</b>${volDesc}</div>
+                <div>• <b>分时走势：</b>${intraDesc}</div>
+                <div>• <b>主力动向：</b>今日主力净流入 <b>${mainFlowAmt >= 0 ? '+' : ''}${this.formatFlowAmt(mainFlowAmt)}</b>。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      resultBox.innerHTML = `<div style="text-align:center; padding:20px; color:var(--red); font-weight:bold;">${err.message || '技术面诊断失败'}</div>`;
+    } finally {
+      btn.innerText = '📡 立即生成技术面诊断报告';
+      btn.style.pointerEvents = 'auto';
+    }
   },
 
   zoomMarketChart(dir) {
@@ -7331,170 +7614,190 @@ ds(e, i) {
     }, 200);
     },
 
- fetchArchiveTable(apiType, varName, code) {
-  return new Promise((resolve) => {
-    const script = document.createElement('script');
-    script.src = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${apiType}&code=${code}&rt=${Date.now()}`;
-    script.onload = () => {
-      let generatedHtml = '<div style="padding:20px; text-align:center; color:#999;">暂无数据</div>';
-      if (window[varName] && window[varName].content) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(window[varName].content, 'text/html');
-        const nativeTables = doc.querySelectorAll('table.w782');
-        
-        // 处理季度、年度涨幅（原生表格）
-        if (nativeTables.length > 0) {
-          let table = nativeTables[0];
-          table.querySelectorAll('.infoTips, table').forEach(el => el.remove());
-          table.className = 'data-table perf-table';
-          table.querySelectorAll('th, td').forEach(cell => {
-            let rawText = cell.textContent.trim();
-            let num = parseFloat(rawText);
-            if (rawText.includes('%') && !isNaN(num)) {
-              if (num > 0) cell.innerHTML = `<span class="red">${rawText}</span>`;
-              else if (num < 0) cell.innerHTML = `<span class="green">${rawText}</span>`;
-            } else if (rawText.includes('优秀')) {
-              cell.innerHTML = `<span style="color:#f5222d; font-weight:bold;">${rawText}</span>`;
-            } else if (rawText.includes('不佳') || rawText.includes('一般')) {
-              cell.innerHTML = `<span style="color:#52c41a; font-weight:bold;">${rawText}</span>`;
-            } else if (rawText.includes('|')) {
-              let parts = rawText.split('|');
-              cell.innerHTML = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
-            } else {
-              cell.innerHTML = rawText;
-            }
-          });
-          generatedHtml = table.outerHTML;
-        } 
-        // 处理阶段涨幅（UL 列表）并转置
-        else {
-          const allUls = doc.querySelectorAll('ul');
-          if (allUls.length === 0) {
-            resolve(generatedHtml);
-            return;
-          }
-          
-          // 跳过表头 ul（class="fcol"）
-          const dataUls = Array.from(allUls).filter(ul => !ul.className.includes('fcol'));
-          
-          // 存储每个周期的数据
-          const rows = []; // 每个元素: { period, gain, avg, hs300, rank, change, quartile }
-          for (let ul of dataUls) {
-            const lis = ul.querySelectorAll('li');
-            if (lis.length === 0) continue;
-            
-            let period = '', gain = '', avg = '', hs300 = '', rank = '', change = '', quartile = '';
-            
-            for (let li of lis) {
-              const cls = li.className;
-              const text = li.innerText.trim();
-              if (cls.includes('title')) {
-                period = text;
-              } else if (cls.includes('tor') && !gain) {
-                gain = text;
-              } else if (cls.includes('tor') && gain && !avg) {
-                avg = text;
-              } else if (cls.includes('tor') && gain && avg && !hs300) {
-                hs300 = text;
-              } else if (cls.includes('tlpm')) {
-                rank = text;
-              } else if (cls.includes('pmbd')) {
-                // 排名变动：例如 "782↑" 或 "42↓"
-                let match = text.match(/(\d+)([↑↓])/);
-                if (match) {
-                  change = match[2] + match[1];
-                } else {
-                  change = text;
-                }
-              } else if (cls.includes('sf')) {
-                const sifen = li.querySelector('.sifen');
-                if (sifen) quartile = sifen.innerText.trim();
-              }
-            }
-            
-            if (period) {
-              rows.push({ period, gain, avg, hs300, rank, change, quartile });
-            }
-          }
-          
-          if (rows.length === 0) {
-            generatedHtml = '<div style="padding:20px; text-align:center; color:#999;">无阶段涨幅数据</div>';
-          } else {
-            // 转置表格：指标作为行，周期作为列
-            const periods = rows.map(r => r.period);
-            const indicators = [
-              { key: 'gain', label: '涨幅', isPercent: true },
-              { key: 'avg', label: '同类平均', isPercent: true },
-              { key: 'hs300', label: '沪深300', isPercent: true },
-              { key: 'rank', label: '同类排名', isPercent: false },
-              { key: 'change', label: '排名变动', isPercent: false },
-              { key: 'quartile', label: '四分位排名', isPercent: false }
-            ];
-            
-            let html = '<table class="data-table perf-table" style="min-width:600px;">';
-            // 表头：第一列留空，后续每列是一个周期
-            html += '<thead><tr><th>指标</th>';
-            for (let p of periods) {
-              html += `<th>${p}</th>`;
-            }
-            html += '</tr></thead><tbody>';
-            
-            // 逐指标输出行
-            for (let ind of indicators) {
-              html += '<tr>';
-              html += `<td class="indicator-cell"><strong>${ind.label}</strong></td>`;
-              for (let i = 0; i < rows.length; i++) {
-                const row = rows[i];
-                let val = row[ind.key] || '--';
-                let cellClass = '';
-                
-                if (ind.isPercent && val !== '--') {
-                  let num = parseFloat(val);
-                  if (!isNaN(num)) {
-                    if (num > 0) cellClass = 'red';
-                    else if (num < 0) cellClass = 'green';
-                  }
-                }
-                
-                // 特殊处理同类排名：格式化 排名|总数
-                if (ind.key === 'rank' && val.includes('|')) {
-                  let parts = val.split('|');
-                  val = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
-                }
-                // 特殊处理排名变动：提取箭头和数字，上色
-                else if (ind.key === 'change' && val !== '--') {
-                  let match = val.match(/([↑↓])(\d+)/);
-                  if (match) {
-                    let arrow = match[1];
-                    let num = match[2];
-                    val = arrow === '↑' ? `<span class="red">↑${num}</span>` : `<span class="green">↓${num}</span>`;
-                    cellClass = '';
-                  }
-                }
-                // 特殊处理四分位排名：上色
-                else if (ind.key === 'quartile' && val !== '--') {
-                  if (val.includes('优秀')) cellClass = 'red';
-                  else if (val.includes('良好')) cellClass = '#f59e0b';
-                  else if (val.includes('一般') || val.includes('不佳')) cellClass = 'green';
-                }
-                
-                html += `<td class="${cellClass}">${val}</td>`;
-              }
-              html += '</tr>';
-            }
-            html += '</tbody></table>';
-            generatedHtml = html;
-          }
-        }
-        window[varName] = undefined;
+ // 【修复版】：业绩表格抓取引擎（支持 fetch 直连/Worker 与 script 双引擎降级，彻底解决 404）
+  async fetchArchiveTable(apiType, varName, code) {
+    const randomRt = Math.random();
+    const targetUrl = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${apiType}&code=${code}&rt=${randomRt}`;
+    
+    // 方案 1：优先使用 fetch 直连 / 智能反代拉取文本解析
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 4000);
+      
+      let fetchUrl = targetUrl;
+      // 若配置了有效的 Worker 反代，则自动套用，彻底杜绝防盗链 404
+      if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+        fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetUrl)}`;
       }
-      document.head.removeChild(script);
-      resolve(generatedHtml);
-    };
-    script.onerror = () => { document.head.removeChild(script); resolve('<div style="padding:20px; color:red;">数据加载失败</div>'); };
-    document.head.appendChild(script);
-  });
-},
+      
+      const resp = await fetch(fetchUrl, {
+        signal: controller.signal,
+        referrerPolicy: 'no-referrer'
+      });
+      clearTimeout(tid);
+
+      if (resp.ok) {
+        const text = await resp.text();
+        // 匹配 content:"..." 的 HTML 字符串
+        const match = text.match(/content\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        if (match && match[1]) {
+          // 解码 Unicode 转义符
+          let contentHtml = JSON.parse(`"${match[1]}"`);
+          return this._parseArchiveHtmlToTable(contentHtml, apiType);
+        }
+      }
+    } catch (e) {
+      // fetch 遇跨域或失败，继续降级使用沙盒 script
+    }
+
+    // 方案 2：降级方案 —— 隔离沙盒 script 注入
+    return new Promise((resolve) => {
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+
+      const finish = (html) => {
+        if (iframe.parentNode) iframe.remove();
+        resolve(html || '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无业绩数据</div>');
+      };
+
+      const timer = setTimeout(() => finish(null), 5000);
+
+      const doc = iframe.contentWindow.document;
+      iframe.contentWindow.onerror = () => true;
+
+      const script = doc.createElement('script');
+      script.referrerPolicy = 'no-referrer';
+      script.src = targetUrl;
+
+      script.onload = () => {
+        clearTimeout(timer);
+        const win = iframe.contentWindow;
+        const dataObj = win[varName] || win.apidata || win.qapidata || win.yapidata;
+        if (dataObj && dataObj.content) {
+          finish(this._parseArchiveHtmlToTable(dataObj.content, apiType));
+        } else {
+          finish(null);
+        }
+      };
+
+      script.onerror = () => {
+        clearTimeout(timer);
+        finish('<div style="padding:20px; text-align:center; color:var(--red);">数据加载失败，请检查网络</div>');
+      };
+
+      doc.head.appendChild(script);
+    });
+  },
+
+  // 辅助解析：将原生 HTML 转换转置为统一风格的业绩表格
+  _parseArchiveHtmlToTable(contentHtml, apiType) {
+    if (!contentHtml || !contentHtml.trim()) {
+      return '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无数据</div>';
+    }
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(contentHtml, 'text/html');
+    const nativeTables = doc.querySelectorAll('table.w782, table');
+
+    // 季度/年度涨幅（原生即为完整表格）
+    if (nativeTables.length > 0 && (apiType === 'quarterzf' || apiType === 'yearzf')) {
+      let table = nativeTables[0];
+      table.querySelectorAll('.infoTips, table').forEach(el => el.remove());
+      table.className = 'data-table perf-table';
+      table.querySelectorAll('th, td').forEach(cell => {
+        let rawText = cell.textContent.trim();
+        let num = parseFloat(rawText);
+        if (rawText.includes('%') && !isNaN(num)) {
+          if (num > 0) cell.innerHTML = `<span class="red">${rawText}</span>`;
+          else if (num < 0) cell.innerHTML = `<span class="green">${rawText}</span>`;
+        } else if (rawText.includes('优秀')) {
+          cell.innerHTML = `<span style="color:#f5222d; font-weight:bold;">${rawText}</span>`;
+        } else if (rawText.includes('不佳') || rawText.includes('一般')) {
+          cell.innerHTML = `<span style="color:#52c41a; font-weight:bold;">${rawText}</span>`;
+        } else if (rawText.includes('|')) {
+          let parts = rawText.split('|');
+          cell.innerHTML = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
+        } else {
+          cell.innerHTML = rawText;
+        }
+      });
+      return table.outerHTML;
+    }
+
+    // 阶段涨幅（UL 列表转置表格）
+    const allUls = doc.querySelectorAll('ul');
+    if (allUls.length === 0) return contentHtml;
+
+    const dataUls = Array.from(allUls).filter(ul => !ul.className.includes('fcol'));
+    const rows = [];
+    for (let ul of dataUls) {
+      const lis = ul.querySelectorAll('li');
+      if (lis.length === 0) continue;
+      let period = '', gain = '', avg = '', hs300 = '', rank = '', change = '', quartile = '';
+      for (let li of lis) {
+        const cls = li.className;
+        const text = li.innerText.trim();
+        if (cls.includes('title')) period = text;
+        else if (cls.includes('tor') && !gain) gain = text;
+        else if (cls.includes('tor') && gain && !avg) avg = text;
+        else if (cls.includes('tor') && gain && avg && !hs300) hs300 = text;
+        else if (cls.includes('tlpm')) rank = text;
+        else if (cls.includes('pmbd')) {
+          let match = text.match(/(\d+)([↑↓])/);
+          change = match ? match[2] + match[1] : text;
+        } else if (cls.includes('sf')) {
+          const sifen = li.querySelector('.sifen');
+          if (sifen) quartile = sifen.innerText.trim();
+        }
+      }
+      if (period) rows.push({ period, gain, avg, hs300, rank, change, quartile });
+    }
+
+    if (rows.length === 0) return '<div style="padding:20px; text-align:center; color:#94a3b8;">无阶段涨幅数据</div>';
+
+    const periods = rows.map(r => r.period);
+    const indicators = [
+      { key: 'gain', label: '涨幅', isPercent: true },
+      { key: 'avg', label: '同类平均', isPercent: true },
+      { key: 'hs300', label: '沪深300', isPercent: true },
+      { key: 'rank', label: '同类排名', isPercent: false },
+      { key: 'change', label: '排名变动', isPercent: false },
+      { key: 'quartile', label: '四分位排名', isPercent: false }
+    ];
+
+    let html = '<table class="data-table perf-table" style="min-width:600px;">';
+    html += '<thead><tr><th>指标</th>';
+    for (let p of periods) html += `<th>${p}</th>`;
+    html += '</tr></thead><tbody>';
+
+    for (let ind of indicators) {
+      html += '<tr>';
+      html += `<td class="indicator-cell"><strong>${ind.label}</strong></td>`;
+      for (let row of rows) {
+        let val = row[ind.key] || '--';
+        let cellClass = '';
+        if (ind.isPercent && val !== '--') {
+          let num = parseFloat(val);
+          if (!isNaN(num)) cellClass = num > 0 ? 'red' : (num < 0 ? 'green' : '');
+        }
+        if (ind.key === 'rank' && val.includes('|')) {
+          let parts = val.split('|');
+          val = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
+        } else if (ind.key === 'change' && val !== '--') {
+          let match = val.match(/([↑↓])(\d+)/);
+          if (match) val = match[1] === '↑' ? `<span class="red">↑${match[2]}</span>` : `<span class="green">↓${match[2]}</span>`;
+        } else if (ind.key === 'quartile' && val !== '--') {
+          if (val.includes('优秀')) cellClass = 'red';
+          else if (val.includes('良好')) cellClass = '#f59e0b';
+          else if (val.includes('一般') || val.includes('不佳')) cellClass = 'green';
+        }
+        html += `<td class="${cellClass}">${val}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    return html;
+  },
   
 // 【最强直连版】：原生 fetch 配合 Function 沙盒解析，告别脆弱正则，100%成功率
   async fetchFundFullInfo(code) {

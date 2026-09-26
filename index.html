@@ -2866,10 +2866,9 @@ getCorrectSecid(savedSecid, code, groupType) {
    // --- 1. 完全替换 renderWatchedMarkets 函数 ---
   async renderWatchedMarkets() { 
     const groupKey = this.currentMarketGroup; 
-    // 在获取 list 处调整如下：
     let list = this.data.marketGroups[groupKey] || []; 
-    // 股票/ETF 严格依据 item.bindStockGroup 过滤，未绑定的仅在「全部」中展示
-    if ((groupKey === 'stock' || groupKey === 'etf') && this.currentStockGroupId && this.currentStockGroupId !== 'default') {
+    // 仅在股票分类下且选中了非「全部」的具体分组（如「老黄」）时进行精准过滤
+    if (groupKey === 'stock' && this.currentStockGroupId && this.currentStockGroupId !== 'default') {
         list = list.filter(item => item.bindStockGroup === this.currentStockGroupId);
     }
     const container = document.getElementById('market-watched-list'); 
@@ -3172,26 +3171,52 @@ getCorrectSecid(savedSecid, code, groupType) {
     } 
   },
   
-   addWatchedMarket(secid, name, code) { 
+  // --- 添加自选（支持自动归入当前选中的股票分组）---
+  addWatchedMarket(secid, name, code) { 
     const groupKey = this.currentMarketGroup; 
     if (!this.data.marketGroups[groupKey]) this.data.marketGroups[groupKey] = []; 
     
     const targetList = this.data.marketGroups[groupKey]; 
     
+    // 矫正 secid 编码
     let finalSecid = secid;
     if (!String(finalSecid).includes('.')) {
         finalSecid = this.getCorrectSecid(secid, code, groupKey);
     }
     
-    if (targetList.some(m => m.secid === finalSecid)) { 
-        this.showToast(`该${groupKey === 'index' ? '指数' : (groupKey === 'etf' ? 'ETF' : '股票')}已在自选列表中`, 'error'); 
-    } else { 
-        // 纯净添加，默认不绑定任何具体分组，初始显示「+ 分组」
-        targetList.push({ secid: finalSecid, name, code }); 
-        this.saveData(); 
-        this.showToast(`✅ 添加成功`); 
-        this.renderWatchedMarkets(); 
-    } 
+    // 查找是否已存在于自选列表中
+    const existItem = targetList.find(m => m.secid === finalSecid || m.code === code);
+
+    // 判断当前是否处于具体股票分组（如「老黄」）
+    const isSpecificStockGroup = (groupKey === 'stock' && this.currentStockGroupId && this.currentStockGroupId !== 'default');
+
+    if (existItem) {
+      if (isSpecificStockGroup) {
+        // 如果已在自选，但在当前分组下再次添加，则直接归入/绑定至当前分组
+        const curGroup = (this.data.stockCustomGroups || []).find(g => g.id === this.currentStockGroupId);
+        existItem.bindStockGroup = this.currentStockGroupId;
+        this.saveData();
+        this.showToast(`✅ 已将【${name}】加入当前分组 [${curGroup?.name || ''}]`);
+        this.renderWatchedMarkets();
+      } else {
+        this.showToast(`该${groupKey === 'index' ? '指数' : (groupKey === 'etf' ? 'ETF' : '股票')}已在自选列表中`, 'warning');
+      }
+    } else {
+      // 全新添加
+      const newItem = { secid: finalSecid, name, code };
+      // 如果是在具体股票分组下搜索添加的，直接赋予当前分组的归属关系
+      if (isSpecificStockGroup) {
+        newItem.bindStockGroup = this.currentStockGroupId;
+      }
+      
+      targetList.push(newItem);
+      this.saveData();
+      
+      const curGroup = isSpecificStockGroup ? (this.data.stockCustomGroups || []).find(g => g.id === this.currentStockGroupId) : null;
+      this.showToast(curGroup ? `✅ 已成功添加并归入 [${curGroup.name}]` : `✅ 添加成功`);
+      this.renderWatchedMarkets();
+    }
+
     document.getElementById('market-search-input').value = ''; 
     document.getElementById('market-search-res').style.display = 'none'; 
   },
@@ -3236,7 +3261,6 @@ getCorrectSecid(savedSecid, code, groupType) {
   // 1. 初始化中补齐股票分组状态
   currentStockGroupId: 'default',
 
-  // 切换类型（指数、股票、ETF、优股）
   switchMarketGroup(group) { 
     this.currentMarketGroup = group; 
     document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
@@ -3245,11 +3269,15 @@ getCorrectSecid(savedSecid, code, groupType) {
     const superBtn = document.getElementById('market-group-super');
     if (superBtn) superBtn.className = group === 'super' ? 'action-pill active' : 'action-pill'; 
 
-    // 仅在股票菜单下展示分组管理胶囊条
     const stockBar = document.getElementById('stock-group-bar');
     if (stockBar) {
       stockBar.style.display = group === 'stock' ? 'flex' : 'none';
-      if (group === 'stock') this.renderStockGroups();
+      if (group === 'stock') {
+        this.renderStockGroups();
+      } else {
+        // 切换至其他菜单时，将股票分组筛选状态安全重置回全部
+        this.currentStockGroupId = 'default';
+      }
     }
 
     if (group === 'super') {

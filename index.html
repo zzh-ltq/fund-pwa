@@ -3556,6 +3556,161 @@ async fetchJSONPSafely(url, callbackParam = 'cb') {
     });
 },
 
+  // ==========================================
+// 东方财富普通 JSON 接口安全请求
+// 专门用于 K 线等非 JSONP 数据
+// ==========================================
+async fetchEastMoneyJSON(url, options = {}) {
+
+    const timeout = options.timeout || 12000;
+
+    const workerBase =
+        (this.workerUrl && !this.workerUrl.includes('example.com'))
+            ? this.workerUrl.replace(/\/+$/, '')
+            : '';
+
+    // ------------------------------
+    // 1. 优先通过 Cloudflare Worker
+    // ------------------------------
+    if (workerBase) {
+
+        const workerUrl =
+            `${workerBase}/?url=${encodeURIComponent(url)}`;
+
+        try {
+
+            console.log(
+                '[EastMoney Worker] 请求:',
+                workerUrl
+            );
+
+            const controller = new AbortController();
+
+            const timer = setTimeout(() => {
+                controller.abort();
+            }, timeout);
+
+            const response = await fetch(workerUrl, {
+                method: 'GET',
+                mode: 'cors',
+                cache: 'no-store',
+                credentials: 'omit',
+                signal: controller.signal,
+                headers: {
+                    'Accept': 'application/json,text/plain,*/*'
+                }
+            });
+
+            clearTimeout(timer);
+
+            if (!response.ok) {
+
+                const errText = await response.text().catch(() => '');
+
+                console.warn(
+                    '[EastMoney Worker] HTTP错误:',
+                    response.status,
+                    errText
+                );
+
+                throw new Error(
+                    `Worker HTTP ${response.status}`
+                );
+            }
+
+            const text = await response.text();
+
+            if (!text || !text.trim()) {
+                throw new Error('Worker 返回空数据');
+            }
+
+            let json;
+
+            try {
+                json = JSON.parse(text);
+            } catch (e) {
+
+                console.error(
+                    '[EastMoney Worker] 返回内容不是JSON:',
+                    text.slice(0, 500)
+                );
+
+                throw new Error(
+                    'Worker 返回内容不是有效 JSON'
+                );
+            }
+
+            console.log(
+                '[EastMoney Worker] 成功:',
+                json
+            );
+
+            return json;
+
+        } catch (e) {
+
+            console.warn(
+                '[EastMoney Worker] 请求失败:',
+                e
+            );
+        }
+    }
+
+    // ------------------------------
+    // 2. Worker失败后尝试浏览器直连
+    // ------------------------------
+    try {
+
+        console.log(
+            '[EastMoney Direct] 尝试直连:',
+            url
+        );
+
+        const controller = new AbortController();
+
+        const timer = setTimeout(() => {
+            controller.abort();
+        }, Math.min(timeout, 8000));
+
+        const response = await fetch(url, {
+            method: 'GET',
+            mode: 'cors',
+            cache: 'no-store',
+            credentials: 'omit',
+            signal: controller.signal,
+            headers: {
+                'Accept': 'application/json,text/plain,*/*'
+            }
+        });
+
+        clearTimeout(timer);
+
+        if (!response.ok) {
+            throw new Error(
+                `Direct HTTP ${response.status}`
+            );
+        }
+
+        const json = await response.json();
+
+        console.log(
+            '[EastMoney Direct] 成功:',
+            json
+        );
+
+        return json;
+
+    } catch (e) {
+
+        console.warn(
+            '[EastMoney Direct] 失败:',
+            e
+        );
+    }
+
+    return null;
+},
+
   switchMarketGroup(group) { 
     this.currentMarketGroup = group; 
     document.getElementById('market-group-index').className = group === 'index' ? 'action-pill active' : 'action-pill'; 
@@ -5136,33 +5291,31 @@ const kUrl =
     `&fqt=1` +
     `&beg=0` +
     `&end=20500101` +
-    `&smplmt=460` +
-    `&lmt=5000` +
+    `&lmt=500` +
     `&_=${Date.now()}`;
 
 let klines = [];
 
 try {
 
-    const res = await this.fetchJSONPSafely(kUrl, 'cb');
-
-    if (res && res.data && Array.isArray(res.data.klines)) {
-        klines = res.data.klines;
-    }
-
-    // 调试日志
-    console.log(
-        '[EastMoney KLine]',
-        secid,
-        'klt=',
-        klt,
-        '数量=',
-        klines.length
+    const res = await this.fetchEastMoneyJSON(
+        kUrl,
+        {
+            timeout: 15000
+        }
     );
 
-    if (!klines.length) {
+    klines = Array.isArray(res?.data?.klines)
+        ? res.data.klines
+        : [];
+
+    console.log(
+        `[EastMoney KLine] ${secid} klt=${klt} 数量=${klines.length}`
+    );
+
+    if (klines.length === 0) {
         console.warn(
-            '[EastMoney KLine] 未获取到K线数据:',
+            '[EastMoney KLine] 返回数据为空:',
             res
         );
     }
@@ -5174,6 +5327,7 @@ try {
         e
     );
 
+    klines = [];
 }
 
       let finalPrevClose = this.marketState.currentPrevClose;
@@ -5255,127 +5409,116 @@ try {
     }
   },
 
-  // =======================================================
-// 获取东方财富历史日K线
-// 用于：AI预测 / MACD / KDJ / BOLL / 优股扫描等
-// =======================================================
+// --- 技术面/优股分析：提取历史日K线 ---
 async _fetchMarketHistoryKlines(secid, days) {
 
-    if (!secid) {
-        console.warn('[EastMoney KLine] secid为空');
-        return null;
-    }
-
-    const safeDays = Math.max(
-        30,
-        Math.min(
-            parseInt(days) || 120,
-            5000
-        )
+    const safeDays = Math.min(
+        Math.max(parseInt(days) || 60, 30),
+        500
     );
 
     const kUrl =
-        `https://push2his.eastmoney.com/api/qt/stock/kline/get` +
-        `?secid=${encodeURIComponent(secid)}` +
-        `&ut=fa5fd1943c7b386f172d6893dbfba10b` +
-        `&fields1=f1,f2,f3,f4,f5,f6` +
-        `&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61` +
-        `&klt=101` +
-        `&fqt=1` +
-        `&beg=0` +
-        `&end=20500101` +
-        `&smplmt=460` +
-        `&lmt=5000` +
-        `&_=${Date.now()}`;
+    `https://push2his.eastmoney.com/api/qt/stock/kline/get` +
+    `?secid=${encodeURIComponent(secid)}` +
+    `&ut=fa5fd1943c7b386f172d6893dbfba10b` +
+    `&fields1=f1,f2,f3,f4,f5,f6` +
+    `&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61` +
+    `&klt=${klt}` +
+    `&fqt=1` +
+    `&beg=0` +
+    `&end=20500101` +
+    `&lmt=500` +
+    `&_=${Date.now()}`;
 
     try {
 
-        const res =
-            await this.fetchJSONPSafely(kUrl, 'cb');
+        const res = await this.fetchEastMoneyJSON(
+            kUrl,
+            {
+                timeout: 15000
+            }
+        );
 
-        const rawKlines =
-            res?.data?.klines;
+        let klines =
+            Array.isArray(res?.data?.klines)
+                ? res.data.klines
+                : [];
 
-        if (!Array.isArray(rawKlines) ||
-            rawKlines.length === 0) {
+        console.log(
+            `[EastMoney History KLine] ${secid} 数量=${klines.length}`
+        );
+
+        if (!klines.length) {
 
             console.warn(
-                '[EastMoney KLine] 历史K线为空:',
-                secid,
+                '[EastMoney History KLine] 没有返回K线:',
                 res
             );
 
             return null;
         }
 
-        let klines = rawKlines;
-
-        // 只保留最近 N 根
         if (klines.length > safeDays) {
             klines = klines.slice(-safeDays);
         }
 
-        const result = klines
-            .map(str => {
+        const result = [];
 
-                if (typeof str !== 'string') {
-                    return null;
-                }
+        for (const str of klines) {
 
-                const p = str.split(',');
+            if (
+                typeof str !== 'string' ||
+                !str.trim()
+            ) {
+                continue;
+            }
 
-                if (p.length < 6) {
-                    return null;
-                }
+            const p = str.split(',');
 
-                const date = p[0];
+            if (p.length < 6) {
+                continue;
+            }
 
-                const open = parseFloat(p[1]);
-                const close = parseFloat(p[2]);
-                const high = parseFloat(p[3]);
-                const low = parseFloat(p[4]);
-                const vol = parseFloat(p[5]);
+            const open = parseFloat(p[1]);
+            const close = parseFloat(p[2]);
+            const high = parseFloat(p[3]);
+            const low = parseFloat(p[4]);
+            const vol = parseFloat(p[5]);
 
-                // 基础数据完整性检查
-                if (!date ||
-                    !Number.isFinite(open) ||
-                    !Number.isFinite(close) ||
-                    !Number.isFinite(high) ||
-                    !Number.isFinite(low)) {
+            if (
+                !isFinite(open) ||
+                !isFinite(close) ||
+                !isFinite(high) ||
+                !isFinite(low)
+            ) {
+                continue;
+            }
 
-                    return null;
-                }
+            result.push({
+                date: p[0],
+                open: open,
+                close: close,
+                high: high,
+                low: low,
+                vol: isFinite(vol) ? vol : 0
+            });
+        }
 
-                return {
-                    date,
-                    open,
-                    close,
-                    high,
-                    low,
-                    vol: Number.isFinite(vol) ? vol : 0
-                };
+        if (!result.length) {
 
-            })
-            .filter(Boolean);
+            console.warn(
+                '[EastMoney History KLine] K线解析后为空'
+            );
 
-        console.log(
-            '[EastMoney KLine] 历史数据:',
-            secid,
-            '请求:',
-            safeDays,
-            '实际:',
-            result.length
-        );
+            return null;
+        }
 
-        return result.length > 0
-            ? result
-            : null;
+        return result;
 
     } catch (e) {
 
         console.error(
-            '[EastMoney KLine] 历史数据获取失败:',
-            secid,
+            '[EastMoney History KLine] 获取失败:',
             e
         );
 

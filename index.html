@@ -3348,368 +3348,42 @@ getCorrectSecid(savedSecid, code, groupType) {
   // ==========================================
   // 1. 初始化中补齐股票分组状态
   currentStockGroupId: 'default',
-  // =======================================================
-// 东方财富跨域数据安全请求
-// 优先使用 Cloudflare Worker 获取 JSON
-// 失败后再尝试原 JSONP 方式
-// =======================================================
-async fetchJSONPSafely(url, callbackParam = 'cb') {
+  // --- 安全跨源 JSONP 请求（无 Referer 模式，规避东财防盗链）---
+  fetchJSONPSafely(url, callbackParam = 'cb') {
+    return new Promise((resolve) => {
+      const cbName = 'jsonp_kline_' + Math.floor(Math.random() * 1000000) + '_' + Date.now();
+      const script = document.createElement('script');
+      
+      // 明确声明无 Referer 策略
+      script.referrerPolicy = 'no-referrer';
+      
+      const sep = url.includes('?') ? '&' : '?';
+      script.src = `${url}${sep}${callbackParam}=${cbName}`;
 
-    // ---------------------------------------------------
-    // 1. 优先通过 Cloudflare Worker 代理
-    // ---------------------------------------------------
-    try {
+      window[cbName] = (data) => {
+        resolve(data);
+        delete window[cbName];
+        if (script.parentNode) script.remove();
+      };
 
-        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+      script.onerror = () => {
+        delete window[cbName];
+        if (script.parentNode) script.remove();
+        resolve(null);
+      };
 
-            const workerBase = this.workerUrl.replace(/\/+$/, '');
+      document.head.appendChild(script);
 
-            const proxyUrl =
-                `${workerBase}/?url=${encodeURIComponent(url)}`;
-
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 8000);
-
-            try {
-
-                const response = await fetch(proxyUrl, {
-                    method: 'GET',
-                    mode: 'cors',
-                    cache: 'no-store',
-                    signal: controller.signal,
-                    headers: {
-                        'Accept': 'application/json,text/plain,*/*'
-                    }
-                });
-
-                clearTimeout(timer);
-
-                if (response.ok) {
-
-                    const text = await response.text();
-
-                    if (text && text.trim()) {
-
-                        let data = null;
-
-                        // Worker 正常情况下返回 JSON
-                        try {
-                            data = JSON.parse(text);
-                        } catch (jsonError) {
-
-                            // 某些 Worker 可能直接返回 JSONP
-                            const match = text.match(
-                                /^[^(]+\(([\s\S]*)\)\s*;?\s*$/
-                            );
-
-                            if (match) {
-                                try {
-                                    data = JSON.parse(match[1]);
-                                } catch (jsonpJsonError) {
-                                    data = null;
-                                }
-                            }
-                        }
-
-                        if (data) {
-                            return data;
-                        }
-                    }
-                }
-
-            } catch (proxyError) {
-                console.warn(
-                    '[EastMoney] Worker K线代理请求失败:',
-                    proxyError
-                );
-            } finally {
-                clearTimeout(timer);
-            }
+      // 6秒超时防护
+      setTimeout(() => {
+        if (window[cbName]) {
+          delete window[cbName];
+          if (script.parentNode) script.remove();
+          resolve(null);
         }
-
-    } catch (e) {
-        console.warn(
-            '[EastMoney] Worker代理异常:',
-            e
-        );
-    }
-
-
-    // ---------------------------------------------------
-    // 2. Worker失败后，尝试直接 fetch
-    //
-    // 注意：
-    // 如果东方财富没有开放 CORS，这里会失败。
-    // 因此这里只作为备用，不影响 Worker 主方案。
-    // ---------------------------------------------------
-    try {
-
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 7000);
-
-        try {
-
-            const response = await fetch(url, {
-                method: 'GET',
-                mode: 'cors',
-                cache: 'no-store',
-                signal: controller.signal,
-                headers: {
-                    'Accept': 'application/json,text/plain,*/*'
-                }
-            });
-
-            clearTimeout(timer);
-
-            if (response.ok) {
-
-                const text = await response.text();
-
-                if (text && text.trim()) {
-
-                    try {
-                        return JSON.parse(text);
-                    } catch (e) {
-                        // 不是标准 JSON，继续尝试 JSONP
-                    }
-                }
-            }
-
-        } catch (directError) {
-            console.warn(
-                '[EastMoney] 直接JSON请求失败:',
-                directError
-            );
-        } finally {
-            clearTimeout(timer);
-        }
-
-    } catch (e) {}
-
-
-    // ---------------------------------------------------
-    // 3. 最后兼容真正支持 JSONP 的东方财富接口
-    //
-    // 注意：kline/get 本身如果返回普通 JSON，
-    // 这里自然会失败，不影响前面的 Worker 方案。
-    // ---------------------------------------------------
-    return await new Promise((resolve) => {
-
-        const cbName =
-            'jsonp_cb_' +
-            Math.floor(Math.random() * 1000000) +
-            '_' +
-            Date.now();
-
-        const script = document.createElement('script');
-
-        script.referrerPolicy = 'no-referrer';
-
-        const sep = url.includes('?') ? '&' : '?';
-
-        script.src =
-            `${url}${sep}${callbackParam}=${cbName}`;
-
-        let finished = false;
-
-        const cleanup = () => {
-
-            if (finished) return;
-
-            finished = true;
-
-            delete window[cbName];
-
-            if (script.parentNode) {
-                script.parentNode.removeChild(script);
-            }
-        };
-
-        window[cbName] = (data) => {
-
-            if (finished) return;
-
-            cleanup();
-
-            resolve(data);
-        };
-
-        script.onerror = () => {
-
-            cleanup();
-
-            resolve(null);
-        };
-
-        document.head.appendChild(script);
-
-        setTimeout(() => {
-
-            if (!finished) {
-
-                cleanup();
-
-                resolve(null);
-            }
-
-        }, 6000);
+      }, 6000);
     });
-},
-
-  // ==========================================
-// 东方财富普通 JSON 接口安全请求
-// 专门用于 K 线等非 JSONP 数据
-// ==========================================
-async fetchEastMoneyJSON(url, options = {}) {
-
-    const timeout = options.timeout || 12000;
-
-    const workerBase =
-        (this.workerUrl && !this.workerUrl.includes('example.com'))
-            ? this.workerUrl.replace(/\/+$/, '')
-            : '';
-
-    // ------------------------------
-    // 1. 优先通过 Cloudflare Worker
-    // ------------------------------
-    if (workerBase) {
-
-        const workerUrl =
-            `${workerBase}/?url=${encodeURIComponent(url)}`;
-
-        try {
-
-            console.log(
-                '[EastMoney Worker] 请求:',
-                workerUrl
-            );
-
-            const controller = new AbortController();
-
-            const timer = setTimeout(() => {
-                controller.abort();
-            }, timeout);
-
-            const response = await fetch(workerUrl, {
-                method: 'GET',
-                mode: 'cors',
-                cache: 'no-store',
-                credentials: 'omit',
-                signal: controller.signal,
-                headers: {
-                    'Accept': 'application/json,text/plain,*/*'
-                }
-            });
-
-            clearTimeout(timer);
-
-            if (!response.ok) {
-
-                const errText = await response.text().catch(() => '');
-
-                console.warn(
-                    '[EastMoney Worker] HTTP错误:',
-                    response.status,
-                    errText
-                );
-
-                throw new Error(
-                    `Worker HTTP ${response.status}`
-                );
-            }
-
-            const text = await response.text();
-
-            if (!text || !text.trim()) {
-                throw new Error('Worker 返回空数据');
-            }
-
-            let json;
-
-            try {
-                json = JSON.parse(text);
-            } catch (e) {
-
-                console.error(
-                    '[EastMoney Worker] 返回内容不是JSON:',
-                    text.slice(0, 500)
-                );
-
-                throw new Error(
-                    'Worker 返回内容不是有效 JSON'
-                );
-            }
-
-            console.log(
-                '[EastMoney Worker] 成功:',
-                json
-            );
-
-            return json;
-
-        } catch (e) {
-
-            console.warn(
-                '[EastMoney Worker] 请求失败:',
-                e
-            );
-        }
-    }
-
-    // ------------------------------
-    // 2. Worker失败后尝试浏览器直连
-    // ------------------------------
-    try {
-
-        console.log(
-            '[EastMoney Direct] 尝试直连:',
-            url
-        );
-
-        const controller = new AbortController();
-
-        const timer = setTimeout(() => {
-            controller.abort();
-        }, Math.min(timeout, 8000));
-
-        const response = await fetch(url, {
-            method: 'GET',
-            mode: 'cors',
-            cache: 'no-store',
-            credentials: 'omit',
-            signal: controller.signal,
-            headers: {
-                'Accept': 'application/json,text/plain,*/*'
-            }
-        });
-
-        clearTimeout(timer);
-
-        if (!response.ok) {
-            throw new Error(
-                `Direct HTTP ${response.status}`
-            );
-        }
-
-        const json = await response.json();
-
-        console.log(
-            '[EastMoney Direct] 成功:',
-            json
-        );
-
-        return json;
-
-    } catch (e) {
-
-        console.warn(
-            '[EastMoney Direct] 失败:',
-            e
-        );
-    }
-
-    return null;
-},
+  },
 
   switchMarketGroup(group) { 
     this.currentMarketGroup = group; 
@@ -5273,62 +4947,15 @@ drawIntradayFlowCanvas(data) {
         } 
       } catch(e) {} 
     } else { 
-      // =======================================================
-// 日K / 周K / 月K
-// 东方财富 K线接口
-// 通过 Cloudflare Worker 获取 JSON
-// =======================================================
-
-const klt = parseInt(this.marketState.chartType) || 101;
-
-const kUrl =
-    `https://push2his.eastmoney.com/api/qt/stock/kline/get` +
-    `?secid=${encodeURIComponent(secid)}` +
-    `&ut=fa5fd1943c7b386f172d6893dbfba10b` +
-    `&fields1=f1,f2,f3,f4,f5,f6` +
-    `&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61` +
-    `&klt=${klt}` +
-    `&fqt=1` +
-    `&beg=0` +
-    `&end=20500101` +
-    `&lmt=500` +
-    `&_=${Date.now()}`;
-
-let klines = [];
-
-try {
-
-    const res = await this.fetchEastMoneyJSON(
-        kUrl,
-        {
-            timeout: 15000
-        }
-    );
-
-    klines = Array.isArray(res?.data?.klines)
-        ? res.data.klines
-        : [];
-
-    console.log(
-        `[EastMoney KLine] ${secid} klt=${klt} 数量=${klines.length}`
-    );
-
-    if (klines.length === 0) {
-        console.warn(
-            '[EastMoney KLine] 返回数据为空:',
-            res
-        );
-    }
-
-} catch (e) {
-
-    console.error(
-        '[EastMoney KLine] 获取失败:',
-        e
-    );
-
-    klines = [];
-}
+      // 日K(101)、周K(102)、月K(103) 获取分支（直连官方标准接口）
+      const klt = parseInt(this.marketState.chartType) || 101; 
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&beg=0&end=20500101&smplmt=460&lmt=1000000&_=${Date.now()}`; 
+      
+      let klines = [];
+      try {
+        const res = await this.fetchJSONPSafely(kUrl, 'cb');
+        klines = res?.data?.klines || [];
+      } catch(e) {}
 
       let finalPrevClose = this.marketState.currentPrevClose;
       
@@ -5409,122 +5036,31 @@ try {
     }
   },
 
-// --- 技术面/优股分析：提取历史日K线 ---
-async _fetchMarketHistoryKlines(secid, days) {
-
-    const safeDays = Math.min(
-        Math.max(parseInt(days) || 60, 30),
-        500
-    );
-
-    const kUrl =
-    `https://push2his.eastmoney.com/api/qt/stock/kline/get` +
-    `?secid=${encodeURIComponent(secid)}` +
-    `&ut=fa5fd1943c7b386f172d6893dbfba10b` +
-    `&fields1=f1,f2,f3,f4,f5,f6` +
-    `&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61` +
-    `&klt=${klt}` +
-    `&fqt=1` +
-    `&beg=0` +
-    `&end=20500101` +
-    `&lmt=500` +
-    `&_=${Date.now()}`;
-
-    try {
-
-        const res = await this.fetchEastMoneyJSON(
-            kUrl,
-            {
-                timeout: 15000
-            }
-        );
-
-        let klines =
-            Array.isArray(res?.data?.klines)
-                ? res.data.klines
-                : [];
-
-        console.log(
-            `[EastMoney History KLine] ${secid} 数量=${klines.length}`
-        );
-
-        if (!klines.length) {
-
-            console.warn(
-                '[EastMoney History KLine] 没有返回K线:',
-                res
-            );
-
-            return null;
-        }
-
-        if (klines.length > safeDays) {
-            klines = klines.slice(-safeDays);
-        }
-
-        const result = [];
-
-        for (const str of klines) {
-
-            if (
-                typeof str !== 'string' ||
-                !str.trim()
-            ) {
-                continue;
-            }
-
-            const p = str.split(',');
-
-            if (p.length < 6) {
-                continue;
-            }
-
-            const open = parseFloat(p[1]);
-            const close = parseFloat(p[2]);
-            const high = parseFloat(p[3]);
-            const low = parseFloat(p[4]);
-            const vol = parseFloat(p[5]);
-
-            if (
-                !isFinite(open) ||
-                !isFinite(close) ||
-                !isFinite(high) ||
-                !isFinite(low)
-            ) {
-                continue;
-            }
-
-            result.push({
-                date: p[0],
-                open: open,
-                close: close,
-                high: high,
-                low: low,
-                vol: isFinite(vol) ? vol : 0
-            });
-        }
-
-        if (!result.length) {
-
-            console.warn(
-                '[EastMoney History KLine] K线解析后为空'
-            );
-
-            return null;
-        }
-
-        return result;
-
-    } catch (e) {
-
-        console.error(
-            '[EastMoney History KLine] 获取失败:',
-            e
-        );
-
-        return null;
-    }
-},
+  // --- 技术面/优股分析：提取历史日K线 ---
+  async _fetchMarketHistoryKlines(secid, days) {
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=0&end=20500101&smplmt=460&lmt=1000000&_=${Date.now()}`;
+      try {
+          const res = await this.fetchJSONPSafely(kUrl, 'cb');
+          let klines = res?.data?.klines || [];
+          if (klines.length > 0) {
+              if (days && klines.length > days) {
+                  klines = klines.slice(-days);
+              }
+              return klines.map(str => {
+                  const p = str.split(',');
+                  return { 
+                      date: p[0], 
+                      open: parseFloat(p[1]) || 0, 
+                      close: parseFloat(p[2]) || 0, 
+                      high: parseFloat(p[3]) || 0, 
+                      low: parseFloat(p[4]) || 0, 
+                      vol: parseFloat(p[5]) || 0 
+                  };
+              });
+          }
+      } catch (e) {}
+      return null;
+  },
 
   // 4. 执行行情大模型预测
   async runMarketLargeModelPrediction(secid, name) {

@@ -3567,7 +3567,6 @@ getCorrectSecid(savedSecid, code, groupType) {
     } else {
         if (flowArea) flowArea.style.display = 'none';
     }
-
         // 3. 渲染近20日柱状图
         if (historyFlowData.length > 0) {
             const chartData = historyFlowData.map(d => ({ date: d.date, netFlow: d.mainNet }));

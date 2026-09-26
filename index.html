@@ -5114,7 +5114,7 @@ drawIntradayFlowCanvas(data) {
       }
   },
 
- // 【全新重构】：MACD + KDJ + BOLL 三指标共振与量价分时技术面诊断引擎
+ // 【完整修复版】：MACD + KDJ + BOLL 三指标共振 + 真实主力资金 + 分时均线穿透 + 当日换手率评估
   async runMarketTechnicalAnalysis(secid, name) {
     const btn = document.getElementById('m-tech-run-btn');
     btn.innerText = '📡 指标多维共振计算中...';
@@ -5125,28 +5125,60 @@ drawIntradayFlowCanvas(data) {
       <div style="text-align:center; padding: 40px 20px; background:#fff; border-radius:12px; border:1px solid #e2e8f0; box-shadow:0 8px 20px rgba(0,0,0,0.02);">
         <div class="loading-spinner" style="margin: 0 auto 15px auto;"></div>
         <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">MACD + KDJ + BOLL 深度共振推演中</div>
-        <div style="font-size:12px; color:var(--text-sub);">正在提取 <b>${name}</b> 的全量量价数据与分时盘口...</div>
+        <div style="font-size:12px; color:var(--text-sub);">正在提取 <b>${name}</b> 的全量量价、换手与主力资金数据...</div>
       </div>
     `;
     resultBox.style.display = 'block';
 
     try {
-      // 1. 获取近 120 天日 K 线数据
+      // 1. 获取近 120 天日 K 线数据（门槛放宽到 26 天以适配次新股）
       const klines = await this._fetchMarketHistoryKlines(secid, 120);
-      if (!klines || klines.length < 35) throw new Error("历史 K 线样本不足，无法完成多指标共振拟合");
+      if (!klines || klines.length < 26) throw new Error("历史 K 线样本不足(需至少26个交易日)，无法完成多指标共振拟合");
 
-      // 2. 异步获取分时与主力流向
+      // 2. 获取真实分时走势（正确提取现价 parts[2] 与分时均价 parts[7]）
       let intradayTrends = [];
       try {
-        const trendRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53&_=${Date.now()}`, 'cb');
+        const trendRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`, 'cb');
         intradayTrends = trendRes?.data?.trends || [];
       } catch(e) {}
 
+      // 3. 获取真实主力资金流向（采用官方 getZJLXData 接口 + 20日历史日K平滑兜底，杜绝 +2 异常）
       let mainFlowAmt = 0;
       try {
-        const quoteRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62&_=${Date.now()}`, 'cb');
-        if (quoteRes?.data?.f62 && quoteRes.data.f62 !== '-') {
-          mainFlowAmt = parseFloat(quoteRes.data.f62);
+        const zjlxUrl = `https://emdatah5.eastmoney.com/dc/ZJLX/getZJLXData?secid=${secid}&fields=f135,f136,f137&_=${Date.now()}`;
+        let fetchUrl = zjlxUrl;
+        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+          fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(zjlxUrl)}`;
+        }
+        const resp = await fetch(fetchUrl);
+        if (resp.ok) {
+          const json = await resp.json();
+          if (json?.data?.f137 !== undefined && json.data.f137 !== '-') {
+            mainFlowAmt = parseFloat(json.data.f137);
+          }
+        }
+      } catch(e) {}
+
+      if (mainFlowAmt === 0) {
+        try {
+          const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=2&secid=${secid}&fields1=f1&fields2=f51,f52&_=${Date.now()}`;
+          const res = await fetchJSONP(hisFlowUrl, 'cb');
+          const hisKlines = res?.data?.klines;
+          if (hisKlines && hisKlines.length > 0) {
+            const lastK = hisKlines[hisKlines.length - 1].split(',');
+            mainFlowAmt = parseFloat(lastK[1]) || 0;
+          }
+        } catch(e2) {}
+      }
+
+      // 4. 获取当日换手率（从盘口接口中获取真实换手率 f168）
+      let turnoverVal = null;
+      let turnoverStr = '--';
+      try {
+        const quoteRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f168&_=${Date.now()}`, 'cb');
+        if (quoteRes?.data?.f168 !== undefined && quoteRes.data.f168 !== '-' && !isNaN(quoteRes.data.f168)) {
+          turnoverVal = parseFloat(quoteRes.data.f168);
+          turnoverStr = turnoverVal.toFixed(2) + '%';
         }
       } catch(e) {}
 
@@ -5173,7 +5205,7 @@ drawIntradayFlowCanvas(data) {
       const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
       const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
 
-      let macdSignal = 'HOLD'; // BUY, SELL, HOLD
+      let macdSignal = 'HOLD';
       let macdScore = 0;
       let macdDesc = '';
 
@@ -5188,7 +5220,7 @@ drawIntradayFlowCanvas(data) {
       } else if (curDIF > curDEA) {
         macdSignal = curMACD >= prevMACD ? 'BUY' : 'HOLD';
         macdScore = curMACD >= prevMACD ? 15 : 5;
-        macdDesc = curMACD >= prevMACD ? '处于多头运行区间，红柱持续发散增长。' : '多头区间红柱轻微收缩，上涨斜率放缓。';
+        macdDesc = curMACD >= prevMACD ? '处于多头运行区间，红柱持续发散增长。' : '多头区间红柱轻微收缩，上涨动能有所放缓。';
       } else {
         macdSignal = curMACD <= prevMACD ? 'SELL' : 'HOLD';
         macdScore = curMACD <= prevMACD ? -15 : -5;
@@ -5221,7 +5253,7 @@ drawIntradayFlowCanvas(data) {
           kdjDesc = `KDJ在超卖区 (${curK.toFixed(1)}) 形成黄金交叉，强反转拐点出现！`;
         } else {
           kdjSignal = 'BUY'; kdjScore = 18;
-          kdjDesc = `KDJ低位震荡金叉上行，多头短期回暖反弹。`;
+          kdjDesc = `KDJ低位金叉上行，多头短期回暖反弹。`;
         }
       } else if (prevK >= prevD && curK < curD) {
         if (curK >= 70) {
@@ -5270,7 +5302,8 @@ drawIntradayFlowCanvas(data) {
         bollDesc = `受到布林中轨压制，位于弱势下行半区。`;
       }
 
-      // ----------------- 量能、换手与分时评估 -----------------
+      // ----------------- 4. 量能、换手与分时盘口评估 -----------------
+      // A. 量比评估
       const avgVol5 = vols.slice(-6, -1).reduce((a, b) => a + b, 0) / 5;
       const volRatio = vols[N - 1] / (avgVol5 || 1);
       let volDesc = '';
@@ -5278,39 +5311,102 @@ drawIntradayFlowCanvas(data) {
       const isTodayUp = closes[N - 1] >= closes[N - 2];
 
       if (volRatio > 1.3 && isTodayUp) {
-        volScore += 10; volDesc = `量比达 <b>${volRatio.toFixed(2)}</b>，放量拉升，资金建仓抢筹意愿坚决。`;
+        volScore += 8; volDesc = `量比达 <b>${volRatio.toFixed(2)}</b>，放量拉升，资金建仓抢筹意愿坚决。`;
       } else if (volRatio > 1.3 && !isTodayUp) {
-        volScore -= 12; volDesc = `量比达 <b>${volRatio.toFixed(2)}</b>，放量下杀，主力资金出逃明显。`;
+        volScore -= 10; volDesc = `量比达 <b>${volRatio.toFixed(2)}</b>，放量下杀，主力资金出逃明显。`;
       } else if (volRatio < 0.7 && !isTodayUp) {
-        volScore += 5; volDesc = `量比仅 <b>${volRatio.toFixed(2)}</b>，缩量调整，呈良性洗盘特征。`;
+        volScore += 4; volDesc = `量比仅 <b>${volRatio.toFixed(2)}</b>，缩量调整，呈良性洗盘特征。`;
       } else {
         volDesc = `量比平稳 (<b>${volRatio.toFixed(2)}</b>)，无明显异动。`;
       }
 
-      // 分时重心
-      let intraDesc = '无日内分时数据。';
-      if (intradayTrends.length > 0) {
-        const lastP = intradayTrends[intradayTrends.length - 1].split(',');
-        const curPx = parseFloat(lastP[1]);
-        const vwap = parseFloat(lastP[2]);
-        if (curPx >= vwap * 1.003) {
-          volScore += 5; intraDesc = `收盘价站稳当日均价线上方，尾盘买盘有力，重心稳定抬升。`;
-        } else if (curPx <= vwap * 0.997) {
-          volScore -= 5; intraDesc = `收盘价跌破当日分时均价线，日内承接不足，重心回落。`;
+      // B. 真实换手率深度评估
+      let turnoverDesc = '暂无换手率数据。';
+      let turnoverScore = 0;
+      if (turnoverVal !== null) {
+        if (turnoverVal >= 20) {
+          if (isTodayUp) {
+            turnoverScore += 4;
+            turnoverDesc = `换手率达 <b class="red">${turnoverStr}</b>，处于高位激烈博弈区，资金大换血，需警惕冲高震荡。`;
+          } else {
+            turnoverScore -= 8;
+            turnoverDesc = `换手率达 <b class="green">${turnoverStr}</b> 且出现调整，筹码严重松动，获利盘集中撤离。`;
+          }
+        } else if (turnoverVal >= 10) {
+          if (isTodayUp) {
+            turnoverScore += 8;
+            turnoverDesc = `换手率达 <b class="red">${turnoverStr}</b>，交投高度活跃，增量资金进场接力，攻击形态良好。`;
+          } else {
+            turnoverScore -= 5;
+            turnoverDesc = `换手率达 <b>${turnoverStr}</b>，多空分歧加大，上方阻力渐显。`;
+          }
+        } else if (turnoverVal >= 5) {
+          turnoverScore += isTodayUp ? 5 : 0;
+          turnoverDesc = `换手率约为 <b>${turnoverStr}</b>，交易温和活跃，筹码沉淀健康，主力控盘平稳。`;
+        } else if (turnoverVal >= 2) {
+          turnoverDesc = `换手率保持在 <b>${turnoverStr}</b>，常态平稳换手，未见过度投机。`;
         } else {
-          intraDesc = `日内价格紧随均线缠绕，多空双方平稳换手。`;
+          if (!isTodayUp) {
+            turnoverScore += 4;
+            turnoverDesc = `换手率仅 <b class="green">${turnoverStr}</b>，呈现极度缩量“地量”特征，下行抛压衰竭，筑底概率增加。`;
+          } else {
+            turnoverDesc = `换手率仅 <b>${turnoverStr}</b>，无量微涨，后续需观察增量资金能否接棒放量。`;
+          }
         }
       }
 
-      // 主力流向
-      if (mainFlowAmt > 0) volScore += 5;
-      else if (mainFlowAmt < 0) volScore -= 5;
+      // C. 真实分时走势（现价与均价精准偏离计算）
+      let intraDesc = '暂无日内分时微观数据。';
+      let intraScore = 0;
+      if (intradayTrends.length > 0) {
+        let accAmt = 0;
+        let accV = 0;
+        let lastPricePoint = 0;
+        let lastVwapPoint = 0;
 
-      // ----------------- 三指标共振总决断 -----------------
+        for (let str of intradayTrends) {
+          const p = str.split(',');
+          lastPricePoint = parseFloat(p[2]) || 0; // f53: 真实分时现价
+          const v = parseInt(p[5]) || 0;
+          const a = parseFloat(p[6]) || 0;
+          accAmt += a;
+          accV += v;
+          let vwapP = parseFloat(p[7]) || 0;
+          if (vwapP <= 0 && accV > 0) vwapP = accAmt / (accV * 100);
+          lastVwapPoint = vwapP > 0 ? vwapP : lastPricePoint;
+        }
+
+        if (lastPricePoint > 0 && lastVwapPoint > 0) {
+          const biasPct = ((lastPricePoint - lastVwapPoint) / lastVwapPoint) * 100;
+          if (biasPct >= 1.2) {
+            intraScore += 8;
+            intraDesc = `现价强力脱离日内均线上方 (偏离度 <b class="red">+${biasPct.toFixed(2)}%</b>)，多头主力强力拔高，攻击意愿强烈。`;
+          } else if (biasPct >= 0.25) {
+            intraScore += 5;
+            intraDesc = `现价运行于日内均线之上 (偏离度 +${biasPct.toFixed(2)}%)，日内重心稳步抬升，下方承接坚实。`;
+          } else if (biasPct <= -1.2) {
+            intraScore -= 8;
+            intraDesc = `现价大幅跌破分时均线 (偏离度 <b class="green">${biasPct.toFixed(2)}%</b>)，分时破位下行，均线形成重压。`;
+          } else if (biasPct <= -0.25) {
+            intraScore -= 5;
+            intraDesc = `现价受制于分时均线下方 (偏离度 ${biasPct.toFixed(2)}%)，重心走低，日内弱势震荡。`;
+          } else {
+            intraDesc = `现价紧贴分时均线平稳缠绕 (偏离仅 ${biasPct.toFixed(2)}%)，日内多空力量基本均衡。`;
+          }
+        }
+      }
+
+      // D. 主力资金权重打分
+      if (mainFlowAmt > 10000000) volScore += 6;
+      else if (mainFlowAmt > 0) volScore += 3;
+      else if (mainFlowAmt < -10000000) volScore -= 6;
+      else if (mainFlowAmt < 0) volScore -= 3;
+
+      // ----------------- 综合判定 -----------------
       const buyVotes = [macdSignal, kdjSignal, bollSignal].filter(s => s === 'BUY').length;
       const sellVotes = [macdSignal, kdjSignal, bollSignal].filter(s => s === 'SELL').length;
 
-      let totalScore = 50 + macdScore + kdjScore + bollScore + volScore;
+      let totalScore = 50 + macdScore + kdjScore + bollScore + volScore + turnoverScore + intraScore;
       totalScore = Math.max(5, Math.min(98, totalScore));
 
       let actionTitle = '';
@@ -5345,7 +5441,7 @@ drawIntradayFlowCanvas(data) {
         return '<span style="color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:12px; font-weight:bold; font-size:11px;">中性震荡</span>';
       };
 
-      // 渲染最终结果看板
+      // 渲染最终看板
       resultBox.innerHTML = `
         <div class="card" style="border: 2px solid ${actionColor}; background: #fff; box-shadow: 0 10px 25px ${actionColor}15; margin-bottom: 12px; padding: 16px;">
           <!-- 顶部总决策 -->
@@ -5386,12 +5482,14 @@ drawIntradayFlowCanvas(data) {
               <div style="font-size:12px; color:#1e293b; line-height:1.4;">${bollDesc}</div>
             </div>
 
+            <!-- 4. 深度盘口、量能、换手、分时与主力资金联动评估 -->
             <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #06b6d4;">
               <div style="font-weight:900; font-size:13px; color:var(--text-main); margin-bottom:6px;">📊 量能、换手与分时盘口评估</div>
-              <div style="font-size:12px; color:#1e293b; line-height:1.6;">
+              <div style="font-size:12px; color:#1e293b; line-height:1.7;">
                 <div>• <b>量能量比：</b>${volDesc}</div>
+                <div>• <b>换手活跃：</b>${turnoverDesc}</div>
                 <div>• <b>分时走势：</b>${intraDesc}</div>
-                <div>• <b>主力动向：</b>今日主力净流入 <b>${mainFlowAmt >= 0 ? '+' : ''}${this.formatFlowAmt(mainFlowAmt)}</b>。</div>
+                <div>• <b>主力动向：</b>今日主力呈现 ${mainFlowAmt >= 0 ? '<span class="red" style="font-weight:bold;">净流入</span>' : '<span class="green" style="font-weight:bold;">净流出</span>'} <b>${mainFlowAmt > 0 ? '+' : ''}${this.formatFlowAmt(mainFlowAmt)}</b>。</div>
               </div>
             </div>
           </div>

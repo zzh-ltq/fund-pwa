@@ -1613,96 +1613,7 @@ _fetchSingleFundHoldingsWithTimeout(code, timeoutMs) {
     });
 },
 
-// 【静态网页解析版】：单只基金持仓抓取核心逻辑（彻底弃用不稳定 API，直接解析 ccmx 网页）
-  async _fetchSingleFundHoldings(code) {
-      let stocks = [];
-      let bonds = [];
-      
-      // 1. 抓取股票持仓 (ccmx_code.html)
-      const stockHtml = await this.fetchEMHtmlData(`https://fundf10.eastmoney.com/ccmx_${code}.html`);
-      if (stockHtml) {
-          try {
-              const parser = new DOMParser();
-              const doc = parser.parseFromString(stockHtml, 'text/html');
-              // 寻找第一个持仓明细表格
-              const firstTable = doc.querySelector('table.w782 tbody');
-              if (firstTable) {
-                  firstTable.querySelectorAll('tr').forEach(tr => {
-                      const tds = tr.querySelectorAll('td');
-                      // 股票表格结构: 序号(0) 股票代码(1) 股票名称(2) 最新价(3) 涨跌幅(4) 资讯(5) 占净值比例(6)
-                      if (tds.length >= 7 && tds[0].innerText.trim() !== '暂无数据') {
-                          const cStr = tds[1].innerText.trim();
-                          const nStr = tds[2].innerText.trim();
-                          const rStr = tds[6].innerText.trim().replace('%', '');
-                          if (cStr && nStr && !isNaN(parseFloat(rStr))) {
-                              stocks.push({ code: cStr.padStart(6, '0'), name: nStr, ratio: parseFloat(rStr) });
-                          }
-                      }
-                  });
-              }
-          } catch(e) {}
-      }
-      
-      // 2. 抓取债券持仓 (ccmx1_code.html)
-      const bondHtml = await this.fetchEMHtmlData(`https://fundf10.eastmoney.com/ccmx1_${code}.html`);
-      if (bondHtml) {
-          try {
-              const parser = new DOMParser();
-              const doc = parser.parseFromString(bondHtml, 'text/html');
-              // 寻找债券明细表格
-              const firstTable = doc.querySelector('table.w782 tbody');
-              if (firstTable) {
-                  firstTable.querySelectorAll('tr').forEach(tr => {
-                      const tds = tr.querySelectorAll('td');
-                      // 债券表格结构: 序号(0) 债券代码(1) 债券名称(2) 占净值比例(3)
-                      if (tds.length >= 4 && tds[0].innerText.trim() !== '暂无数据') {
-                          const cStr = tds[1].innerText.trim();
-                          const nStr = tds[2].innerText.trim();
-                          const rStr = tds[3].innerText.trim().replace('%', '');
-                          if (cStr && nStr && !isNaN(parseFloat(rStr))) {
-                              bonds.push({ code: cStr, name: nStr, ratio: parseFloat(rStr) });
-                          }
-                      }
-                  });
-              }
-          } catch(e) {}
-      }
-      
-      // 3. 兜底逻辑：如果没有股票持仓，检查是否有手动绑定的 ETF
-      if ((!stocks || stocks.length === 0) && this.data.fundsCache[code]?.boundEtfCode) {
-          const boundCode = this.data.fundsCache[code].boundEtfCode;
-          const etfStockHtml = await this.fetchEMHtmlData(`https://fundf10.eastmoney.com/ccmx_${boundCode}.html`);
-          if (etfStockHtml) {
-              try {
-                  const parser = new DOMParser();
-                  const doc = parser.parseFromString(etfStockHtml, 'text/html');
-                  const firstTable = doc.querySelector('table.w782 tbody');
-                  if (firstTable) {
-                      firstTable.querySelectorAll('tr').forEach(tr => {
-                          const tds = tr.querySelectorAll('td');
-                          if (tds.length >= 7 && tds[0].innerText.trim() !== '暂无数据') {
-                              const cStr = tds[1].innerText.trim();
-                              const nStr = tds[2].innerText.trim();
-                              const rStr = tds[6].innerText.trim().replace('%', '');
-                              if (cStr && nStr && !isNaN(parseFloat(rStr))) {
-                                  // ETF 联接基金折算比例 0.945
-                                  stocks.push({ code: cStr.padStart(6, '0'), name: nStr, ratio: (parseFloat(rStr) * 0.945).toFixed(2) });
-                              }
-                          }
-                      });
-                  }
-              } catch(e) {}
-          }
-      }
-      
-      // 4. 保存入缓存
-      if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-      this.data.fundsCache[code].holdingsCache = {
-          stocks: stocks || [],
-          bonds: bonds || [],
-          timestamp: Date.now()
-      };
-  },
+
   
   formatEMDate(ts, length = 10, offset = 0) { 
     return new Date(ts + 28800000).toISOString().slice(offset, offset + length); 
@@ -2102,6 +2013,7 @@ rtManualRefreshMarket() {
       return text;
   },
 
+  
   // ==============================================================
   // 2. 批量抓取持仓 (原生 fetch + 平滑限速防拦截版)
   // ==============================================================
@@ -7422,13 +7334,86 @@ updateFundCardDisplay(code) {
 
       return maScore + rsiScore;
   },
-  
 
+  // 【新增】：专门解析东方财富静态 HTML 中隐藏在 script 变量里的表格字符串
+  _extractTableHtml(rawHtml) {
+      if (!rawHtml) return "";
+      // 匹配 apidata 或 qapidata 中的 content:"<table...>" 字符串
+      const match = rawHtml.match(/content\s*:\s*"((?:[^"\\]|\\.)*)"/);
+      if (match && match[1]) {
+          try {
+              // 处理 Unicode 和特殊转义符，还原为真实的 HTML 标签
+              return JSON.parse(`"${match[1]}"`); 
+          } catch(e) {}
+      }
+      return rawHtml; // 如果没匹配到，直接返回原网页
+  },
 
-  // 渲染持仓UI（股票+债券，附带实时涨跌幅）
-async _renderHoldingsUI(code, stocks, bonds) {
-    const container = document.getElementById('det-hold-area');
-    if (!container) return;
+  // 【修复】：单只基金持仓抓取核心逻辑 (加入字符串提取步骤)
+  async _fetchSingleFundHoldings(code) {
+      let stocks = [];
+      let bonds = [];
+      
+      // 1. 抓取股票持仓 (ccmx_code.html)
+      const stockRaw = await this.fetchEMHtmlData(`https://fundf10.eastmoney.com/ccmx_${code}.html`);
+      const stockHtml = this._extractTableHtml(stockRaw);
+      if (stockHtml) {
+          try {
+              const doc = new DOMParser().parseFromString(stockHtml, 'text/html');
+              const firstTable = doc.querySelector('table.w782 tbody') || doc.querySelector('tbody');
+              if (firstTable) {
+                  firstTable.querySelectorAll('tr').forEach(tr => {
+                      const tds = tr.querySelectorAll('td');
+                      if (tds.length >= 7 && !tds[0].innerText.includes('暂无数据')) {
+                          const cStr = tds[1].innerText.trim();
+                          const nStr = tds[2].innerText.trim();
+                          const rStr = tds[6].innerText.trim().replace('%', '');
+                          if (cStr && nStr && !isNaN(parseFloat(rStr))) {
+                              stocks.push({ code: cStr.padStart(6, '0'), name: nStr, ratio: parseFloat(rStr) });
+                          }
+                      }
+                  });
+              }
+          } catch(e) {}
+      }
+      
+      // 2. 抓取债券持仓 (ccmx1_code.html)
+      const bondRaw = await this.fetchEMHtmlData(`https://fundf10.eastmoney.com/ccmx1_${code}.html`);
+      const bondHtml = this._extractTableHtml(bondRaw);
+      if (bondHtml) {
+          try {
+              const doc = new DOMParser().parseFromString(bondHtml, 'text/html');
+              const firstTable = doc.querySelector('table.w782 tbody') || doc.querySelector('tbody');
+              if (firstTable) {
+                  firstTable.querySelectorAll('tr').forEach(tr => {
+                      const tds = tr.querySelectorAll('td');
+                      if (tds.length >= 4 && !tds[0].innerText.includes('暂无数据')) {
+                          const cStr = tds[1].innerText.trim();
+                          const nStr = tds[2].innerText.trim();
+                          const rStr = tds[3].innerText.trim().replace('%', '');
+                          if (cStr && nStr && !isNaN(parseFloat(rStr))) {
+                              bonds.push({ code: cStr, name: nStr, ratio: parseFloat(rStr) });
+                          }
+                      }
+                  });
+              }
+          } catch(e) {}
+      }
+      
+      if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
+      this.data.fundsCache[code].holdingsCache = { stocks, bonds, timestamp: Date.now() };
+  },
+
+  // 【修复】：持仓渲染 UI（防白屏兜底）
+  async _renderHoldingsUI(code, stocks, bonds) {
+      const container = document.getElementById('det-hold-area');
+      if (!container) return;
+      
+      // 彻底解决白屏：如果解析完毕后确实没有任何持仓，显示兜底文案
+      if ((!stocks || stocks.length === 0) && (!bonds || bonds.length === 0)) {
+          container.innerHTML = '<div style="padding:40px 20px; text-align:center; color:#94a3b8; font-weight:bold;">📭 暂无最新持仓披露数据，可能是新发基金或定期报告未更新。</div>';
+          return;
+      }
     
     // 构建所有需要查询的 secid 列表（股票 + 债券）
     const stockSecids = stocks.map(h => {
@@ -8134,56 +8119,6 @@ ds(e, i) {
     return html;
   },
   
-// 【双擎自适应版】：原生 fetch 配合 Function 沙盒解析
-  async fetchFundFullInfo(code) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-              const targetUrl = `https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}_${Math.random()}`;
-              let text = null;
-
-              // 方案一：优先原生直连 (依赖 CORS 插件)
-              try {
-                  const controller1 = new AbortController();
-                  const id1 = setTimeout(() => controller1.abort(), 3000); 
-                  const res1 = await fetch(targetUrl, { signal: controller1.signal });
-                  clearTimeout(id1);
-                  if (res1.ok) text = await res1.text();
-              } catch (e) {
-                  // 直连失败（一般是跨域拦截），静默拦截并进入降级
-              }
-
-              // 方案二：直连失败，立即无缝切入 Worker 代理兜底
-              if (!text && this.workerUrl && !this.workerUrl.includes('example.com')) {
-                  try {
-                      const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetUrl)}`;
-                      const controller2 = new AbortController();
-                      const id2 = setTimeout(() => controller2.abort(), 4000);
-                      const res2 = await fetch(proxyUrl, { signal: controller2.signal });
-                      clearTimeout(id2);
-                      if (res2.ok) text = await res2.text();
-                  } catch (e) {}
-              }
-              
-              if (text) {
-                  try {
-                      const extractFunc = new Function(`
-                          ${text}
-                          return {
-                              manager: typeof Data_currentFundManager !== 'undefined' ? Data_currentFundManager[0] : null,
-                              evalData: typeof Data_performanceEvaluation !== 'undefined' ? Data_performanceEvaluation : null,
-                              fundInfo: typeof Data_fundInfo !== 'undefined' ? Data_fundInfo : null
-                          };
-                      `);
-                      return extractFunc();
-                  } catch (evalErr) {
-                      return { manager: null, evalData: null, fundInfo: null };
-                  }
-              }
-          } catch (e) {}
-          await new Promise(r => setTimeout(r, 200)); 
-      }
-      return { manager: null, evalData: null, fundInfo: null };
-  },
  
 
 
@@ -8230,7 +8165,7 @@ switchPerfTab(tab) {
   }, 10);
 },
 
-// 【静态网页解析版】：渲染业绩主入口（直接抓取 jdzf 和 jndzf 网页并解析提取）
+// 【修复】：渲染业绩主入口（引入提取工具，解决白屏）
   async renderPerformanceTab(code) {
     const stageDiv = document.getElementById('perf-stage-container');
     const quarterDiv = document.getElementById('perf-quarter-container');
@@ -8241,44 +8176,38 @@ switchPerfTab(tab) {
     quarterDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载季度涨幅...</div>';
     yearDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载年度涨幅...</div>';
     
-    // 并行请求两个包含业绩数据的静态 HTML 页面
-    const [jdzfHtml, jndzfHtml] = await Promise.all([
+    const [jdzfRaw, jndzfRaw] = await Promise.all([
       this.fetchEMHtmlData(`https://fundf10.eastmoney.com/jdzf_${code}.html`),
       this.fetchEMHtmlData(`https://fundf10.eastmoney.com/jndzf_${code}.html`)
     ]);
     
+    // 关键：把隐藏在变量里的 HTML 字符串挖出来
+    const jdzfHtmlContent = this._extractTableHtml(jdzfRaw);
+    const jndzfHtmlContent = this._extractTableHtml(jndzfRaw);
+
     let stageHtml = '<div style="padding:20px; text-align:center; color:#999;">无阶段涨幅数据</div>';
     let quarterHtml = '<div style="padding:20px; text-align:center; color:#999;">无季度涨幅数据</div>';
     let yearHtml = '<div style="text-align:center; padding:20px; color:#999;">无年度涨幅数据</div>';
 
-    // 1. 提取阶段涨幅 (借用写好的 _parseArchiveHtmlToTable 提取 UL 列表)
-    if (jdzfHtml) {
-      stageHtml = this._parseArchiveHtmlToTable(jdzfHtml, 'jdzf');
+    if (jdzfHtmlContent) {
+      stageHtml = this._parseArchiveHtmlToTable(jdzfHtmlContent, 'jdzf');
     }
 
-    // 2. 提取季度与年度涨幅 (寻找对应的独立表格)
-    if (jndzfHtml) {
+    if (jndzfHtmlContent) {
       try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(jndzfHtml, 'text/html');
+        const doc = new DOMParser().parseFromString(jndzfHtmlContent, 'text/html');
         const titles = doc.querySelectorAll('h4.t, h3, .tit');
         
-        let qTable = null;
-        let yTable = null;
-
+        let qTable = null, yTable = null;
         titles.forEach(t => {
           if (t.textContent.includes('季度涨幅') && !qTable) {
             let next = t.nextElementSibling;
-            while(next && next.tagName !== 'TABLE' && !next.querySelector('table')) {
-                next = next.nextElementSibling;
-            }
+            while(next && next.tagName !== 'TABLE' && !next.querySelector('table')) next = next.nextElementSibling;
             if (next) qTable = next.tagName === 'TABLE' ? next : next.querySelector('table');
           }
           if (t.textContent.includes('年度涨幅') && !yTable) {
             let next = t.nextElementSibling;
-            while(next && next.tagName !== 'TABLE' && !next.querySelector('table')) {
-                next = next.nextElementSibling;
-            }
+            while(next && next.tagName !== 'TABLE' && !next.querySelector('table')) next = next.nextElementSibling;
             if (next) yTable = next.tagName === 'TABLE' ? next : next.querySelector('table');
           }
         });
@@ -8288,14 +8217,12 @@ switchPerfTab(tab) {
       } catch(e) {}
     }
     
-    // 缓存并填充数据
     this._perfData = { stage: stageHtml, quarter: quarterHtml, year: yearHtml };
     
     stageDiv.innerHTML = stageHtml;
     quarterDiv.innerHTML = quarterHtml;
     yearDiv.innerHTML = yearHtml;
     
-    // 默认显示阶段涨幅
     stageDiv.style.display = 'block';
     quarterDiv.style.display = 'none';
     yearDiv.style.display = 'none';
@@ -8305,116 +8232,48 @@ switchPerfTab(tab) {
     if (activeBtn) activeBtn.classList.add('active');
   },
 
-// 【双擎自适应版】：获取费率页面
-  async fetchFundRateHtml(code, retry = 2) {
-      const targetHtmlUrl = `https://fundf10.eastmoney.com/jjfl_${code}.html`;
-      
-      for (let attempt = 0; attempt <= retry; attempt++) {
-          try {
-              let text = null;
 
-              // 方案一：优先直连 (依赖 CORS 插件)
-              try {
-                  const controller1 = new AbortController();
-                  const id1 = setTimeout(() => controller1.abort(), 3000);
-                  const res1 = await fetch(targetHtmlUrl, { signal: controller1.signal });
-                  clearTimeout(id1);
-                  if (res1.ok) text = await res1.text();
-              } catch (e) {}
-
-              // 方案二：降级代理
-              if (!text && this.workerUrl && !this.workerUrl.includes('example.com')) {
-                  try {
-                      const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetHtmlUrl)}`;
-                      const controller2 = new AbortController();
-                      const id2 = setTimeout(() => controller2.abort(), 4000);
-                      const res2 = await fetch(proxyUrl, { signal: controller2.signal });
-                      clearTimeout(id2);
-                      if (res2.ok) text = await res2.text();
-                  } catch (e) {}
-              }
-
-              if (text && (text.includes('申购费率') || text.includes('赎回费率') || text.includes('暂无数据'))) {
-                  return text;
-              }
-              if (attempt < retry) await new Promise(r => setTimeout(r, 500));
-          } catch (err) {
-              if (attempt < retry) await new Promise(r => setTimeout(r, 500));
-          }
-      }
-      return null;
-  },
-
-async extractFundBasicData(code) {
-      // 【双擎自适应版】：安全获取 HTML
-      const fetchHTMLSafely = async (url) => {
-          let text = null;
-
-          // 方案一：直连优先
-          try {
-              const controller1 = new AbortController();
-              const id1 = setTimeout(() => controller1.abort(), 3000); 
-              const res1 = await fetch(url, { signal: controller1.signal });
-              clearTimeout(id1);
-              if (res1.ok) text = await res1.text();
-          } catch (e) {}
-
-          // 方案二：跨域拦截后代理兜底
-          if (!text && this.workerUrl && !this.workerUrl.includes('example.com')) {
-              try {
-                  const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
-                  const controller2 = new AbortController();
-                  const id2 = setTimeout(() => controller2.abort(), 4000);
-                  const res2 = await fetch(proxyUrl, { signal: controller2.signal });
-                  clearTimeout(id2);
-                  if (res2.ok) text = await res2.text();
-              } catch (e) {}
-          }
-          return text;
-      };
-
-      // 1. 高速并行获取核心数据
-      const [fullInfo, html, jjjlHtml] = await Promise.all([
-          this.fetchFundFullInfo(code),
-          this.fetchFundRateHtml(code),
-          fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`)
+// 【全新纯网页提取版】：基金概况抓取（完全弃用 API 接口）
+  async extractFundBasicData(code) {
+      // 同时拉取三张静态网页
+      const [jbgkRaw, jjjlRaw, jjflRaw] = await Promise.all([
+          this.fetchEMHtmlData(`https://fundf10.eastmoney.com/jbgk_${code}.html`), // 概况
+          this.fetchEMHtmlData(`https://fundf10.eastmoney.com/jjjl_${code}.html`), // 经理
+          this.fetchEMHtmlData(`https://fundf10.eastmoney.com/jjfl_${code}.html`)  // 费率
       ]);
-      
-      // ... 后续解析代码保持完全不变 ...
 
-      const { manager, evalData, fundInfo } = fullInfo;
-      const cachedFund = this.data.fundsCache[code] || {};
-      
-      let fundSize = cachedFund.size || '--';
-      let establishDate = '--';
-      let riskLevel = fundInfo ? (fundInfo.riskLevel || fundInfo.risklevel || '中高风险') : '--';
-
-      if (fundInfo && fundInfo.establishDate) {
-          establishDate = fundInfo.establishDate;
-      }
-      
-      // 2. 补全缺失数据
-      if (jjjlHtml && fundSize === '--') {
-          const sizeMatch = jjjlHtml.match(/(?:资产规模|净资产规模|基金规模)[：:]\s*(?:<a[^>]*>)?([\d\.]+[万亿]元?)/);
-          if (sizeMatch) fundSize = sizeMatch[1];
-      }
-      
-      // 【懒加载优化】：只有当 JSON 接口没返回成立日期时，才去单独抓取概况页 (节约 33% 的网络耗时)
-      if (establishDate === '--') {
-          const jbgkHtml = await fetchHTMLSafely(`https://fundf10.eastmoney.com/jbgk_${code}.html`);
-          if (jbgkHtml) {
-              const dateMatch = jbgkHtml.match(/(\d{4})年(\d{2})月(\d{2})日/);
-              if (dateMatch) establishDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
-          }
+      // 1. 解析基本概况 (jbgk)
+      let establishDate = '--', fundSize = '--', riskLevel = '--';
+      if (jbgkRaw) {
+          const doc = new DOMParser().parseFromString(jbgkRaw, 'text/html');
+          const ths = doc.querySelectorAll('th');
+          ths.forEach(th => {
+              const thText = th.textContent;
+              const tdNode = th.nextElementSibling;
+              if (!tdNode) return;
+              if (thText.includes('成立日期')) establishDate = tdNode.textContent.trim() || '--';
+              if (thText.includes('资产规模')) fundSize = tdNode.textContent.trim() || '--';
+              if (thText.includes('风险收益特征')) riskLevel = tdNode.textContent.trim() || '--';
+          });
+          if (fundSize.includes('（')) fundSize = fundSize.split('（')[0].trim();
       }
 
-      // 3. 解析历任经理表格
+      // 2. 解析基金经理 (jjjl)
+      let managerName = '--', managerYears = '--', managerTableHtml = '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无历任基金经理数据</div>';
       let mgrHistoryFirstRow = { startDate: '--', endDate: '--', manager: '--', days: '--', return: '--' };
-      let managerTableHtml = '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无历任基金经理数据</div>';
       
-      if (jjjlHtml) {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(jjjlHtml, 'text/html');
+      if (jjjlRaw) {
+          const doc = new DOMParser().parseFromString(jjjlRaw, 'text/html');
+          
+          // 现任经理与任职时间
+          const curMgr = doc.querySelector('.jl_intro .name');
+          if (curMgr) managerName = curMgr.textContent.trim();
+          const curYears = doc.querySelector('.jl_intro .info');
+          if (curYears && curYears.textContent.includes('任职日期')) {
+              managerYears = curYears.textContent.replace(/\s+/g, ' ').trim();
+          }
+          
+          // 历任经理表格
           const tables = doc.querySelectorAll('table');
           for (let t of tables) {
               if (t.textContent.includes('起始期') && t.textContent.includes('截止期')) {
@@ -8432,41 +8291,36 @@ async extractFundBasicData(code) {
                           break;
                       }
                   }
-                  
-                  t.className = 'history-table'; 
-                  t.style.width = '100%'; 
+                  t.className = 'history-table';
+                  t.style.width = '100%';
                   t.style.borderCollapse = 'collapse';
-                  t.querySelectorAll('.help').forEach(el => el.remove()); 
+                  t.querySelectorAll('.help').forEach(el => el.remove());
                   managerTableHtml = `<div class="table-wrapper" style="overflow-x:auto;">${t.outerHTML}</div>`;
                   break;
               }
           }
       }
 
-      // 4. 解析费率与规则
-      let trade = { buyMin: '--', sipMin: '--', buyMax: '--', buyConfirm: '--', sellConfirm: '--', buyStatus: '--', sellStatus: '--', buyRateHtml: '<p>暂无数据</p>', sellRateHtml: '<p>暂无数据</p>', noSellFeeDays: null };
-      if (html) trade = this.parseFundRateHtml(html, code);
-
+      // 3. 解析费率与申赎规则 (jjfl)
+      const jjflHtmlContent = this._extractTableHtml(jjflRaw);
+      let trade = this.parseFundRateHtml(jjflHtmlContent || '', code);
       let extractedBuyFee = '--';
       if (trade.buyRateHtml.includes('%')) {
           const match = trade.buyRateHtml.match(/(\d+(?:\.\d+)?)%/);
           if (match) extractedBuyFee = match[0];
       }
 
-      const safeNum = (v) => (v !== undefined && v !== null && !isNaN(parseFloat(v))) ? parseFloat(v).toFixed(2) : '--';
-
+      // 组合最终数据
       const basicData = {
           fundSize, establishDate, riskLevel,
-          managerName: manager?.name || '--',
-          managerYears: manager?.workTime || '--',
-          managerScale: manager?.fundSize || fundSize || '--',
-          managerScore: safeNum(manager?.power?.avr),
+          managerName, managerYears, 
+          managerScale: '--', managerScore: '--', // 静态页没有这两个深度数据，用占位符
           buyStatus: trade.buyStatus, sellStatus: trade.sellStatus,
           buyFee: extractedBuyFee, buyConfirm: trade.buyConfirm,
           buyMin: trade.buyMin, sipMin: trade.sipMin, buyMax: trade.buyMax,
           mgrHistoryFirstRow,
-          evalData: evalData,
-          managerTableHtml: managerTableHtml,
+          evalData: null, // 静态页没有五维评分，置空
+          managerTableHtml,
           buyRateHtml: trade.buyRateHtml,
           sellRateHtml: trade.sellRateHtml,
           timestamp: Date.now()

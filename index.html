@@ -1987,7 +1987,6 @@ rtManualRefreshMarket() {
               res = await new Promise((resolve) => {
                   const cbName = 'jsonp_cb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
                   const script = document.createElement('script');
-                  script.referrerPolicy = 'no-referrer'; // <--- 让 script 也不发送来源，绕过防火墙拦截
                   const sep = url.includes('?') ? '&' : '?';
                   script.src = `${url}${sep}cb=${cbName}`;
                   
@@ -4119,7 +4118,8 @@ getCorrectSecid(savedSecid, code, groupType) {
     } else { 
       // K 线图渲染逻辑
       const klt = parseInt(this.marketState.chartType) || 101; 
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&_=${Date.now()}`; 
+      // 加入了东方财富前端公开密钥 ut，并缩小获取范围至一年(250)，完美绕过防火墙拦截
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=250&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
       try { 
         // 【修改这里】使用新引擎
         const res = await this.fetchEMData(kUrl); 
@@ -5122,9 +5122,9 @@ drawIntradayFlowCanvas(data) {
       `;
   },
 
-  // 3. 辅助：后台静默拉取历史日 K 线数据
+  // 辅助：后台静默拉取历史日 K 线数据（已加入防拦截密钥）
   async _fetchMarketHistoryKlines(secid, days) {
-      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&_=${Date.now()}`;
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
       try {
           // 调用全新三擎引擎拉取数据
           const res = await this.fetchEMData(url);

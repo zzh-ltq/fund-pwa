@@ -1295,7 +1295,7 @@ const app = {
   marketSortDir: 'desc',     // 降序
   
   targetMarketSecid: '',     // 新增：用于记录当前正在绑定分组的行情代码
-  workerUrl: 'https://myworker.indevs.in',  // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
+  workerUrl: 'https://silent-bird-6e9e.978076732.workers.dev'  // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
 
    // 列表周期状态（用于动态最大回撤和夏普比率）
   listPeriod: '近1年',   // 可选 '近1月', '近3月', '近6月', '近1年'
@@ -1960,7 +1960,7 @@ rtManualRefreshMarket() {
     await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData }); 
     this.processGroupRisks(); 
   },
-  // 【终极修正版 3.0】：精准识别 502 拦截，防止解析崩溃
+  // 【终极修正版 4.0】：精准拦截 502 错误，优雅降级
   async fetchEMData(url) {
       if (!this.workerUrl || this.workerUrl.includes('example.com')) {
           console.error('❌ 请先配置有效的 Worker 地址');
@@ -1978,37 +1978,38 @@ rtManualRefreshMarket() {
           });
           clearTimeout(id);
 
-          if (r.ok) {
-              let text = await r.text();
-              
-              // 核心修复 1：如果返回的内容包含 "error code"，说明被东财风控拦截，直接抛出错误
-              if (text.includes('error code')) {
-                  console.warn('⚠️ 遭遇东财风控拦截（502），请更换 Worker 节点或 Header。');
-                  return null;
-              }
+          // 如果 Worker 返回了 500 错误，或者直接拿到了 502 响应
+          if (!r.ok) {
+              console.warn(`⚠️ Worker 代理请求失败, HTTP 状态码: ${r.status}`);
+              return null;
+          }
 
-              // 核心修复 2：剥离 JSONP 外壳
-              let cleanText = text.trim();
-              if (cleanText.startsWith('jQuery') || (cleanText.includes('(') && cleanText.endsWith(')'))) {
-                  const start = cleanText.indexOf('(');
-                  const end = cleanText.lastIndexOf(')');
-                  if (start !== -1 && end !== -1) {
-                      cleanText = cleanText.substring(start + 1, end);
-                  }
-              }
+          let text = await r.text();
+          
+          // 核心拦截：东财 WAF 返回的 502 错误文本
+          if (text.includes('error code: 502') || text.includes('error code: 403')) {
+              console.warn('⚠️ 遭遇东财风控拦截（502），请更换 Worker 节点或 Header。');
+              return null;
+          }
 
-              try {
-                  return JSON.parse(cleanText);
-              } catch(e) {
-                  console.error('❌ JSON 解析失败，原始返回:', text.substring(0, 150));
-                  return null;
+          // 剥离 JSONP 外壳
+          let cleanText = text.trim();
+          if (cleanText.startsWith('jQuery') || (cleanText.includes('(') && cleanText.endsWith(')'))) {
+              const start = cleanText.indexOf('(');
+              const end = cleanText.lastIndexOf(')');
+              if (start !== -1 && end !== -1) {
+                  cleanText = cleanText.substring(start + 1, end);
               }
-          } else {
-              console.warn(`⚠️ 请求失败, HTTP 状态码: ${r.status}`);
+          }
+
+          try {
+              return JSON.parse(cleanText);
+          } catch(e) {
+              console.error('❌ JSON 解析失败，原始返回前 100 字符:', text.substring(0, 100));
               return null;
           }
       } catch (e) {
-          console.error('❌ 网络异常:', e);
+          console.error('❌ Worker 代理网络异常:', e);
           return null;
       }
   },
@@ -3780,18 +3781,22 @@ getCorrectSecid(savedSecid, code, groupType) {
     const flowArea = document.getElementById('md-fund-flow-area');
     if (flowArea) flowArea.style.display = 'none'; 
     
-        // --- 1. 获取基础报价与盘口数据（增加 ut 参数）---
+    // --- 1. 获取基础报价与盘口数据 ---
     const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?ut=fa5fd1943c7b386f172d6893dbfba10b&fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170,f8,f20,f9,f115,f116,f162,f167,f168&_=${Date.now()}`; 
     try { 
       const res = await this.fetchEMData(pkUrl); 
       
-      // 核心修复：增加空数据拦截
+      // 核心修复：增加界面级报错，避免用户只看到一排 --
       if (!res || !res.data) {
           console.warn('⚠️ 基础行情数据为空，可能是 Referer 被拦截或接口参数错误');
+          document.getElementById('md-price').innerText = '数据源被拦截';
+          document.getElementById('md-price').style.color = 'var(--red)';
+          document.getElementById('md-chg-val').innerText = '请更换 Worker 节点';
           return; 
       }
       
       const d = res.data; 
+      // ... 后面的数据渲染逻辑保持不变 ... 
       if (d) { 
         if (d.f59 !== undefined && !isNaN(d.f59)) {
             this.marketState.currentDecimals = parseInt(d.f59);

@@ -7294,7 +7294,7 @@ updateFundCardDisplay(code) {
 
 
 
-// 【双擎升级版】：东方财富官网持仓解析引擎 (完美解决批量抓取时的 CORB 跨域拦截)
+// 【双擎升级版】：东方财富官网持仓解析引擎 (完美解决批量抓取时的 CORB 与 404 报错)
   async fetchEastMoneyTable(code, type, maxRetries = 2) {
     const targetUrl = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${type}&code=${code}&topline=10&year=&month=&rt=${Date.now()}`;
     
@@ -7322,10 +7322,15 @@ updateFundCardDisplay(code) {
           let contentHtml = JSON.parse(`"${match[1]}"`);
           return this._parseHoldingsHtml(contentHtml, type);
         }
+        // 【核心修复】：如果 fetch 成功，但没匹配到数据（例如该基金没有债券持仓）
+        // 必须立刻返回空数组，切断执行，绝不允许进入下方的 script 降级！
+        return []; 
       }
-    } catch (e) {}
+    } catch (e) {
+      // 只有在 fetch 彻底遇到网络错误/跨域拦截时，才允许进入下方的降级方案
+    }
 
-    // 方案 2：降级方案 —— 隔离沙盒 script 注入 (作为最终安全兜底)
+    // 方案 2：降级方案 —— 隔离沙盒 script 注入 (作为最终网络兜底)
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const result = await new Promise((resolve) => {
             const iframe = document.createElement('iframe');

@@ -1960,82 +1960,47 @@ rtManualRefreshMarket() {
     await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData }); 
     this.processGroupRisks(); 
   },
-  // 【终极跨域修复版】：优先使用代理中转，彻底解决 CORS 和 500 拦截问题
+  // 【最终修正版】：放弃无用的 JSONP 回退，强制使用 Worker 代理，彻底解决 ERR_EMPTY_RESPONSE
   async fetchEMData(url) {
-      let res = null;
-      
-      // 策略 1: 优先尝试用户配置的 Worker 代理（最稳定）
-      if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-          try {
-              const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
-              const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 10000);
-              const r = await fetch(proxyUrl, { 
-                  signal: controller.signal,
-                  referrerPolicy: 'no-referrer' 
-              });
-              clearTimeout(id);
-              if (r.ok) {
-                  const text = await r.text();
-                  try { res = JSON.parse(text); } catch(e) { res = text; }
-                  if (res && !res.error) return res;
+      if (!this.workerUrl || this.workerUrl.includes('example.com') || this.workerUrl.includes('indevs.in')) {
+          console.error('❌ 请先在设置中心配置你部署好的 Cloudflare Worker 地址 (workerUrl)');
+          return null;
+      }
+
+      try {
+          // 拼接 Worker 代理地址
+          const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
+          const controller = new AbortController();
+          const id = setTimeout(() => controller.abort(), 10000); // 10秒超时
+          
+          const r = await fetch(proxyUrl, { 
+              signal: controller.signal,
+              referrerPolicy: 'no-referrer' 
+          });
+          clearTimeout(id);
+
+          if (r.ok) {
+              const text = await r.text();
+              // 尝试解析 JSON
+              try {
+                  const parsed = JSON.parse(text);
+                  if (parsed && parsed.error) {
+                      console.warn('Worker 代理返回错误:', parsed.error);
+                      return null;
+                  }
+                  return parsed;
+              } catch(e) {
+                  // 如果不是 JSON，可能是 HTML 错误页，直接返回原文本
+                  return text;
               }
-          } catch (e) {
-              console.warn('Worker代理请求失败，尝试原生请求', e);
+          } else {
+              console.warn(`Worker 代理请求失败, HTTP 状态码: ${r.status}`);
+              return null;
           }
+      } catch (e) {
+          console.error('Worker 代理网络异常:', e);
+          return null;
       }
-
-      // 策略 2: 备用的公共 CORS 代理（在 Worker 失效时兜底，稳定性较差）
-      if (!res) {
-          try {
-              // 使用 allorigins 免费代理
-              const fallbackProxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-              const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 8000);
-              const r = await fetch(fallbackProxy, { 
-                  signal: controller.signal,
-                  referrerPolicy: 'no-referrer' 
-              });
-              clearTimeout(id);
-              if (r.ok) {
-                  const text = await r.text();
-                  try { res = JSON.parse(text); } catch(e) { res = text; }
-                  if (res) return res;
-              }
-          } catch (e) {}
-      }
-
-      // 策略 3: 最后的倔强，原生 JSONP 回退（仅适用于部分 push2 接口，push2his 成功率极低）
-      if (!res && (url.includes('push2.eastmoney') || url.includes('push2his.eastmoney'))) {
-          try {
-              res = await new Promise((resolve) => {
-                  const cbName = 'jsonp_cb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
-                  const script = document.createElement('script');
-                  const sep = url.includes('?') ? '&' : '?';
-                  script.src = `${url}${sep}cb=${cbName}`;
-                  
-                  let isDone = false;
-                  window[cbName] = (data) => {
-                      if(isDone) return; isDone = true;
-                      resolve(data);
-                      delete window[cbName]; script.remove();
-                  };
-                  script.onerror = () => {
-                      if(isDone) return; isDone = true;
-                      resolve(null);
-                      delete window[cbName]; script.remove();
-                  };
-                  setTimeout(() => {
-                      if(!isDone) { isDone = true; resolve(null); delete window[cbName]; script.remove(); }
-                  }, 6000);
-                  
-                  document.head.appendChild(script);
-              });
-              if (res) return res;
-          } catch (e) {}
-      }
-
-      return res;
   },
 
   async fetchEMHtmlData(url) {
@@ -4121,30 +4086,42 @@ getCorrectSecid(savedSecid, code, groupType) {
           this.bindChartEvents(); 
         } 
       } catch(e) {} 
-        } else { 
+            } else { 
       // K 线图渲染逻辑
       const klt = parseInt(this.marketState.chartType) || 101; 
       
-      // 【核心修复 1】：智能判断标的类型，大盘指数、板块、外盘期货绝对不能使用复权(fqt=1)，否则服务器会崩溃断开连接！
+      // 【核心修复 1】：智能判断标的类型，指数必须 fqt=0
       const isIndex = (secid.startsWith('1.000') || secid.startsWith('0.399') || secid.startsWith('0.899') || secid.startsWith('90.') || parseInt(secid.split('.')[0]) >= 100);
       const fqt = isIndex ? 0 : 1;
       
-      // 【核心修复 2】：补全 fields1 和 fields2 字段，加入 ut 和 end 参数
+      // 【核心修复 2】：补全 ut 和 end 参数
       const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=${fqt}&end=20500101&lmt=250&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
       
       try { 
-        // 使用新版 fetchEMData 引擎
+        // 使用刚刚替换好的 fetchEMData 引擎
         const res = await this.fetchEMData(kUrl); 
+        
+        // 加一层容错
+        if (!res) {
+            console.error("K线数据获取失败，返回为空。请检查 Worker 是否配置正确。");
+            // 如果失败，绘制一个空图表提示，而不是卡死或白屏
+            this.marketChartData = { type: 'kline', prices: [], prevClose: 1, lastPrice: 1, ma5: [], ma10: [], ma20: [], ma60: [], dif: [], dea: [], macd: [], volumes: [] };
+            this.drawMarketChartWithCrosshair(false, -1);
+            return;
+        }
+
         const klines = res?.data?.klines || []; 
         let finalPrevClose = this.marketState.currentPrevClose;
         
         if (klines.length > 0) { 
+          // ... (后面的 K 线解析、MA 计算、MACD 计算代码保持你原来的完全不变即可) ...
           const parsed = klines.map(str => { 
             const parts = str.split(','); 
             return { date: parts[0], open: parseFloat(parts[1]) || 0, close: parseFloat(parts[2]) || 0, high: parseFloat(parts[3]) || 0, low: parseFloat(parts[4]) || 0, volume: parseInt(parts[5] || 0) }; 
           }); 
           if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].close || 1;
 
+          // 这里保留你原有的计算逻辑
           const calcMA = (data, days) => { 
             let res = []; 
             for(let i=0; i<data.length; i++){ 
@@ -4166,44 +4143,22 @@ getCorrectSecid(savedSecid, code, groupType) {
           const closePrices = parsed.map(p => p.close);
           const ema12 = calcEMALocal(closePrices, 12);
           const ema26 = calcEMALocal(closePrices, 26);
-          const dif = [];
-          for (let i = 0; i < closePrices.length; i++) {
-            dif.push(ema12[i] - ema26[i]);
-          }
+          const dif = []; for (let i = 0; i < closePrices.length; i++) { dif.push(ema12[i] - ema26[i]); }
           const dea = calcEMALocal(dif, 9);
-          const macd = [];
-          for (let i = 0; i < closePrices.length; i++) {
-            macd.push((dif[i] - dea[i]) * 2);
-          }
+          const macd = []; for (let i = 0; i < closePrices.length; i++) { macd.push((dif[i] - dea[i]) * 2); }
 
           this.marketChartData = { 
-            type: 'kline', 
-            xLabels: parsed.map(p => p.date), 
-            prices: closePrices,
-            opens: parsed.map(p => p.open),
-            highs: parsed.map(p => p.high),
-            lows: parsed.map(p => p.low),
-            ma5: calcMA(closePrices, 5), 
-            ma10: calcMA(closePrices, 10), 
-            ma20: calcMA(closePrices, 20), 
-            ma60: calcMA(closePrices, 60), 
-            dif: dif,
-            dea: dea,
-            macd: macd,
-            volumes: parsed.map(p => p.volume), 
-            prevClose: finalPrevClose, 
-            lastPrice: parsed[parsed.length-1]?.close || 0, 
-            timeStr: new Date().toLocaleTimeString() 
+            type: 'kline', xLabels: parsed.map(p => p.date), prices: closePrices, opens: parsed.map(p => p.open),
+            highs: parsed.map(p => p.high), lows: parsed.map(p => p.low), ma5: calcMA(closePrices, 5), 
+            ma10: calcMA(closePrices, 10), ma20: calcMA(closePrices, 20), ma60: calcMA(closePrices, 60), 
+            dif: dif, dea: dea, macd: macd, volumes: parsed.map(p => p.volume), 
+            prevClose: finalPrevClose, lastPrice: parsed[parsed.length-1]?.close || 0, timeStr: new Date().toLocaleTimeString() 
           }; 
           this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
           this.bindChartEvents(); 
-        } else {
-            // 防白屏：如果 K 线为空，绘制提示
-            this.marketChartData = { type: 'kline', prices: [], prevClose: 1, lastPrice: 1, ma5: [], ma10: [], ma20: [], ma60: [], dif: [], dea: [], macd: [], volumes: [] };
-            this.drawMarketChartWithCrosshair(false, -1);
-        }
+        } 
       } catch(e) {
-        console.error("K线数据获取异常:", e);
+        console.error("K线渲染异常:", e);
       }
     } 
   },

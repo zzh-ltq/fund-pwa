@@ -1960,28 +1960,52 @@ rtManualRefreshMarket() {
     await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData }); 
     this.processGroupRisks(); 
   },
-// 【终极防拦截版】：东方财富接口三擎自适应拉取引擎
+  // 【终极跨域修复版】：优先使用代理中转，彻底解决 CORS 和 500 拦截问题
   async fetchEMData(url) {
       let res = null;
       
-      // 1. 原生 fetch 直连 (核心修复：增加 no-referrer 剥离来源，完美突破东财防盗链 WAF)
-      try {
-          const controller = new AbortController();
-          const id = setTimeout(() => controller.abort(), 8000); // 延长至8秒，防大体积 K 线超时
-          const r = await fetch(url, { 
-              signal: controller.signal,
-              referrerPolicy: 'no-referrer' // <--- 解决 ERR_EMPTY_RESPONSE 的核心
-          });
-          clearTimeout(id);
-          if (r.ok) {
-              const text = await r.text();
-              try { res = JSON.parse(text); } catch(e) { res = text; }
-              if (res) return res;
+      // 策略 1: 优先尝试用户配置的 Worker 代理（最稳定）
+      if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+          try {
+              const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
+              const controller = new AbortController();
+              const id = setTimeout(() => controller.abort(), 10000);
+              const r = await fetch(proxyUrl, { 
+                  signal: controller.signal,
+                  referrerPolicy: 'no-referrer' 
+              });
+              clearTimeout(id);
+              if (r.ok) {
+                  const text = await r.text();
+                  try { res = JSON.parse(text); } catch(e) { res = text; }
+                  if (res && !res.error) return res;
+              }
+          } catch (e) {
+              console.warn('Worker代理请求失败，尝试原生请求', e);
           }
-      } catch (e) {}
+      }
 
-      // 2. 无缝降级原生 JSONP (同样附加 no-referrer 属性)
-      // 对于行情接口，绕开容易报 500 的代理，直接秒切 JSONP
+      // 策略 2: 备用的公共 CORS 代理（在 Worker 失效时兜底，稳定性较差）
+      if (!res) {
+          try {
+              // 使用 allorigins 免费代理
+              const fallbackProxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+              const controller = new AbortController();
+              const id = setTimeout(() => controller.abort(), 8000);
+              const r = await fetch(fallbackProxy, { 
+                  signal: controller.signal,
+                  referrerPolicy: 'no-referrer' 
+              });
+              clearTimeout(id);
+              if (r.ok) {
+                  const text = await r.text();
+                  try { res = JSON.parse(text); } catch(e) { res = text; }
+                  if (res) return res;
+              }
+          } catch (e) {}
+      }
+
+      // 策略 3: 最后的倔强，原生 JSONP 回退（仅适用于部分 push2 接口，push2his 成功率极低）
       if (!res && (url.includes('push2.eastmoney') || url.includes('push2his.eastmoney'))) {
           try {
               res = await new Promise((resolve) => {
@@ -2003,29 +2027,11 @@ rtManualRefreshMarket() {
                   };
                   setTimeout(() => {
                       if(!isDone) { isDone = true; resolve(null); delete window[cbName]; script.remove(); }
-                  }, 8000);
+                  }, 6000);
                   
                   document.head.appendChild(script);
               });
               if (res) return res;
-          } catch (e) {}
-      }
-
-      // 3. 终极兜底：Worker 代理 (同样隐身)
-      if (!res && this.workerUrl && !this.workerUrl.includes('example.com')) {
-          try {
-              const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
-              const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 8000);
-              const r = await fetch(proxyUrl, { 
-                  signal: controller.signal,
-                  referrerPolicy: 'no-referrer' 
-              });
-              clearTimeout(id);
-              if (r.ok) {
-                  const text = await r.text();
-                  try { res = JSON.parse(text); } catch(e) { res = text; }
-              }
           } catch (e) {}
       }
 
@@ -4115,16 +4121,19 @@ getCorrectSecid(savedSecid, code, groupType) {
           this.bindChartEvents(); 
         } 
       } catch(e) {} 
-    } else { 
+        } else { 
       // K 线图渲染逻辑
       const klt = parseInt(this.marketState.chartType) || 101; 
       
-      // 【核心修复】：智能判断标的类型，大盘指数、板块、外盘期货绝对不能使用复权(fqt=1)，否则服务器会崩溃断开连接！
+      // 【核心修复 1】：智能判断标的类型，大盘指数、板块、外盘期货绝对不能使用复权(fqt=1)，否则服务器会崩溃断开连接！
       const isIndex = (secid.startsWith('1.000') || secid.startsWith('0.399') || secid.startsWith('0.899') || secid.startsWith('90.') || parseInt(secid.split('.')[0]) >= 100);
       const fqt = isIndex ? 0 : 1;
       
+      // 【核心修复 2】：补全 fields1 和 fields2 字段，加入 ut 和 end 参数
       const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=${fqt}&end=20500101&lmt=250&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
+      
       try { 
+        // 使用新版 fetchEMData 引擎
         const res = await this.fetchEMData(kUrl); 
         const klines = res?.data?.klines || []; 
         let finalPrevClose = this.marketState.currentPrevClose;
@@ -4188,8 +4197,14 @@ getCorrectSecid(savedSecid, code, groupType) {
           }; 
           this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
           this.bindChartEvents(); 
-        } 
-      } catch(e) {}
+        } else {
+            // 防白屏：如果 K 线为空，绘制提示
+            this.marketChartData = { type: 'kline', prices: [], prevClose: 1, lastPrice: 1, ma5: [], ma10: [], ma20: [], ma60: [], dif: [], dea: [], macd: [], volumes: [] };
+            this.drawMarketChartWithCrosshair(false, -1);
+        }
+      } catch(e) {
+        console.error("K线数据获取异常:", e);
+      }
     } 
   },
 
@@ -5125,14 +5140,17 @@ drawIntradayFlowCanvas(data) {
       `;
   },
 
-// 3. 辅助：后台静默拉取历史日 K 线数据
+  // 3. 辅助：后台静默拉取历史日 K 线数据（AI预测专属，已集成新的代理引擎）
   async _fetchMarketHistoryKlines(secid, days) {
       // 【核心修复】：智能判断标的类型，避开指数复权导致的服务器崩溃
       const isIndex = (secid.startsWith('1.000') || secid.startsWith('0.399') || secid.startsWith('0.899') || secid.startsWith('90.') || parseInt(secid.split('.')[0]) >= 100);
       const fqt = isIndex ? 0 : 1;
       
-      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=${fqt}&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
+      // 【核心修复】：补齐所有必要的请求参数，特别是 ut 和 end
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=${fqt}&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
+      
       try {
+          // 强制使用新的代理引擎请求
           const res = await this.fetchEMData(url);
           const klines = res?.data?.klines || [];
           if (klines.length === 0) return null;
@@ -5141,7 +5159,10 @@ drawIntradayFlowCanvas(data) {
               const p = str.split(',');
               return { date: p[0], open: parseFloat(p[1]), close: parseFloat(p[2]), high: parseFloat(p[3]), low: parseFloat(p[4]), vol: parseFloat(p[5]) };
           });
-      } catch (e) { return null; }
+      } catch (e) { 
+          console.error("AI 预测历史 K 线获取失败:", e);
+          return null; 
+      }
   },
 
   // 4. 执行行情大模型预测

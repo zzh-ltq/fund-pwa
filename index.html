@@ -1960,19 +1960,17 @@ rtManualRefreshMarket() {
     await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData }); 
     this.processGroupRisks(); 
   },
-  // 【终极修正版】：彻底修复拦截逻辑，精准请求 Worker
+  // 【终极修正版】：增加 JSONP 清洗，解决东财返回非标准 JSON 的问题
   async fetchEMData(url) {
-      // 如果未配置有效 Worker 地址，直接报错
       if (!this.workerUrl || this.workerUrl.includes('example.com')) {
           console.error('❌ 请先在设置中心配置你部署好的 Cloudflare Worker 地址 (workerUrl)');
           return null;
       }
 
       try {
-          // 拼接 Worker 代理地址
           const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
           const controller = new AbortController();
-          const id = setTimeout(() => controller.abort(), 10000); // 10秒超时
+          const id = setTimeout(() => controller.abort(), 10000);
           
           const r = await fetch(proxyUrl, { 
               signal: controller.signal,
@@ -1981,17 +1979,28 @@ rtManualRefreshMarket() {
           clearTimeout(id);
 
           if (r.ok) {
-              const text = await r.text();
-              // 尝试解析 JSON
+              let text = await r.text();
+              
+              // 核心修复：剥离 JSONP 外壳（例如 jQuery1123({...}) 或 cb({...})）
+              let cleanText = text.trim();
+              if (cleanText.startsWith('jQuery') || (cleanText.includes('(') && cleanText.endsWith(')'))) {
+                  const start = cleanText.indexOf('(');
+                  const end = cleanText.lastIndexOf(')');
+                  if (start !== -1 && end !== -1) {
+                      cleanText = cleanText.substring(start + 1, end);
+                  }
+              }
+
               try {
-                  const parsed = JSON.parse(text);
+                  const parsed = JSON.parse(cleanText);
                   if (parsed && parsed.error) {
                       console.warn('⚠️ Worker 代理返回错误:', parsed.error);
                       return null;
                   }
                   return parsed;
               } catch(e) {
-                  return text;
+                  console.error('❌ JSON 解析失败，原始返回前200字符:', text.substring(0, 200));
+                  return null;
               }
           } else {
               console.warn(`⚠️ Worker 代理请求失败, HTTP 状态码: ${r.status}`);
@@ -3770,13 +3779,18 @@ getCorrectSecid(savedSecid, code, groupType) {
     const flowArea = document.getElementById('md-fund-flow-area');
     if (flowArea) flowArea.style.display = 'none'; 
     
-    // --- 1. 获取基础报价与盘口数据（扩充换手率、总市值、市盈率字段）---
     // --- 1. 获取基础报价与盘口数据 ---
     const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170,f8,f20,f9,f115,f116,f162,f167,f168&_=${Date.now()}`; 
     try { 
-      // 【修改这里】使用新引擎
       const res = await this.fetchEMData(pkUrl); 
-      const d = res?.data; 
+      
+      // 核心修复：增加空数据拦截
+      if (!res || !res.data) {
+          console.warn('⚠️ 基础行情数据为空，可能是 Referer 被拦截或接口参数错误');
+          return; 
+      }
+      
+      const d = res.data; 
       if (d) { 
         if (d.f59 !== undefined && !isNaN(d.f59)) {
             this.marketState.currentDecimals = parseInt(d.f59);
@@ -3865,7 +3879,9 @@ getCorrectSecid(savedSecid, code, groupType) {
         const dTime = new Date(); 
         document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
       } 
-    } catch(e) {} 
+} catch(e) { 
+        console.error('基础行情解析异常:', e);
+    } 
 
     // --- 2. 获取资金流向（调用官方 getZJLXData 专用资金接口 + 历史资金无缝兜底）---
     const inOutEl = document.getElementById('ff-main-inout');

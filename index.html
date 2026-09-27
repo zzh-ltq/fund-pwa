@@ -8010,113 +8010,124 @@ ds(e, i) {
     },
 
 
-  // 辅助解析：将原生 HTML 转换转置为统一风格的业绩表格
+// 【表格格式化工厂】：将东方财富残次不齐的原生表格，转化为现代化的自适应报表
   _parseArchiveHtmlToTable(contentHtml, apiType) {
-    if (!contentHtml || !contentHtml.trim()) {
-      return '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无数据</div>';
-    }
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(contentHtml, 'text/html');
-    const nativeTables = doc.querySelectorAll('table.w782, table');
-
-    // 季度/年度涨幅（原生即为完整表格）
-    if (nativeTables.length > 0 && (apiType === 'quarterzf' || apiType === 'yearzf')) {
-      let table = nativeTables[0];
-      table.querySelectorAll('.infoTips, table').forEach(el => el.remove());
-      table.className = 'data-table perf-table';
-      table.querySelectorAll('th, td').forEach(cell => {
-        let rawText = cell.textContent.trim();
-        let num = parseFloat(rawText);
-        if (rawText.includes('%') && !isNaN(num)) {
-          if (num > 0) cell.innerHTML = `<span class="red">${rawText}</span>`;
-          else if (num < 0) cell.innerHTML = `<span class="green">${rawText}</span>`;
-        } else if (rawText.includes('优秀')) {
-          cell.innerHTML = `<span style="color:#f5222d; font-weight:bold;">${rawText}</span>`;
-        } else if (rawText.includes('不佳') || rawText.includes('一般')) {
-          cell.innerHTML = `<span style="color:#52c41a; font-weight:bold;">${rawText}</span>`;
-        } else if (rawText.includes('|')) {
-          let parts = rawText.split('|');
-          cell.innerHTML = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
-        } else {
-          cell.innerHTML = rawText;
-        }
-      });
-      return table.outerHTML;
-    }
-
-    // 阶段涨幅（UL 列表转置表格）
-    const allUls = doc.querySelectorAll('ul');
-    if (allUls.length === 0) return contentHtml;
-
-    const dataUls = Array.from(allUls).filter(ul => !ul.className.includes('fcol'));
-    const rows = [];
-    for (let ul of dataUls) {
-      const lis = ul.querySelectorAll('li');
-      if (lis.length === 0) continue;
-      let period = '', gain = '', avg = '', hs300 = '', rank = '', change = '', quartile = '';
-      for (let li of lis) {
-        const cls = li.className;
-        const text = li.innerText.trim();
-        if (cls.includes('title')) period = text;
-        else if (cls.includes('tor') && !gain) gain = text;
-        else if (cls.includes('tor') && gain && !avg) avg = text;
-        else if (cls.includes('tor') && gain && avg && !hs300) hs300 = text;
-        else if (cls.includes('tlpm')) rank = text;
-        else if (cls.includes('pmbd')) {
-          let match = text.match(/(\d+)([↑↓])/);
-          change = match ? match[2] + match[1] : text;
-        } else if (cls.includes('sf')) {
-          const sifen = li.querySelector('.sifen');
-          if (sifen) quartile = sifen.innerText.trim();
-        }
+      if (!contentHtml || contentHtml.trim() === '' || contentHtml.includes('暂无数据')) {
+          return '<div style="padding:40px 20px; text-align:center; color:#94a3b8; font-weight:bold;">📭 暂无对应的业绩披露数据</div>';
       }
-      if (period) rows.push({ period, gain, avg, hs300, rank, change, quartile });
-    }
 
-    if (rows.length === 0) return '<div style="padding:20px; text-align:center; color:#94a3b8;">无阶段涨幅数据</div>';
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(contentHtml, 'text/html');
 
-    const periods = rows.map(r => r.period);
-    const indicators = [
-      { key: 'gain', label: '涨幅', isPercent: true },
-      { key: 'avg', label: '同类平均', isPercent: true },
-      { key: 'hs300', label: '沪深300', isPercent: true },
-      { key: 'rank', label: '同类排名', isPercent: false },
-      { key: 'change', label: '排名变动', isPercent: false },
-      { key: 'quartile', label: '四分位排名', isPercent: false }
-    ];
+      // 情形 A：季度 / 年度涨幅（本身就是标准的 table 结构）
+      const tables = doc.querySelectorAll('table');
+      if (tables.length > 0 && (apiType === 'quarterzf' || apiType === 'yearzf')) {
+          let table = tables[0];
+          table.className = 'data-table perf-table';
+          table.style.width = '100%';
+          table.querySelectorAll('.infoTips, table').forEach(el => el.remove());
 
-    let html = '<table class="data-table perf-table" style="min-width:600px;">';
-    html += '<thead><tr><th>指标</th>';
-    for (let p of periods) html += `<th>${p}</th>`;
-    html += '</tr></thead><tbody>';
-
-    for (let ind of indicators) {
-      html += '<tr>';
-      html += `<td class="indicator-cell"><strong>${ind.label}</strong></td>`;
-      for (let row of rows) {
-        let val = row[ind.key] || '--';
-        let cellClass = '';
-        if (ind.isPercent && val !== '--') {
-          let num = parseFloat(val);
-          if (!isNaN(num)) cellClass = num > 0 ? 'red' : (num < 0 ? 'green' : '');
-        }
-        if (ind.key === 'rank' && val.includes('|')) {
-          let parts = val.split('|');
-          val = `<span style="color:#1677ff;font-weight:bold;">${parts[0]}</span><span style="color:#999;font-size:12px;"> / ${parts[1]}</span>`;
-        } else if (ind.key === 'change' && val !== '--') {
-          let match = val.match(/([↑↓])(\d+)/);
-          if (match) val = match[1] === '↑' ? `<span class="red">↑${match[2]}</span>` : `<span class="green">↓${match[2]}</span>`;
-        } else if (ind.key === 'quartile' && val !== '--') {
-          if (val.includes('优秀')) cellClass = 'red';
-          else if (val.includes('良好')) cellClass = '#f59e0b';
-          else if (val.includes('一般') || val.includes('不佳')) cellClass = 'green';
-        }
-        html += `<td class="${cellClass}">${val}</td>`;
+          // 核心美化逻辑：对数值染红染绿，对评分强化展示
+          table.querySelectorAll('th, td').forEach(cell => {
+              let text = cell.textContent.trim();
+              let num = parseFloat(text);
+              if (text.includes('%') && !isNaN(num)) {
+                  cell.innerHTML = num > 0 ? `<span class="red">${text}</span>` : (num < 0 ? `<span class="green">${text}</span>` : text);
+              } else if (text.includes('优秀')) {
+                  cell.innerHTML = `<span style="color:#f43f5e; font-weight:bold;">${text}</span>`;
+              } else if (text.includes('良好')) {
+                  cell.innerHTML = `<span style="color:#f59e0b; font-weight:bold;">${text}</span>`;
+              } else if (text.includes('一般') || text.includes('不佳')) {
+                  cell.innerHTML = `<span style="color:#10b981; font-weight:bold;">${text}</span>`;
+              } else if (text.includes('|')) {
+                  let parts = text.split('|');
+                  cell.innerHTML = `<span style="color:#3b82f6;font-weight:bold;">${parts[0]}</span><span style="color:#94a3b8;font-size:12px;"> / ${parts[1]}</span>`;
+              } else {
+                  cell.innerHTML = text;
+              }
+          });
+          return `<div style="overflow-x:auto;">${table.outerHTML}</div>`;
       }
-      html += '</tr>';
-    }
-    html += '</tbody></table>';
-    return html;
+
+      // 情形 B：阶段涨幅（东财采用了恶心的 ul-li 列排版，我们需要将其转置为常规表格）
+      const uls = doc.querySelectorAll('ul');
+      if (uls.length > 0) {
+          const dataUls = Array.from(uls).filter(ul => !ul.className.includes('fcol')); // 跳过表头列
+          if (dataUls.length === 0) return '<div style="padding:20px; text-align:center; color:#94a3b8;">暂无数据</div>';
+
+          const rows = [];
+          for (let ul of dataUls) {
+              const lis = ul.querySelectorAll('li');
+              if (lis.length === 0) continue;
+              let period='', gain='', avg='', hs300='', rank='', change='', quartile='';
+
+              for (let li of lis) {
+                  const cls = li.className || '';
+                  const text = li.innerText.trim();
+                  if (cls.includes('title')) period = text;
+                  else if (cls.includes('tor') && !gain) gain = text;
+                  else if (cls.includes('tor') && gain && !avg) avg = text;
+                  else if (cls.includes('tor') && gain && avg && !hs300) hs300 = text;
+                  else if (cls.includes('tlpm')) rank = text;
+                  else if (cls.includes('pmbd')) {
+                      let match = text.match(/(\d+)([↑↓])/);
+                      change = match ? match[2] + match[1] : text;
+                  } else if (cls.includes('sf')) {
+                      quartile = li.innerText.trim();
+                  }
+              }
+              if (period) rows.push({ period, gain, avg, hs300, rank, change, quartile });
+          }
+
+          // 行列转置重建 Table
+          const periods = rows.map(r => r.period);
+          const indicators = [
+              { key: 'gain', label: '涨幅', isPct: true },
+              { key: 'avg', label: '同类平均', isPct: true },
+              { key: 'hs300', label: '沪深300', isPct: true },
+              { key: 'rank', label: '同类排名', isPct: false },
+              { key: 'change', label: '排名变动', isPct: false },
+              { key: 'quartile', label: '四分位表现', isPct: false }
+          ];
+
+          let html = '<div style="overflow-x:auto;"><table class="data-table perf-table" style="min-width:600px; width:100%;">';
+          html += '<thead><tr><th style="position:sticky; left:0; z-index:10; background:#f8fafc; min-width:80px;">指标</th>';
+          periods.forEach(p => html += `<th>${p}</th>`);
+          html += '</tr></thead><tbody>';
+
+          indicators.forEach(ind => {
+              html += `<tr><td class="indicator-cell" style="position:sticky; left:0; z-index:9; background:#f8fafc; font-weight:800; color:#1e293b; box-shadow:inset -2px 0 4px -2px rgba(0,0,0,0.1);">${ind.label}</td>`;
+              rows.forEach(row => {
+                  let val = row[ind.key] || '--';
+                  if (val === '---' || val === '') val = '--';
+                  let cellCls = '';
+                  let cellHtml = val;
+
+                  if (ind.isPct && val !== '--') {
+                      let num = parseFloat(val);
+                      if (!isNaN(num)) {
+                          cellCls = num > 0 ? 'red' : (num < 0 ? 'green' : '');
+                      }
+                  } else if (ind.key === 'rank' && val.includes('|')) {
+                      let parts = val.split('|');
+                      cellHtml = `<span style="color:#3b82f6;font-weight:bold;">${parts[0]}</span><span style="color:#94a3b8;font-size:12px;"> / ${parts[1]}</span>`;
+                  } else if (ind.key === 'change' && val !== '--') {
+                      let match = val.match(/([↑↓])(\d+)/);
+                      if (match) cellHtml = match[1] === '↑' ? `<span class="red">↑${match[2]}</span>` : `<span class="green">↓${match[2]}</span>`;
+                  } else if (ind.key === 'quartile' && val !== '--') {
+                      if (val.includes('优秀')) cellHtml = `<span style="color:#f43f5e; font-weight:bold;">${val}</span>`;
+                      else if (val.includes('良好')) cellHtml = `<span style="color:#f59e0b; font-weight:bold;">${val}</span>`;
+                      else if (val.includes('一般') || val.includes('不佳')) cellHtml = `<span style="color:#10b981; font-weight:bold;">${val}</span>`;
+                  }
+                  html += `<td class="${cellCls}">${cellHtml}</td>`;
+              });
+              html += '</tr>';
+          });
+          html += '</tbody></table></div>';
+          return html;
+      }
+
+      return '<div style="padding:20px; text-align:center; color:#94a3b8;">数据解析失败</div>';
   },
   
  
@@ -8165,58 +8176,37 @@ switchPerfTab(tab) {
   }, 10);
 },
 
-// 【修复】：渲染业绩主入口（引入提取工具，解决白屏）
+// 【直透数据底层的业绩渲染】：不再抓取空壳网页，直接请求数据内核接口
   async renderPerformanceTab(code) {
     const stageDiv = document.getElementById('perf-stage-container');
     const quarterDiv = document.getElementById('perf-quarter-container');
     const yearDiv = document.getElementById('perf-year-container');
     if (!stageDiv) return;
     
-    stageDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载阶段涨幅...</div>';
-    quarterDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载季度涨幅...</div>';
-    yearDiv.innerHTML = '<div style="text-align:center; padding:20px;">加载年度涨幅...</div>';
+    stageDiv.innerHTML = '<div style="text-align:center; padding:40px 20px;"><div class="loading-spinner" style="margin:0 auto 10px;"></div>加载阶段涨幅...</div>';
+    quarterDiv.innerHTML = '<div style="text-align:center; padding:40px 20px;"><div class="loading-spinner" style="margin:0 auto 10px;"></div>加载季度涨幅...</div>';
+    yearDiv.innerHTML = '<div style="text-align:center; padding:40px 20px;"><div class="loading-spinner" style="margin:0 auto 10px;"></div>加载年度涨幅...</div>';
     
-    const [jdzfRaw, jndzfRaw] = await Promise.all([
-      this.fetchEMHtmlData(`https://fundf10.eastmoney.com/jdzf_${code}.html`),
-      this.fetchEMHtmlData(`https://fundf10.eastmoney.com/jndzf_${code}.html`)
-    ]);
+    // 核心：直接向数据源接口发起并行请求（利用双擎跨域引擎 fetchEMHtmlData）
+    const t = Date.now();
+    const urls = [
+        `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jdzf&code=${code}&topline=10&rt=${t}`,
+        `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=quarterzf&code=${code}&topline=10&rt=${t}`,
+        `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=yearzf&code=${code}&topline=10&rt=${t}`
+    ];
+
+    const [jdzfRaw, qzfRaw, yzfRaw] = await Promise.all(urls.map(url => this.fetchEMHtmlData(url)));
     
-    // 关键：把隐藏在变量里的 HTML 字符串挖出来
+    // 剥离外层 JS 变量包裹，提取出真正的 HTML 表格代码
     const jdzfHtmlContent = this._extractTableHtml(jdzfRaw);
-    const jndzfHtmlContent = this._extractTableHtml(jndzfRaw);
+    const qzfHtmlContent = this._extractTableHtml(qzfRaw);
+    const yzfHtmlContent = this._extractTableHtml(yzfRaw);
 
-    let stageHtml = '<div style="padding:20px; text-align:center; color:#999;">无阶段涨幅数据</div>';
-    let quarterHtml = '<div style="padding:20px; text-align:center; color:#999;">无季度涨幅数据</div>';
-    let yearHtml = '<div style="text-align:center; padding:20px; color:#999;">无年度涨幅数据</div>';
+    // 将杂乱的原生 HTML 转化为统一、美观的 App 内部组件
+    const stageHtml = this._parseArchiveHtmlToTable(jdzfHtmlContent, 'jdzf');
+    const quarterHtml = this._parseArchiveHtmlToTable(qzfHtmlContent, 'quarterzf');
+    const yearHtml = this._parseArchiveHtmlToTable(yzfHtmlContent, 'yearzf');
 
-    if (jdzfHtmlContent) {
-      stageHtml = this._parseArchiveHtmlToTable(jdzfHtmlContent, 'jdzf');
-    }
-
-    if (jndzfHtmlContent) {
-      try {
-        const doc = new DOMParser().parseFromString(jndzfHtmlContent, 'text/html');
-        const titles = doc.querySelectorAll('h4.t, h3, .tit');
-        
-        let qTable = null, yTable = null;
-        titles.forEach(t => {
-          if (t.textContent.includes('季度涨幅') && !qTable) {
-            let next = t.nextElementSibling;
-            while(next && next.tagName !== 'TABLE' && !next.querySelector('table')) next = next.nextElementSibling;
-            if (next) qTable = next.tagName === 'TABLE' ? next : next.querySelector('table');
-          }
-          if (t.textContent.includes('年度涨幅') && !yTable) {
-            let next = t.nextElementSibling;
-            while(next && next.tagName !== 'TABLE' && !next.querySelector('table')) next = next.nextElementSibling;
-            if (next) yTable = next.tagName === 'TABLE' ? next : next.querySelector('table');
-          }
-        });
-
-        if (qTable) quarterHtml = this._parseArchiveHtmlToTable(qTable.outerHTML, 'quarterzf');
-        if (yTable) yearHtml = this._parseArchiveHtmlToTable(yTable.outerHTML, 'yearzf');
-      } catch(e) {}
-    }
-    
     this._perfData = { stage: stageHtml, quarter: quarterHtml, year: yearHtml };
     
     stageDiv.innerHTML = stageHtml;

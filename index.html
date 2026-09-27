@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="养鸡小能手">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>养鸡小能手 PWA</title>
-  
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/aws-sdk/2.1692.0/aws-sdk.min.js"></script>
 
   <style>
@@ -1140,7 +1140,7 @@ canvas#compare-canvas {
 // ==========================================
 // 1. 基础网络请求工具与常量
 // ==========================================
-function fetchJSONP(url, callbackName = 'callback') {
+function (url, callbackName = 'callback') {
   return new Promise((resolve, reject) => {
     const cb = 'jsonp_cb_' + Math.floor(Math.random() * 1000000) + '_' + Date.now();
     const script = document.createElement('script');
@@ -1492,84 +1492,105 @@ async batchUpdateFundBasicInfo() {
     if (document.getElementById('view-home').classList.contains('active')) this.renderHome();
 },
 
+// 【全局新增】：统一跨域 HTML/纯文本提取引擎（完美解决 CORB 拦截与跨域）
+  async fetchEMHtmlData(url) {
+      let text = null;
+      // 1. 首选原生 fetch 直连 (依赖您的 CORS 插件)
+      try {
+          const controller = new AbortController();
+          const id = setTimeout(() => controller.abort(), 3500);
+          const r = await fetch(url, { signal: controller.signal });
+          clearTimeout(id);
+          if (r.ok) text = await r.text();
+      } catch (e) {}
 
-// ==============================================================
-// 2. 批量抓取：持仓信息 (后台静默 + 30天缓存防重)
-// ==============================================================
-async batchFetchHoldings() {
-    const allCodes = new Set();
-    this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
-    const codes = Array.from(allCodes);
-    if (codes.length === 0) return this.showToast('暂无基金数据', 'error');
+      // 2. 降级：若直连失败，无缝切入 Worker 代理兜底
+      if (!text && this.workerUrl && !this.workerUrl.includes('example.com')) {
+          try {
+              const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
+              const controller = new AbortController();
+              const id = setTimeout(() => controller.abort(), 5000);
+              const r = await fetch(proxyUrl, { signal: controller.signal });
+              clearTimeout(id);
+              if (r.ok) text = await r.text();
+          } catch (e) {}
+      }
+      return text;
+  },
+// 【重新设计】：批量抓取持仓信息 (原生 fetch + 平滑限速防拦截版)
+  async batchFetchHoldings() {
+      const allCodes = new Set();
+      this.data.groups.forEach(g => g.fundCodes.forEach(c => allCodes.add(c)));
+      const codes = Array.from(allCodes);
+      if (codes.length === 0) return this.showToast('暂无基金数据', 'error');
 
-    // 检测强制刷新复选框状态
-    const isForce = document.getElementById('force-refresh-checkbox')?.checked || false;
-    
-    const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; 
-    const now = Date.now();
-    
-    const codesToUpdate = isForce ? codes : codes.filter(code => {
-        const cache = this.data.fundsCache[code]?.holdingsCache;
-        return !cache || !cache.timestamp || (now - cache.timestamp > CACHE_TTL);
-    });
+      const isForce = document.getElementById('force-refresh-checkbox')?.checked || false;
+      const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; 
+      const now = Date.now();
+      
+      const codesToUpdate = isForce ? codes : codes.filter(code => {
+          const cache = this.data.fundsCache[code]?.holdingsCache;
+          return !cache || !cache.timestamp || (now - cache.timestamp > CACHE_TTL);
+      });
 
-    if (codesToUpdate.length === 0) {
-        return this.showToast('✅ 库内所有持仓均在近30天内更新过，无需重复获取');
-    }
+      if (codesToUpdate.length === 0) {
+          return this.showToast('✅ 库内所有持仓均在保护期内，无需重复获取');
+      }
 
-    this.showToast(`🚀 后台启动：正在抓取 ${codesToUpdate.length} 只基金持仓`);
+      this.showToast(`🚀 启动平滑抓取：共 ${codesToUpdate.length} 只，将控制速度以防拦截`);
 
-    let bgToast = document.getElementById('bg-task-toast');
-    if (!bgToast) {
-        // ... (复用上面的悬浮窗创建逻辑，如果已存在直接修改标题)
-        bgToast = document.createElement('div');
-        bgToast.id = 'bg-task-toast';
-        bgToast.style.cssText = 'display:flex; position:fixed; bottom:20px; right:20px; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); box-shadow:0 10px 25px rgba(0,0,0,0.1); border-radius:12px; padding:12px 16px; z-index:9999; border:1px solid #e2e8f0; align-items:center; gap:12px; transition:all 0.3s; transform:translateY(100px); opacity:0;';
-        bgToast.innerHTML = `
-            <div class="loading-spinner" style="width:20px; height:20px; margin:0; border-width:3px; border-top-color:#8b5cf6;"></div>
-            <div>
-                <div style="font-size:12px; font-weight:900; color:#1e293b;" id="bg-task-title">深度查仓中...</div>
-                <div style="font-size:11px; font-weight:bold; color:#8b5cf6;" id="bg-task-progress">0 / 0</div>
-            </div>
-        `;
-        document.body.appendChild(bgToast);
-    }
-    
-    // 如果复用了上面的 DOM，更新颜色和文字
-    document.getElementById('bg-task-title').innerText = '深度查仓中...';
-    document.getElementById('bg-task-progress').style.color = '#8b5cf6';
-    bgToast.querySelector('.loading-spinner').style.borderTopColor = '#8b5cf6';
-    
-    bgToast.style.display = 'flex';
-    setTimeout(() => { bgToast.style.transform = 'translateY(0)'; bgToast.style.opacity = '1'; }, 50);
+      let bgToast = document.getElementById('bg-task-toast');
+      if (!bgToast) {
+          bgToast = document.createElement('div');
+          bgToast.id = 'bg-task-toast';
+          bgToast.style.cssText = 'display:flex; position:fixed; bottom:20px; right:20px; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); box-shadow:0 10px 25px rgba(0,0,0,0.1); border-radius:12px; padding:12px 16px; z-index:9999; border:1px solid #e2e8f0; align-items:center; gap:12px; transition:all 0.3s; transform:translateY(100px); opacity:0;';
+          bgToast.innerHTML = `
+              <div class="loading-spinner" style="width:20px; height:20px; margin:0; border-width:3px; border-top-color:#8b5cf6;"></div>
+              <div>
+                  <div style="font-size:12px; font-weight:900; color:#1e293b;" id="bg-task-title">深度查仓中...</div>
+                  <div style="font-size:11px; font-weight:bold; color:#8b5cf6;" id="bg-task-progress">0 / 0</div>
+              </div>
+          `;
+          document.body.appendChild(bgToast);
+      }
+      
+      document.getElementById('bg-task-title').innerText = '深度查仓中...';
+      document.getElementById('bg-task-progress').style.color = '#8b5cf6';
+      bgToast.querySelector('.loading-spinner').style.borderTopColor = '#8b5cf6';
+      
+      bgToast.style.display = 'flex';
+      setTimeout(() => { bgToast.style.transform = 'translateY(0)'; bgToast.style.opacity = '1'; }, 50);
 
-    const progressText = document.getElementById('bg-task-progress');
-    progressText.innerText = `0 / ${codesToUpdate.length}`;
+      const progressText = document.getElementById('bg-task-progress');
+      let successCount = 0, failedCount = 0;
 
-    let successCount = 0, failedCount = 0;
+      for (let i = 0; i < codesToUpdate.length; i++) {
+          const code = codesToUpdate[i];
+          progressText.innerText = `${i + 1} / ${codesToUpdate.length} (${code})`;
+          
+          try {
+              await this._fetchSingleFundHoldingsWithTimeout(code, 8000);
+              successCount++;
+              if (i % 5 === 0) await this.saveData(); // 每 5 个存一次，防丢失
+          } catch (e) {
+              failedCount++;
+          }
+          
+          // 【核心控制】：加入随机平滑限速 (600~1200ms)，完美模拟人类点击节奏
+          if (i < codesToUpdate.length - 1) {
+              await new Promise(r => setTimeout(r, 600 + Math.random() * 600)); 
+          }
+      }
 
-    for (let i = 0; i < codesToUpdate.length; i++) {
-        const code = codesToUpdate[i];
-        try {
-            // 设置单次抓取最大超时，防止挂死
-            await this._fetchSingleFundHoldingsWithTimeout(code, 6000);
-            successCount++;
-            await this.saveData(); 
-        } catch (e) {
-            failedCount++;
-        }
-        
-        progressText.innerText = `${i + 1} / ${codesToUpdate.length}`;
-        if (i < codesToUpdate.length - 1) await new Promise(r => setTimeout(r, 150));
-    }
+      await this.saveData(); 
 
-    bgToast.style.transform = 'translateY(100px)';
-    bgToast.style.opacity = '0';
-    setTimeout(() => { bgToast.style.display = 'none'; }, 300);
+      bgToast.style.transform = 'translateY(100px)';
+      bgToast.style.opacity = '0';
+      setTimeout(() => { bgToast.style.display = 'none'; }, 300);
 
-    if (failedCount > 0) this.showToast(`查仓结束，成功 ${successCount} 只，无数据/失败 ${failedCount} 只`, 'error');
-    else this.showToast(`✅ 所选基金持仓已全部后台更新完毕`);
-},
+      if (failedCount > 0) this.showToast(`查仓结束：成功 ${successCount} 只，无数据/失败 ${failedCount} 只`, 'warning');
+      else this.showToast(`✅ 所选基金持仓已全部更新完毕`);
+  },
 
 // 1. 初始化中补齐股票分组状态
   currentStockGroupId: 'default',
@@ -7294,80 +7315,22 @@ updateFundCardDisplay(code) {
 
 
 
-// 【双擎升级版】：东方财富官网持仓解析引擎 (完美解决批量抓取时的 CORB 与 404 报错)
-  async fetchEastMoneyTable(code, type, maxRetries = 2) {
-    const targetUrl = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${type}&code=${code}&topline=10&year=&month=&rt=${Date.now()}`;
-    
-    // 方案 1：优先使用 fetch 直连 / 智能反代拉取文本解析 (无视 CORB 拦截，速度极快)
-    try {
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 4000);
+// 【极简强力版】：东方财富官网持仓解析引擎 (彻底无视 CORB，弃用 iframe)
+  async fetchEastMoneyTable(code, type) {
+      const targetUrl = `https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=${type}&code=${code}&topline=10&year=&month=&rt=${Date.now()}`;
       
-      let fetchUrl = targetUrl;
-      if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-        fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetUrl)}`;
+      const text = await this.fetchEMHtmlData(targetUrl);
+      if (text) {
+          const match = text.match(/content\s*:\s*"((?:[^"\\]|\\.)*)"/);
+          if (match && match[1]) {
+              try {
+                  let contentHtml = JSON.parse(`"${match[1]}"`);
+                  return this._parseHoldingsHtml(contentHtml, type);
+              } catch(e) {}
+          }
       }
-      
-      const resp = await fetch(fetchUrl, {
-        signal: controller.signal,
-        referrerPolicy: 'no-referrer'
-      });
-      clearTimeout(tid);
-
-      if (resp.ok) {
-        const text = await resp.text();
-        const match = text.match(/content\s*:\s*"((?:[^"\\]|\\.)*)"/);
-        if (match && match[1]) {
-          // 解码 Unicode 转义符
-          let contentHtml = JSON.parse(`"${match[1]}"`);
-          return this._parseHoldingsHtml(contentHtml, type);
-        }
-        // 【核心修复】：如果 fetch 成功，但没匹配到数据（例如该基金没有债券持仓）
-        // 必须立刻返回空数组，切断执行，绝不允许进入下方的 script 降级！
-        return []; 
-      }
-    } catch (e) {
-      // 只有在 fetch 彻底遇到网络错误/跨域拦截时，才允许进入下方的降级方案
-    }
-
-    // 方案 2：降级方案 —— 隔离沙盒 script 注入 (作为最终网络兜底)
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        const result = await new Promise((resolve) => {
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            document.body.appendChild(iframe);
-
-            const finish = (data) => {
-                if (iframe.parentNode) iframe.remove();
-                resolve(data);
-            };
-
-            const timeout = setTimeout(() => finish(null), 4000); 
-
-            const doc = iframe.contentWindow.document;
-            iframe.contentWindow.onerror = () => true; 
-
-            const script = doc.createElement('script');
-            script.referrerPolicy = 'no-referrer';
-            script.src = `${targetUrl}&attempt=${attempt}`;
-            
-            script.onload = () => {
-                clearTimeout(timeout);
-                const win = iframe.contentWindow;
-                if (win.apidata && win.apidata.content) {
-                    finish(this._parseHoldingsHtml(win.apidata.content, type));
-                } else {
-                    finish(null);
-                }
-            };
-            script.onerror = () => { clearTimeout(timeout); finish(null); };
-            doc.head.appendChild(script);
-        });
-
-        if (result !== null) return result; 
-        await new Promise(r => setTimeout(r, 500));
-    }
-    return []; 
+      // 没有匹配到数据（例如无债券持仓），直接秒回空数组，干净利落
+      return []; 
   },
 
   // 辅助解析：将原生持仓 HTML 转换为 JSON 数组
@@ -7412,28 +7375,49 @@ updateFundCardDisplay(code) {
       return parsedData;
   },
   
-  // 加载基金持仓（优先从缓存读取）
-async loadHoldings(code) {
-    const container = document.getElementById('det-hold-area');
-    if (!container) return;
-    
-    const cached = this.data.fundsCache[code]?.holdingsCache;
-    if (cached && cached.stocks && Array.isArray(cached.stocks)) {
-        // 使用缓存数据，但仍需获取实时股票涨跌幅
-        await this._renderHoldingsUI(code, cached.stocks, cached.bonds);
-        return;
-    }
-    
-    // 无缓存，显示友好提示并提供抓取入口
-    container.innerHTML = `
-        <div style="text-align:center; padding:40px 20px; color:#94a3b8;">
-            <div style="font-size:40px; margin-bottom:12px;">📭</div>
-            <div style="font-weight:bold; margin-bottom:8px;">暂无持仓缓存数据</div>
-            <div style="font-size:12px; margin-bottom:16px;">请前往「设置中心」→「批量抓取持仓」获取</div>
-            <button class="btn-primary" style="background: #8b5cf6; margin-top:8px;" onclick="app.batchFetchHoldings()">📦 立即批量抓取</button>
-        </div>
-    `;
-},
+// 加载基金持仓（优先缓存，若无则触发单次实时穿透抓取）
+  async loadHoldings(code) {
+      const container = document.getElementById('det-hold-area');
+      if (!container) return;
+      
+      const cached = this.data.fundsCache[code]?.holdingsCache;
+      const CACHE_TTL = 30 * 24 * 60 * 60 * 1000; 
+      const isCacheValid = cached && cached.timestamp && (Date.now() - cached.timestamp < CACHE_TTL);
+
+      if (isCacheValid && cached.stocks && Array.isArray(cached.stocks)) {
+          await this._renderHoldingsUI(code, cached.stocks, cached.bonds);
+          return;
+      }
+      
+      // 无缓存，触发单次实时自动抓取
+      container.innerHTML = `
+          <div style="text-align:center; padding:40px 20px; color:#94a3b8;">
+              <div class="loading-spinner" style="margin: 0 auto 12px; border-top-color: #8b5cf6;"></div>
+              <div style="font-weight:bold; margin-bottom:8px;">正在实时穿透查仓...</div>
+              <div style="font-size:12px;">这将获取该基金最新的股债配置比例</div>
+          </div>
+      `;
+
+      try {
+          await this._fetchSingleFundHoldingsWithTimeout(code, 8000);
+          this.saveData(); 
+          
+          const newCached = this.data.fundsCache[code]?.holdingsCache;
+          if (newCached && newCached.stocks) {
+              await this._renderHoldingsUI(code, newCached.stocks, newCached.bonds);
+          } else {
+              throw new Error('未获取到持仓数据');
+          }
+      } catch (e) {
+          container.innerHTML = `
+              <div style="text-align:center; padding:40px 20px; color:#f43f5e;">
+                  <div style="font-size:40px; margin-bottom:12px;">⚠️</div>
+                  <div style="font-weight:bold; margin-bottom:8px;">持仓数据提取失败</div>
+                  <div style="font-size:12px;">可能是新发基金或网络波动，请稍后再试</div>
+              </div>
+          `;
+      }
+  },
 
   // 渲染持仓UI（股票+债券，附带实时涨跌幅）
 async _renderHoldingsUI(code, stocks, bonds) {

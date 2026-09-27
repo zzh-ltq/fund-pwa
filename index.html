@@ -1296,54 +1296,6 @@ const app = {
   
   targetMarketSecid: '',     // 新增：用于记录当前正在绑定分组的行情代码
   workerUrl: 'https://myworker.indevs.in', // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
-  // ==========================================
-  // 智能自适应网络请求引擎 (终极防拦截版：Worker 代理 + CDN 节点穿透双擎)
-  // ==========================================
-  async fetchEastMoneyData(url, callbackName = 'cb') {
-    // 1. 尝试 Worker 代理
-    if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-      try {
-        const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(proxyUrl, { signal: controller.signal });
-        clearTimeout(id);
-
-        if (res.ok) {
-          const text = await res.text();
-          try {
-            // 尝试直接按标准 JSON 解析
-            return JSON.parse(text); 
-          } catch (err) {
-            // 若 Worker 原封不动返回了 JSONP 格式 (例如 cb({...}))，则用正则安全提取出 JSON
-            const match = text.match(/^[^{]*({.*})[^}]*$/);
-            if (match && match[1]) return JSON.parse(match[1]);
-          }
-        }
-      } catch(e) {
-        console.warn('Worker 代理异常，启动穿透引擎...', e);
-      }
-    }
-    
-    // 2. 原生 JSONP 尝试
-    try {
-      return await fetchJSONP(url, callbackName);
-    } catch (e) {
-      // 3. 终极兜底：CDN 边缘子节点穿透（完美解决 ERR_EMPTY_RESPONSE）
-      // 东方财富主域名被墙/拦截时，随机分配 10~99 的边缘子节点可直接绕过阻断
-      console.warn('主线路受阻，正在启用 CDN 边缘节点穿透...');
-      if (url.includes('push2his.eastmoney.com')) {
-        const randomNode = Math.floor(Math.random() * 90) + 10;
-        const bypassUrl = url.replace('push2his.eastmoney.com', `${randomNode}.push2his.eastmoney.com`);
-        return await fetchJSONP(bypassUrl, callbackName);
-      } else if (url.includes('push2.eastmoney.com')) {
-        const randomNode = Math.floor(Math.random() * 90) + 10;
-        const bypassUrl = url.replace('push2.eastmoney.com', `${randomNode}.push2.eastmoney.com`);
-        return await fetchJSONP(bypassUrl, callbackName);
-      }
-      throw e;
-    }
-  },
 
    // 列表周期状态（用于动态最大回撤和夏普比率）
   listPeriod: '近1年',   // 可选 '近1月', '近3月', '近6月', '近1年'
@@ -3731,7 +3683,7 @@ getCorrectSecid(savedSecid, code, groupType) {
     // --- 1. 获取基础报价与盘口数据（扩充换手率、总市值、市盈率字段）---
     const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170,f8,f20,f9,f115,f116,f162,f167,f168&_=${Date.now()}`; 
     try { 
-      const res = await this.fetchEastMoneyData(pkUrl, 'cb'); 
+      const res = await fetchJSONP(pkUrl, 'cb'); 
       const d = res?.data; 
       if (d) { 
         if (d.f59 !== undefined && !isNaN(d.f59)) {
@@ -3836,17 +3788,28 @@ getCorrectSecid(savedSecid, code, groupType) {
     let latestHistoryDay = null;
 
     // A. 抓取今日资金官方接口 (fetch 直连 / 代理 / fetchJSONP 三级自适应，确保百分百拿到)
-    // 将 ZJLX 获取块替换为：
     const zjlxUrl = `https://emdatah5.eastmoney.com/dc/ZJLX/getZJLXData?secid=${secid}&fields=f57,f58,f135,f136,f137,f138,f139,f140,f141,f142,f143,f144,f145,f146,f147,f148,f149,f86&_=${Date.now()}`;
     try {
-        const res = await this.fetchEastMoneyData(zjlxUrl, 'callback');
-        if (res?.data) snapshotFlow = res.data;
-    } catch(e) {}
+        let fetchUrl = zjlxUrl;
+        if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+            fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(zjlxUrl)}`;
+        }
+        const resp = await fetch(fetchUrl);
+        if (resp.ok) {
+            const json = await resp.json();
+            if (json?.data) snapshotFlow = json.data;
+        }
+    } catch(e) {
+        try {
+            const jsonpRes = await fetchJSONP(zjlxUrl, 'callback');
+            if (jsonpRes?.data) snapshotFlow = jsonpRes.data;
+        } catch(e2) {}
+    }
 
     // B. 获取近 20 天历史主力资金
     const hisFlowUrl = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?lmt=20&secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&_=${Date.now()}`;
     try {
-        const res = await this.fetchEastMoneyData(hisFlowUrl, 'cb');
+        const res = await fetchJSONP(hisFlowUrl, 'cb');
         const klines = res?.data?.klines;
         if (klines && klines.length > 0) {
             historyFlowData = klines.map(str => {
@@ -3955,7 +3918,7 @@ getCorrectSecid(savedSecid, code, groupType) {
     if (this.marketState.chartType === 'trend') { 
       const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`; 
       try { 
-        const res = await this.fetchEastMoneyData(trendUrl, 'cb'); 
+        const res = await fetchJSONP(trendUrl, 'cb'); 
         const trends = res?.data?.trends || []; 
         const prePrice = res?.data?.prePrice;
         let finalPrevClose = (prePrice && !isNaN(prePrice) && prePrice > 0) ? prePrice : this.marketState.currentPrevClose;
@@ -4039,27 +4002,13 @@ getCorrectSecid(savedSecid, code, groupType) {
           this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
           this.bindChartEvents(); 
         } 
-      } catch(e) {
-          // 在这里增加失败提示的 UI 渲染
-          const canvas = document.getElementById('md-canvas');
-          if (canvas) {
-              const ctx = canvas.getContext('2d');
-              const dpr = window.devicePixelRatio || 1;
-              ctx.setTransform(1, 0, 0, 1, 0, 0); 
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.scale(dpr, dpr);
-              ctx.font = 'bold 13px sans-serif';
-              ctx.fillStyle = '#f43f5e';
-              ctx.textAlign = 'center';
-              ctx.fillText('获取K线数据失败，网络连接被重置或受限', canvas.width / dpr / 2, canvas.height / dpr / 2);
-          }
-      } 
+      } catch(e) {} 
     } else { 
       // K 线图渲染逻辑保持稳定
       const klt = parseInt(this.marketState.chartType) || 101; 
       const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380&_=${Date.now()}`; 
       try { 
-        const res = await this.fetchEastMoneyData(kUrl, 'cb');
+        const res = await fetchJSONP(kUrl, 'cb'); 
         const klines = res?.data?.klines || []; 
         let finalPrevClose = this.marketState.currentPrevClose;
         
@@ -5064,7 +5013,7 @@ drawIntradayFlowCanvas(data) {
       // 拉取日 K 线 (klt=101)
       const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&_=${Date.now()}`;
       try {
-          const res = await this.fetchEastMoneyData(url, 'cb');
+          const res = await fetchJSONP(url, 'cb');
           const klines = res?.data?.klines || [];
           if (klines.length === 0) return null;
           

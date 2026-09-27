@@ -1146,6 +1146,10 @@ function fetchJSONP(url, callbackName = 'callback') {
     const script = document.createElement('script');
     const sep = url.includes('?') ? '&' : '?';
     script.src = `${url}${sep}${callbackName}=${cb}`;
+    
+    // 【核心修复】：强制剥离来源域名，绕过东方财富移动端 WAF 拦截风控
+    script.referrerPolicy = 'no-referrer'; 
+    
     window[cb] = (data) => {
       resolve(data);
       delete window[cb];
@@ -4004,14 +4008,15 @@ getCorrectSecid(savedSecid, code, groupType) {
         } 
       } catch(e) {} 
     } else { 
-      // K 线图渲染逻辑：采用 多节点轮询 + Worker 代理兜底引擎
+      // K 线图渲染逻辑：采用官方秘钥 + 多节点轮询 + Worker 代理兜底引擎
       const klt = parseInt(this.marketState.chartType) || 101; 
-      const endpointParams = `api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380`;
+      // 【核心修复】：加入官方公钥 ut=fa5fd1943c7b386f172d6893dbfba10b 进白名单
+      const endpointParams = `api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=380`;
       
       let klines = [];
       let finalPrevClose = this.marketState.currentPrevClose;
 
-      // 1. 策略一：尝试轮询东方财富的不同隐藏节点（避开主节点单点风控）
+      // 1. 策略一：尝试轮询东方财富的不同隐藏节点，防单点风控
       const nodes = ['push2his', '1.push2his', '82.push2his', '2.push2his'];
       for (let node of nodes) {
         try {
@@ -4019,14 +4024,12 @@ getCorrectSecid(savedSecid, code, groupType) {
             const res = await fetchJSONP(kUrl, 'cb');
             if (res?.data?.klines) {
                 klines = res.data.klines;
-                break; // 成功获取，立即跳出轮询
+                break; // 成功获取，跳出轮询
             }
-        } catch (e) {
-            // 单个节点被阻断 (如 ERR_EMPTY_RESPONSE)，静默继续尝试下一个节点
-        }
+        } catch (e) {}
       }
 
-      // 2. 策略二：如果直连全部阵亡，启用 Worker 代理终极兜底（服务器端标准 fetch）
+      // 2. 策略二：Worker 代理终极兜底 (若直连全部阵亡)
       if (klines.length === 0 && this.workerUrl && !this.workerUrl.includes('example.com')) {
           try {
               const targetUrl = `https://push2his.eastmoney.com/${endpointParams}`;
@@ -4043,12 +4046,10 @@ getCorrectSecid(savedSecid, code, groupType) {
                       klines = proxyJson.data.klines;
                   }
               }
-          } catch(e) {
-              console.warn("Worker 代理拉取 K 线失败:", e);
-          }
+          } catch(e) {}
       }
 
-      try {   
+      try { 
         if (klines.length > 0) { 
           const parsed = klines.map(str => { 
             const parts = str.split(','); 
@@ -5045,10 +5046,10 @@ drawIntradayFlowCanvas(data) {
       `;
   },
 
-  // 3. 辅助：后台静默拉取历史日 K 线数据
+  // 3. 辅助：后台静默拉取历史日 K 线数据（同步追加免检 Token）
   async _fetchMarketHistoryKlines(secid, days) {
-      // 拉取日 K 线 (klt=101)
-      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&_=${Date.now()}`;
+      // 植入 ut 官方秘钥防拦截
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&_=${Date.now()}`;
       try {
           const res = await fetchJSONP(url, 'cb');
           const klines = res?.data?.klines || [];

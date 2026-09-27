@@ -1083,6 +1083,9 @@ canvas#compare-canvas {
           <div class="pk-row"><span>涨跌额</span><span id="md-chg-abs">--</span></div>
           <div class="pk-row"><span>振幅</span><span id="md-amp">--</span></div>
           <div class="pk-row"><span>量比</span><span id="md-volratio">--</span></div>
+          <div class="pk-row"><span>换手率</span><span id="md-turnover">--</span></div>
+          <div class="pk-row"><span>总市值</span><span id="md-totalval">--</span></div>
+          <div class="pk-row"><span>市盈(动)</span><span id="md-pe">--</span></div>
         </div>
         <div style="background:#fff; padding:10px 15px 0;">
           <div class="detail-tabs" id="md-chart-tabs">
@@ -3622,6 +3625,9 @@ getCorrectSecid(savedSecid, code, groupType) {
       document.getElementById('md-open').innerText = '--';
       document.getElementById('md-high').innerText = '--';
       document.getElementById('md-low').innerText = '--';
+      if (document.getElementById('md-turnover')) document.getElementById('md-turnover').innerText = '--';
+      if (document.getElementById('md-totalval')) document.getElementById('md-totalval').innerText = '--';
+      if (document.getElementById('md-pe')) document.getElementById('md-pe').innerText = '--';
     
       // 2. 标题更新
       document.getElementById('md-title').innerText = name; 
@@ -3674,8 +3680,8 @@ getCorrectSecid(savedSecid, code, groupType) {
     const flowArea = document.getElementById('md-fund-flow-area');
     if (flowArea) flowArea.style.display = 'none'; 
     
-    // --- 1. 获取基础报价与盘口数据 ---
-    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170&_=${Date.now()}`; 
+    // --- 1. 获取基础报价与盘口数据（扩充换手率、总市值、市盈率字段）---
+    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170,f8,f20,f9,f115,f116,f162,f167,f168&_=${Date.now()}`; 
     try { 
       const res = await fetchJSONP(pkUrl, 'cb'); 
       const d = res?.data; 
@@ -3727,6 +3733,43 @@ getCorrectSecid(savedSecid, code, groupType) {
         } 
         const vrEl = document.getElementById('md-volratio'); 
         if (vrEl) vrEl.innerText = (d.f50 !== undefined && d.f50 !== '-' && !isNaN(d.f50)) ? parseFloat(d.f50).toFixed(2) : '--'; 
+
+        // 1. 换手率赋值 (优先读取 f168，备用 f8)
+        const turnoverEl = document.getElementById('md-turnover');
+        if (turnoverEl) {
+          const rawTurnover = (d.f168 !== undefined && d.f168 !== '-') ? d.f168 : d.f8;
+          if (rawTurnover !== undefined && rawTurnover !== '-' && !isNaN(parseFloat(rawTurnover))) {
+            turnoverEl.innerText = parseFloat(rawTurnover).toFixed(2) + '%';
+          } else {
+            turnoverEl.innerText = '--';
+          }
+        }
+
+        // 2. 总市值赋值 (优先读取 f116，备用 f20)
+        const totalvalEl = document.getElementById('md-totalval');
+        if (totalvalEl) {
+          const rawTotalVal = (d.f116 !== undefined && d.f116 !== '-') ? d.f116 : d.f20;
+          if (rawTotalVal !== undefined && rawTotalVal !== '-' && !isNaN(parseFloat(rawTotalVal))) {
+            const tv = parseFloat(rawTotalVal);
+            if (tv >= 100000000) totalvalEl.innerText = (tv / 100000000).toFixed(2) + '亿';
+            else if (tv >= 10000) totalvalEl.innerText = (tv / 10000).toFixed(2) + '万';
+            else totalvalEl.innerText = tv.toFixed(0);
+          } else {
+            totalvalEl.innerText = '--';
+          }
+        }
+
+        // 3. 市盈率赋值 (优先读取动态市盈率 f162/f9，备用 TTM f167)
+        const peEl = document.getElementById('md-pe');
+        if (peEl) {
+          const rawPe = (d.f162 !== undefined && d.f162 !== '-') ? d.f162 : ((d.f9 !== undefined && d.f9 !== '-') ? d.f9 : d.f167);
+          if (rawPe !== undefined && rawPe !== '-' && !isNaN(parseFloat(rawPe))) {
+            peEl.innerText = parseFloat(rawPe).toFixed(2);
+          } else {
+            peEl.innerText = '--';
+          }
+        }
+
         const dTime = new Date(); 
         document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
       } 

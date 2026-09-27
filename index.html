@@ -1963,30 +1963,53 @@ rtManualRefreshMarket() {
   // ==============================================================
   // 1. 全局跨域拉取双引擎 (注意每个方法末尾都有逗号)
   // ==============================================================
+  // 【智能路由分发版】：东方财富接口三擎自适应拉取引擎（完美解决 K 线大片数据 500 报错与超时）
   async fetchEMData(url) {
       let res = null;
+      
+      // 1. 首选原生 fetch 直连 (放宽超时至 6 秒，防止 K 线等大数据量被误杀)
       try {
           const controller = new AbortController();
-          const id = setTimeout(() => controller.abort(), 3000);
+          const id = setTimeout(() => controller.abort(), 6000);
           const r = await fetch(url, { signal: controller.signal });
           clearTimeout(id);
-          if (r.ok) res = await r.json();
+          if (r.ok) {
+              // 防御性解析：防止返回的是 text/plain 而导致 .json() 崩溃
+              const text = await r.text();
+              try { res = JSON.parse(text); } catch(e) { res = text; }
+          }
       } catch (e) {}
 
+      // 【核心修复】：智能路由分发
+      // 东方财富的 push2 和 push2his 接口原生完美支持 JSONP。
+      // 如果 fetch 失败，千万不要走 Worker 代理（极易报 500 错误），直接秒切 JSONP！
+      if (!res && (url.includes('push2.eastmoney.com') || url.includes('push2his.eastmoney.com'))) {
+          try {
+              res = await fetchJSONP(url, 'cb');
+              return res; // 直接返回，避开后续无用流程
+          } catch (e) {}
+      }
+
+      // 2. 对于其他非 push2 的接口（如 emdatah5），如果直连失败，再尝试 Worker 代理兜底
       if (!res && this.workerUrl && !this.workerUrl.includes('example.com')) {
           try {
               const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
               const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 4000);
+              const id = setTimeout(() => controller.abort(), 6000);
               const r = await fetch(proxyUrl, { signal: controller.signal });
               clearTimeout(id);
-              if (r.ok) res = await r.json();
+              if (r.ok) {
+                  const text = await r.text();
+                  try { res = JSON.parse(text); } catch(e) { res = text; }
+              }
           } catch (e) {}
       }
 
+      // 3. 最后的全盘兜底
       if (!res) {
           try { res = await fetchJSONP(url, 'cb'); } catch (e) {}
       }
+
       return res;
   },
 

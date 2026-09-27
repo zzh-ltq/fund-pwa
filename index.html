@@ -8154,21 +8154,24 @@ ds(e, i) {
     return html;
   },
   
-// 【最强直连版】：原生 fetch 配合 Function 沙盒解析，告别脆弱正则，100%成功率
+// 【代理自适应版】：原生 fetch 配合 Function 沙盒解析
   async fetchFundFullInfo(code) {
       for (let attempt = 0; attempt < 3; attempt++) {
           try {
               const controller = new AbortController();
               const id = setTimeout(() => controller.abort(), 4000); 
               
-              // 直连东方财富 JS 接口
-              const res = await fetch(`https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}_${Math.random()}`, { signal: controller.signal });
+              const targetUrl = `https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}_${Math.random()}`;
+              let fetchUrl = targetUrl;
+              if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+                  fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetUrl)}`;
+              }
+
+              const res = await fetch(fetchUrl, { signal: controller.signal });
               clearTimeout(id);
               
               if (res.ok) {
                   const text = await res.text();
-                  
-                  // 【核心修复】：使用 JS 原生沙盒直接执行脚本并导出变量，彻底无视换行和特殊字符
                   try {
                       const extractFunc = new Function(`
                           ${text}
@@ -8178,15 +8181,13 @@ ds(e, i) {
                               fundInfo: typeof Data_fundInfo !== 'undefined' ? Data_fundInfo : null
                           };
                       `);
-                      const result = extractFunc();
-                      return result;
+                      return extractFunc();
                   } catch (evalErr) {
-                      console.warn(`基金 ${code} 沙盒解析失败:`, evalErr);
                       return { manager: null, evalData: null, fundInfo: null };
                   }
               }
           } catch (e) {
-              await new Promise(r => setTimeout(r, 200)); // 遇限流休眠重试
+              await new Promise(r => setTimeout(r, 200)); 
           }
       }
       return { manager: null, evalData: null, fundInfo: null };
@@ -8295,7 +8296,7 @@ async renderPerformanceTab(code) {
   if (activeBtn) activeBtn.classList.add('active');
 },
 
-// 【直连 Hack 版】：直连抓取费率页面
+// 【直连 / 代理自适应版】：获取费率页面
   async fetchFundRateHtml(code, retry = 2) {
       const targetHtmlUrl = `https://fundf10.eastmoney.com/jjfl_${code}.html`;
       
@@ -8304,8 +8305,13 @@ async renderPerformanceTab(code) {
               const controller = new AbortController();
               const id = setTimeout(() => controller.abort(), 4000);
               
-              // 剥离代理，直接 fetch 目标网址
-              const response = await fetch(targetHtmlUrl, { signal: controller.signal });
+              // 自动套用 Worker 代理解决跨域
+              let fetchUrl = targetHtmlUrl;
+              if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+                  fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetHtmlUrl)}`;
+              }
+              
+              const response = await fetch(fetchUrl, { signal: controller.signal });
               clearTimeout(id);
 
               if (response.ok) {
@@ -8323,20 +8329,26 @@ async renderPerformanceTab(code) {
   },
 
 async extractFundBasicData(code) {
-      // 【直连 Hack 版】：剥离所有代理包装，让浏览器直接冲
+      // 【代理自适应版】：安全获取 HTML
       const fetchHTMLSafely = async (url) => {
           try {
               const controller = new AbortController();
               const id = setTimeout(() => controller.abort(), 5000); 
-              // 直接请求目标 URL
-              const res = await fetch(url, { signal: controller.signal });
+              
+              // 自动套用 Worker 代理解决跨域
+              let fetchUrl = url;
+              if (this.workerUrl && !this.workerUrl.includes('example.com')) {
+                  fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
+              }
+
+              const res = await fetch(fetchUrl, { signal: controller.signal });
               clearTimeout(id);
               if (res.ok) return await res.text();
           } catch (e) { }
           return null;
       };
 
-      // 1. 高速并行获取核心数据（3个请求同时直连发出）
+      // 1. 高速并行获取核心数据
       const [fullInfo, html, jjjlHtml] = await Promise.all([
           this.fetchFundFullInfo(code),
           this.fetchFundRateHtml(code),

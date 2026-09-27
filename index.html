@@ -1960,13 +1960,9 @@ rtManualRefreshMarket() {
     await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData }); 
     this.processGroupRisks(); 
   },
-  // ==============================================================
-  // 1. 全局跨域拉取双引擎 (注意每个方法末尾都有逗号)
-  // ==============================================================
-  // 【智能路由分发版】：东方财富接口三擎自适应拉取引擎（完美解决 K 线大片数据 500 报错与超时）
+// 【智能路由分发版】：东方财富接口三擎自适应拉取引擎（完美解决 K 线大片数据 500 报错与超时）
   async fetchEMData(url) {
       let res = null;
-      
       // 1. 首选原生 fetch 直连 (放宽超时至 6 秒，防止 K 线等大数据量被误杀)
       try {
           const controller = new AbortController();
@@ -1974,23 +1970,22 @@ rtManualRefreshMarket() {
           const r = await fetch(url, { signal: controller.signal });
           clearTimeout(id);
           if (r.ok) {
-              // 防御性解析：防止返回的是 text/plain 而导致 .json() 崩溃
               const text = await r.text();
               try { res = JSON.parse(text); } catch(e) { res = text; }
           }
       } catch (e) {}
 
-      // 【核心修复】：智能路由分发
-      // 东方财富的 push2 和 push2his 接口原生完美支持 JSONP。
-      // 如果 fetch 失败，千万不要走 Worker 代理（极易报 500 错误），直接秒切 JSONP！
-      if (!res && (url.includes('push2.eastmoney.com') || url.includes('push2his.eastmoney.com'))) {
+      const isPush2 = url.includes('push2.eastmoney.com') || url.includes('push2his.eastmoney.com');
+
+      // 2. 【核心修复】：如果是东方财富行情接口，绝对不能走 Worker（会导致 500 报错），直接使用 JSONP 兜底
+      if (!res && isPush2) {
           try {
               res = await fetchJSONP(url, 'cb');
-              return res; // 直接返回，避开后续无用流程
           } catch (e) {}
+          return res; // 直接返回，彻底阻断代理流程
       }
 
-      // 2. 对于其他非 push2 的接口（如 emdatah5），如果直连失败，再尝试 Worker 代理兜底
+      // 3. 非行情接口（如 html, zjlx），尝试 Worker 代理兜底
       if (!res && this.workerUrl && !this.workerUrl.includes('example.com')) {
           try {
               const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
@@ -2005,7 +2000,7 @@ rtManualRefreshMarket() {
           } catch (e) {}
       }
 
-      // 3. 最后的全盘兜底
+      // 4. 全盘最终兜底
       if (!res) {
           try { res = await fetchJSONP(url, 'cb'); } catch (e) {}
       }
@@ -3194,40 +3189,35 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
   },
   
 
-getCorrectSecid(savedSecid, code, groupType) {
-    if (!code) return savedSecid;
-    const c = String(code).toUpperCase();
+// 【自动修复版】：获取正确的行情前缀代码
+  getCorrectSecid(savedSecid, code, groupType) {
+      if (!code) return savedSecid;
+      const c = String(code).toUpperCase();
 
-    // 1. 板块绝对前缀
-    if (c.startsWith('BK')) return `90.${c}`;
+      // 1. 如果已经是非常标准的带小数点的格式，检查是否是历史旧 Bug 导致的错误数据
+      if (savedSecid && String(savedSecid).includes('.')) {
+          const parts = String(savedSecid).split('.');
+          // 【核心自动修复】：拦截旧版 Bug 导致的 2.xxxxxx (误把A股/指数当成了港股)
+          const isWrongHK = parts[0] === '2' && /^(00|30|60|68|93|39|51|15|56|58|83|43|87)\d{4}$/.test(parts[1]);
+          if (!isWrongHK) {
+              return savedSecid;
+          }
+      }
 
-    // 2. 如果是股票或场内ETF基金，规则固定，强制纠正
-    if (groupType === 'stock' || groupType === 'etf') {
-      // 沪市：6(A股), 9(B股), 51/52/56/58/59(沪市ETF)
-      if (c.startsWith('6') || c.startsWith('9') || c.startsWith('51') || c.startsWith('52') || c.startsWith('56') || c.startsWith('58') || c.startsWith('59')) return `1.${c}`; 
-      // 深市/北交所：0(深A), 3(创业板), 4/8(北交所), 15/16(深市ETF)
-      if (c.startsWith('0') || c.startsWith('3') || c.startsWith('4') || c.startsWith('8') || c.startsWith('15') || c.startsWith('16')) return `0.${c}`; 
-    }
+      // 2. 板块绝对前缀
+      if (c.startsWith('BK')) return `90.${c}`;
+      
+      // 3. 沪市规则 (A股, 科创, 沪市ETF, 以及指数 93, 000)
+      if (/^(60|68|51|52|56|58|59|93)\d{4}$/.test(c)) return `1.${c}`; 
+      if (c.startsWith('000') && groupType === 'index') return `1.${c}`;
+      
+      // 4. 深市规则 (A股, 创业, 深市ETF, 深圳指数)
+      if (/^(00|30|15|16|39)\d{4}$/.test(c)) return `0.${c}`; 
+      
+      // 5. 北交所规则
+      if (/^(43|83|87|92)\d{4}$/.test(c)) return `0.${c}`;
 
-    // 3. 如果是指数，优先信任之前保存的带小数点的完整前缀
-    if (savedSecid && String(savedSecid).includes('.')) {
-        if (c.startsWith('51') || c.startsWith('52') || c.startsWith('56') || c.startsWith('58') || c.startsWith('59')) return `1.${c}`;
-        if (c.startsWith('15') || c.startsWith('16')) return `0.${c}`;
-        return savedSecid;
-    }
-
-    // 4. 默认纠偏
-    if (groupType === 'index') {
-      if (c.startsWith('399')) return `0.${c}`;
-      if (c.startsWith('000')) return `1.${c}`;
-      if (c.startsWith('98')) return `0.${c}`; 
-      if (c.startsWith('93')) return `1.${c}`; 
-      if (c.startsWith('H')) return `2.${c}`;
-      if (c.startsWith('51') || c.startsWith('52') || c.startsWith('56') || c.startsWith('58') || c.startsWith('59')) return `1.${c}`;
-      if (c.startsWith('15') || c.startsWith('16')) return `0.${c}`;
-    }
-
-    return `0.${c}`;
+      return `0.${c}`;
   },
 
    // --- 1. 完全替换 renderWatchedMarkets 函数 ---
@@ -3691,7 +3681,8 @@ getCorrectSecid(savedSecid, code, groupType) {
             resBox.innerHTML = '<div style="padding:15px; text-align:center; color:#94a3b8;">无结果</div>'; 
         } else {
             resBox.innerHTML = list.map(item => { 
-              const secid = `${item.MarketType}.${item.Code}`; 
+              // 【核心修复】：强制使用官方真实的 QuoteId 作为标准行情代码，防止深市或指数代码前缀生成错误
+              const secid = item.QuoteId || `${item.MarketType === 2 ? 0 : item.MarketType}.${item.Code}`; 
               return `<div class="list-item" style="border-radius:0; border:none; border-bottom:1px solid #f1f5f9; margin:0;" onclick="app.addWatchedMarket('${secid}', '${item.Name}', '${item.Code}')">
                         <span style="font-weight:800; color:var(--text-main);">${item.Name}</span>
                         <div style="display:flex; gap:10px; align-items:center;">

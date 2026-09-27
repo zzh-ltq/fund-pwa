@@ -1297,28 +1297,52 @@ const app = {
   targetMarketSecid: '',     // 新增：用于记录当前正在绑定分组的行情代码
   workerUrl: 'https://myworker.indevs.in', // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
   // ==========================================
-  // 智能自适应网络请求引擎 (彻底解决 ERR_EMPTY_RESPONSE 及防盗链)
+  // 智能自适应网络请求引擎 (终极防拦截版：Worker 代理 + CDN 节点穿透双擎)
   // ==========================================
   async fetchEastMoneyData(url, callbackName = 'cb') {
-    // 1. 优先使用 Worker 代理，完美绕过 IP 封锁、跨域及 ERR_EMPTY_RESPONSE 问题
+    // 1. 尝试 Worker 代理
     if (this.workerUrl && !this.workerUrl.includes('example.com')) {
       try {
         const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
         const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), 4500); // 4.5秒超时控制
+        const id = setTimeout(() => controller.abort(), 4000);
         const res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(id);
+
         if (res.ok) {
-          const json = await res.json();
-          if (json) return json;
+          const text = await res.text();
+          try {
+            // 尝试直接按标准 JSON 解析
+            return JSON.parse(text); 
+          } catch (err) {
+            // 若 Worker 原封不动返回了 JSONP 格式 (例如 cb({...}))，则用正则安全提取出 JSON
+            const match = text.match(/^[^{]*({.*})[^}]*$/);
+            if (match && match[1]) return JSON.parse(match[1]);
+          }
         }
       } catch(e) {
-        console.warn('Worker 代理请求异常，系统自动无缝降级使用 JSONP 兜底...', e);
+        console.warn('Worker 代理异常，启动穿透引擎...', e);
       }
     }
     
-    // 2. 若无代理或代理超时失败，则降级使用原生 JSONP
-    return await fetchJSONP(url, callbackName);
+    // 2. 原生 JSONP 尝试
+    try {
+      return await fetchJSONP(url, callbackName);
+    } catch (e) {
+      // 3. 终极兜底：CDN 边缘子节点穿透（完美解决 ERR_EMPTY_RESPONSE）
+      // 东方财富主域名被墙/拦截时，随机分配 10~99 的边缘子节点可直接绕过阻断
+      console.warn('主线路受阻，正在启用 CDN 边缘节点穿透...');
+      if (url.includes('push2his.eastmoney.com')) {
+        const randomNode = Math.floor(Math.random() * 90) + 10;
+        const bypassUrl = url.replace('push2his.eastmoney.com', `${randomNode}.push2his.eastmoney.com`);
+        return await fetchJSONP(bypassUrl, callbackName);
+      } else if (url.includes('push2.eastmoney.com')) {
+        const randomNode = Math.floor(Math.random() * 90) + 10;
+        const bypassUrl = url.replace('push2.eastmoney.com', `${randomNode}.push2.eastmoney.com`);
+        return await fetchJSONP(bypassUrl, callbackName);
+      }
+      throw e;
+    }
   },
 
    // 列表周期状态（用于动态最大回撤和夏普比率）
@@ -4015,7 +4039,21 @@ getCorrectSecid(savedSecid, code, groupType) {
           this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
           this.bindChartEvents(); 
         } 
-      } catch(e) {} 
+      } catch(e) {
+          // 在这里增加失败提示的 UI 渲染
+          const canvas = document.getElementById('md-canvas');
+          if (canvas) {
+              const ctx = canvas.getContext('2d');
+              const dpr = window.devicePixelRatio || 1;
+              ctx.setTransform(1, 0, 0, 1, 0, 0); 
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.scale(dpr, dpr);
+              ctx.font = 'bold 13px sans-serif';
+              ctx.fillStyle = '#f43f5e';
+              ctx.textAlign = 'center';
+              ctx.fillText('获取K线数据失败，网络连接被重置或受限', canvas.width / dpr / 2, canvas.height / dpr / 2);
+          }
+      } 
     } else { 
       // K 线图渲染逻辑保持稳定
       const klt = parseInt(this.marketState.chartType) || 101; 

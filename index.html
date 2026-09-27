@@ -8154,24 +8154,37 @@ ds(e, i) {
     return html;
   },
   
-// 【代理自适应版】：原生 fetch 配合 Function 沙盒解析
+// 【双擎自适应版】：原生 fetch 配合 Function 沙盒解析
   async fetchFundFullInfo(code) {
       for (let attempt = 0; attempt < 3; attempt++) {
           try {
-              const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 4000); 
-              
               const targetUrl = `https://fund.eastmoney.com/pingzhongdata/${code}.js?v=${Date.now()}_${Math.random()}`;
-              let fetchUrl = targetUrl;
-              if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-                  fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetUrl)}`;
+              let text = null;
+
+              // 方案一：优先原生直连 (依赖 CORS 插件)
+              try {
+                  const controller1 = new AbortController();
+                  const id1 = setTimeout(() => controller1.abort(), 3000); 
+                  const res1 = await fetch(targetUrl, { signal: controller1.signal });
+                  clearTimeout(id1);
+                  if (res1.ok) text = await res1.text();
+              } catch (e) {
+                  // 直连失败（一般是跨域拦截），静默拦截并进入降级
               }
 
-              const res = await fetch(fetchUrl, { signal: controller.signal });
-              clearTimeout(id);
+              // 方案二：直连失败，立即无缝切入 Worker 代理兜底
+              if (!text && this.workerUrl && !this.workerUrl.includes('example.com')) {
+                  try {
+                      const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetUrl)}`;
+                      const controller2 = new AbortController();
+                      const id2 = setTimeout(() => controller2.abort(), 4000);
+                      const res2 = await fetch(proxyUrl, { signal: controller2.signal });
+                      clearTimeout(id2);
+                      if (res2.ok) text = await res2.text();
+                  } catch (e) {}
+              }
               
-              if (res.ok) {
-                  const text = await res.text();
+              if (text) {
                   try {
                       const extractFunc = new Function(`
                           ${text}
@@ -8186,9 +8199,8 @@ ds(e, i) {
                       return { manager: null, evalData: null, fundInfo: null };
                   }
               }
-          } catch (e) {
-              await new Promise(r => setTimeout(r, 200)); 
-          }
+          } catch (e) {}
+          await new Promise(r => setTimeout(r, 200)); 
       }
       return { manager: null, evalData: null, fundInfo: null };
   },
@@ -8296,29 +8308,37 @@ async renderPerformanceTab(code) {
   if (activeBtn) activeBtn.classList.add('active');
 },
 
-// 【直连 / 代理自适应版】：获取费率页面
+// 【双擎自适应版】：获取费率页面
   async fetchFundRateHtml(code, retry = 2) {
       const targetHtmlUrl = `https://fundf10.eastmoney.com/jjfl_${code}.html`;
       
       for (let attempt = 0; attempt <= retry; attempt++) {
           try {
-              const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 4000);
-              
-              // 自动套用 Worker 代理解决跨域
-              let fetchUrl = targetHtmlUrl;
-              if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-                  fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetHtmlUrl)}`;
-              }
-              
-              const response = await fetch(fetchUrl, { signal: controller.signal });
-              clearTimeout(id);
+              let text = null;
 
-              if (response.ok) {
-                  const html = await response.text();
-                  if (html && (html.includes('申购费率') || html.includes('赎回费率') || html.includes('暂无数据'))) {
-                      return html;
-                  }
+              // 方案一：优先直连 (依赖 CORS 插件)
+              try {
+                  const controller1 = new AbortController();
+                  const id1 = setTimeout(() => controller1.abort(), 3000);
+                  const res1 = await fetch(targetHtmlUrl, { signal: controller1.signal });
+                  clearTimeout(id1);
+                  if (res1.ok) text = await res1.text();
+              } catch (e) {}
+
+              // 方案二：降级代理
+              if (!text && this.workerUrl && !this.workerUrl.includes('example.com')) {
+                  try {
+                      const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(targetHtmlUrl)}`;
+                      const controller2 = new AbortController();
+                      const id2 = setTimeout(() => controller2.abort(), 4000);
+                      const res2 = await fetch(proxyUrl, { signal: controller2.signal });
+                      clearTimeout(id2);
+                      if (res2.ok) text = await res2.text();
+                  } catch (e) {}
+              }
+
+              if (text && (text.includes('申购费率') || text.includes('赎回费率') || text.includes('暂无数据'))) {
+                  return text;
               }
               if (attempt < retry) await new Promise(r => setTimeout(r, 500));
           } catch (err) {
@@ -8329,23 +8349,31 @@ async renderPerformanceTab(code) {
   },
 
 async extractFundBasicData(code) {
-      // 【代理自适应版】：安全获取 HTML
+      // 【双擎自适应版】：安全获取 HTML
       const fetchHTMLSafely = async (url) => {
-          try {
-              const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 5000); 
-              
-              // 自动套用 Worker 代理解决跨域
-              let fetchUrl = url;
-              if (this.workerUrl && !this.workerUrl.includes('example.com')) {
-                  fetchUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
-              }
+          let text = null;
 
-              const res = await fetch(fetchUrl, { signal: controller.signal });
-              clearTimeout(id);
-              if (res.ok) return await res.text();
-          } catch (e) { }
-          return null;
+          // 方案一：直连优先
+          try {
+              const controller1 = new AbortController();
+              const id1 = setTimeout(() => controller1.abort(), 3000); 
+              const res1 = await fetch(url, { signal: controller1.signal });
+              clearTimeout(id1);
+              if (res1.ok) text = await res1.text();
+          } catch (e) {}
+
+          // 方案二：跨域拦截后代理兜底
+          if (!text && this.workerUrl && !this.workerUrl.includes('example.com')) {
+              try {
+                  const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
+                  const controller2 = new AbortController();
+                  const id2 = setTimeout(() => controller2.abort(), 4000);
+                  const res2 = await fetch(proxyUrl, { signal: controller2.signal });
+                  clearTimeout(id2);
+                  if (res2.ok) text = await res2.text();
+              } catch (e) {}
+          }
+          return text;
       };
 
       // 1. 高速并行获取核心数据
@@ -8354,6 +8382,8 @@ async extractFundBasicData(code) {
           this.fetchFundRateHtml(code),
           fetchHTMLSafely(`https://fundf10.eastmoney.com/jjjl_${code}.html`)
       ]);
+      
+      // ... 后续解析代码保持完全不变 ...
 
       const { manager, evalData, fundInfo } = fullInfo;
       const cachedFund = this.data.fundsCache[code] || {};

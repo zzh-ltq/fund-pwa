@@ -4118,10 +4118,13 @@ getCorrectSecid(savedSecid, code, groupType) {
     } else { 
       // K 线图渲染逻辑
       const klt = parseInt(this.marketState.chartType) || 101; 
-      // 加入了东方财富前端公开密钥 ut，并缩小获取范围至一年(250)，完美绕过防火墙拦截
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=1&end=20500101&lmt=250&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
+      
+      // 【核心修复】：智能判断标的类型，大盘指数、板块、外盘期货绝对不能使用复权(fqt=1)，否则服务器会崩溃断开连接！
+      const isIndex = (secid.startsWith('1.000') || secid.startsWith('0.399') || secid.startsWith('0.899') || secid.startsWith('90.') || parseInt(secid.split('.')[0]) >= 100);
+      const fqt = isIndex ? 0 : 1;
+      
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=${fqt}&end=20500101&lmt=250&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
       try { 
-        // 【修改这里】使用新引擎
         const res = await this.fetchEMData(kUrl); 
         const klines = res?.data?.klines || []; 
         let finalPrevClose = this.marketState.currentPrevClose;
@@ -5122,11 +5125,14 @@ drawIntradayFlowCanvas(data) {
       `;
   },
 
-  // 辅助：后台静默拉取历史日 K 线数据（已加入防拦截密钥）
+// 3. 辅助：后台静默拉取历史日 K 线数据
   async _fetchMarketHistoryKlines(secid, days) {
-      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
+      // 【核心修复】：智能判断标的类型，避开指数复权导致的服务器崩溃
+      const isIndex = (secid.startsWith('1.000') || secid.startsWith('0.399') || secid.startsWith('0.899') || secid.startsWith('90.') || parseInt(secid.split('.')[0]) >= 100);
+      const fqt = isIndex ? 0 : 1;
+      
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=${fqt}&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
       try {
-          // 调用全新三擎引擎拉取数据
           const res = await this.fetchEMData(url);
           const klines = res?.data?.klines || [];
           if (klines.length === 0) return null;

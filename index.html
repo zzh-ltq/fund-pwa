@@ -3794,9 +3794,6 @@ getCorrectSecid(savedSecid, code, groupType) {
           document.getElementById('md-chg-val').innerText = '请更换 Worker 节点';
           return; 
       }
-      
-      const d = res.data; 
-      // ... 后面的数据渲染逻辑保持不变 ... 
       if (d) { 
         if (d.f59 !== undefined && !isNaN(d.f59)) {
             this.marketState.currentDecimals = parseInt(d.f59);

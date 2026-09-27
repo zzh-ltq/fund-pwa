@@ -7349,59 +7349,95 @@ updateFundCardDisplay(code) {
       return rawHtml; // 如果没匹配到，直接返回原网页
   },
 
-  // 【修复】：单只基金持仓抓取核心逻辑 (加入字符串提取步骤)
+// 【直透数据底层】：单只基金持仓抓取核心逻辑 (直接请求核心接口，彻底告别空壳网页)
   async _fetchSingleFundHoldings(code) {
       let stocks = [];
       let bonds = [];
+      const t = Date.now();
       
-      // 1. 抓取股票持仓 (ccmx_code.html)
-      const stockRaw = await this.fetchEMHtmlData(`https://fundf10.eastmoney.com/ccmx_${code}.html`);
-      const stockHtml = this._extractTableHtml(stockRaw);
-      if (stockHtml) {
+      // 1. 并发请求股票持仓 (jjcc) 和债券持仓 (zqcc) 的底层数据接口
+      const [jjccRaw, zqccRaw] = await Promise.all([
+          this.fetchEMHtmlData(`https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${code}&topline=10&year=&month=&rt=${t}`),
+          this.fetchEMHtmlData(`https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=zqcc&code=${code}&topline=10&year=&month=&rt=${t}`)
+      ]);
+
+      // 提取隐藏在返回结果中的 HTML 表格字符串
+      const jjccHtml = this._extractTableHtml(jjccRaw);
+      const zqccHtml = this._extractTableHtml(zqccRaw);
+
+      // 2. 解析股票持仓
+      if (jjccHtml && !jjccHtml.includes('暂无数据')) {
           try {
-              const doc = new DOMParser().parseFromString(stockHtml, 'text/html');
-              const firstTable = doc.querySelector('table.w782 tbody') || doc.querySelector('tbody');
-              if (firstTable) {
-                  firstTable.querySelectorAll('tr').forEach(tr => {
-                      const tds = tr.querySelectorAll('td');
-                      if (tds.length >= 7 && !tds[0].innerText.includes('暂无数据')) {
-                          const cStr = tds[1].innerText.trim();
-                          const nStr = tds[2].innerText.trim();
-                          const rStr = tds[6].innerText.trim().replace('%', '');
-                          if (cStr && nStr && !isNaN(parseFloat(rStr))) {
-                              stocks.push({ code: cStr.padStart(6, '0'), name: nStr, ratio: parseFloat(rStr) });
-                          }
+              const doc = new DOMParser().parseFromString(jjccHtml, 'text/html');
+              const trs = doc.querySelectorAll('table tbody tr');
+              trs.forEach(tr => {
+                  const tds = tr.querySelectorAll('td');
+                  // 股票结构: 序号(0) 代码(1) 名称(2) 最新价(3) 涨跌(4) 资讯(5) 占比(6)
+                  if (tds.length >= 7) {
+                      const cStr = tds[1].textContent.trim();
+                      const nStr = tds[2].textContent.trim();
+                      const rStr = tds[6].textContent.trim().replace('%', '');
+                      if (cStr && nStr && !isNaN(parseFloat(rStr))) {
+                          stocks.push({ code: cStr.padStart(6, '0'), name: nStr, ratio: parseFloat(rStr) });
                       }
-                  });
-              }
+                  }
+              });
           } catch(e) {}
       }
       
-      // 2. 抓取债券持仓 (ccmx1_code.html)
-      const bondRaw = await this.fetchEMHtmlData(`https://fundf10.eastmoney.com/ccmx1_${code}.html`);
-      const bondHtml = this._extractTableHtml(bondRaw);
-      if (bondHtml) {
+      // 3. 解析债券持仓
+      if (zqccHtml && !zqccHtml.includes('暂无数据')) {
           try {
-              const doc = new DOMParser().parseFromString(bondHtml, 'text/html');
-              const firstTable = doc.querySelector('table.w782 tbody') || doc.querySelector('tbody');
-              if (firstTable) {
-                  firstTable.querySelectorAll('tr').forEach(tr => {
-                      const tds = tr.querySelectorAll('td');
-                      if (tds.length >= 4 && !tds[0].innerText.includes('暂无数据')) {
-                          const cStr = tds[1].innerText.trim();
-                          const nStr = tds[2].innerText.trim();
-                          const rStr = tds[3].innerText.trim().replace('%', '');
-                          if (cStr && nStr && !isNaN(parseFloat(rStr))) {
-                              bonds.push({ code: cStr, name: nStr, ratio: parseFloat(rStr) });
-                          }
+              const doc = new DOMParser().parseFromString(zqccHtml, 'text/html');
+              const trs = doc.querySelectorAll('table tbody tr');
+              trs.forEach(tr => {
+                  const tds = tr.querySelectorAll('td');
+                  // 债券结构: 序号(0) 代码(1) 名称(2) 占比(3)
+                  if (tds.length >= 4) {
+                      const cStr = tds[1].textContent.trim();
+                      const nStr = tds[2].textContent.trim();
+                      const rStr = tds[3].textContent.trim().replace('%', '');
+                      if (cStr && nStr && !isNaN(parseFloat(rStr))) {
+                          bonds.push({ code: cStr, name: nStr, ratio: parseFloat(rStr) });
                       }
-                  });
-              }
+                  }
+              });
           } catch(e) {}
       }
       
+      // 4. 兜底逻辑：如果该基金是ETF联接基金等无直接股票持仓的，检查是否手动绑定了底层 ETF
+      if (stocks.length === 0 && this.data.fundsCache[code]?.boundEtfCode) {
+          const boundCode = this.data.fundsCache[code].boundEtfCode;
+          const boundRaw = await this.fetchEMHtmlData(`https://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=${boundCode}&topline=10&year=&month=&rt=${Date.now()}`);
+          const boundHtml = this._extractTableHtml(boundRaw);
+          
+          if (boundHtml && !boundHtml.includes('暂无数据')) {
+              try {
+                  const doc = new DOMParser().parseFromString(boundHtml, 'text/html');
+                  const trs = doc.querySelectorAll('table tbody tr');
+                  trs.forEach(tr => {
+                      const tds = tr.querySelectorAll('td');
+                      if (tds.length >= 7) {
+                          const cStr = tds[1].textContent.trim();
+                          const nStr = tds[2].textContent.trim();
+                          const rStr = tds[6].textContent.trim().replace('%', '');
+                          if (cStr && nStr && !isNaN(parseFloat(rStr))) {
+                              // 联接基金持有底层 ETF，实际对应股票仓位按约 0.945 折算
+                              stocks.push({ code: cStr.padStart(6, '0'), name: nStr, ratio: parseFloat((parseFloat(rStr) * 0.945).toFixed(2)) });
+                          }
+                      }
+                  });
+              } catch(e) {}
+          }
+      }
+      
+      // 5. 保存入缓存
       if (!this.data.fundsCache[code]) this.data.fundsCache[code] = {};
-      this.data.fundsCache[code].holdingsCache = { stocks, bonds, timestamp: Date.now() };
+      this.data.fundsCache[code].holdingsCache = {
+          stocks: stocks,
+          bonds: bonds,
+          timestamp: Date.now()
+      };
   },
 
   // 【修复】：持仓渲染 UI（防白屏兜底）

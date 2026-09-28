@@ -3069,99 +3069,117 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     }
   },
 
-  // --- 优股扫描引擎：同时扫描股票池与 ETF 池下所有三指标全部看多的标的 ---
+// --- 优股扫描引擎：平滑限速、防封控、带进度条 ---
   async renderSuperStocksScan() {
     const container = document.getElementById('market-watched-list');
     const stockList = (this.data.marketGroups.stock || []).map(i => ({ ...i, category: '股票' }));
     const etfList = (this.data.marketGroups.etf || []).map(i => ({ ...i, category: 'ETF' }));
     const allTargets = [...stockList, ...etfList];
+    const totalCount = allTargets.length;
 
-    if (allTargets.length === 0) {
+    if (totalCount === 0) {
       container.innerHTML = '<div style="text-align:center; padding:40px 20px; color:#94a3b8; font-weight:bold;">自选股票与 ETF 池为空，请先在「股票」或「ETF」选项卡添加关注的标的</div>';
       return;
     }
 
+    // 渲染带有进度条的加载 UI
     container.innerHTML = `
-      <div style="text-align:center; padding:40px 20px; background:#fff; border-radius:12px; margin:10px 0; border:1px solid #e2e8f0; grid-column: 1 / -1;">
+      <div style="text-align:center; padding:30px 20px; background:#fff; border-radius:12px; margin:10px 0; border:1px solid #e2e8f0; grid-column: 1 / -1; box-shadow: var(--shadow-sm);">
         <div class="loading-spinner" style="margin:0 auto 15px auto;"></div>
-        <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:6px;">MACD + KDJ + BOLL 全指标扫描中</div>
-        <div style="font-size:12px; color:var(--text-sub);">正在对自选池内 ${allTargets.length} 只标的 (含 ${stockList.length} 只股票、${etfList.length} 只 ETF) 进行技术面共振筛选...</div>
+        <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:12px;">MACD + KDJ + BOLL 全指标共振扫描中</div>
+        
+        <!-- 进度条容器 -->
+        <div style="width: 80%; margin: 0 auto; background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden; position: relative;">
+            <div id="scan-progress-fill" style="width: 0%; background: #f59e0b; height: 100%; transition: width 0.3s ease-out;"></div>
+        </div>
+        <div id="scan-progress-text" style="font-size:12px; color:#64748b; font-weight:bold; margin-top:8px;">0 / ${totalCount}</div>
+        <div style="font-size:11px; color:#94a3b8; margin-top:4px;">为防止接口封控，系统已启动安全限速模式...</div>
       </div>
     `;
 
     const matchedItems = [];
+    let completedCount = 0;
+    
+    // 【核心优化】：批处理并发控制 (Batch Size = 5) + 平滑延迟 (300ms)
+    const batchSize = 5;
+    for (let i = 0; i < totalCount; i += batchSize) {
+        const batch = allTargets.slice(i, i + batchSize);
+        
+        await Promise.all(batch.map(async (item) => {
+            try {
+                const targetType = item.category === 'ETF' ? 'etf' : 'stock';
+                const querySecid = this.getCorrectSecid(item.secid, item.code, targetType);
+                const klines = await this._fetchMarketHistoryKlines(querySecid, 65);
+                
+                if (klines && klines.length >= 35) {
+                    const closes = klines.map(k => k.close);
+                    const highs = klines.map(k => k.high);
+                    const lows = klines.map(k => k.low);
+                    const N = closes.length;
+                    const latestPrice = closes[N - 1];
 
-    // 并发快速计算
-    await Promise.all(allTargets.map(async (item) => {
-      try {
-        const targetType = item.category === 'ETF' ? 'etf' : 'stock';
-        const querySecid = this.getCorrectSecid(item.secid, item.code, targetType);
-        const klines = await this._fetchMarketHistoryKlines(querySecid, 65);
-        if (!klines || klines.length < 35) return;
+                    // 1. MACD
+                    const calcEMA = (data, p) => {
+                        let k = 2 / (p + 1); let ema = [data[0]];
+                        for (let j = 1; j < data.length; j++) ema.push(data[j] * k + ema[j - 1] * (1 - k));
+                        return ema;
+                    };
+                    const ema12 = calcEMA(closes, 12), ema26 = calcEMA(closes, 26);
+                    const dif = ema12.map((val, idx) => val - ema26[idx]);
+                    const dea = calcEMA(dif, 9);
+                    const macd = dif.map((val, idx) => (val - dea[idx]) * 2);
 
-        const closes = klines.map(k => k.close);
-        const highs = klines.map(k => k.high);
-        const lows = klines.map(k => k.low);
-        const N = closes.length;
-        const latestPrice = closes[N - 1];
+                    const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
+                    const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
+                    const isMacdBuy = (prevDIF <= prevDEA && curDIF > curDEA) || (curDIF > curDEA && curMACD >= prevMACD) || (curDIF < 0 && curMACD > prevMACD && prevMACD < 0);
 
-        // 1. MACD
-        const calcEMA = (data, p) => {
-          let k = 2 / (p + 1);
-          let ema = [data[0]];
-          for (let i = 1; i < data.length; i++) ema.push(data[i] * k + ema[i - 1] * (1 - k));
-          return ema;
-        };
-        const ema12 = calcEMA(closes, 12);
-        const ema26 = calcEMA(closes, 26);
-        const dif = ema12.map((val, idx) => val - ema26[idx]);
-        const dea = calcEMA(dif, 9);
-        const macd = dif.map((val, idx) => (val - dea[idx]) * 2);
+                    // 2. KDJ
+                    let kArr = [50], dArr = [50], jArr = [50];
+                    for (let j = 8; j < N; j++) {
+                        let periodHigh = Math.max(...highs.slice(j - 8, j + 1)), periodLow = Math.min(...lows.slice(j - 8, j + 1));
+                        let rsv = periodHigh === periodLow ? 50 : ((closes[j] - periodLow) / (periodHigh - periodLow)) * 100;
+                        let nextK = (2 / 3) * kArr[kArr.length - 1] + (1 / 3) * rsv;
+                        let nextD = (2 / 3) * dArr[dArr.length - 1] + (1 / 3) * nextK;
+                        let nextJ = 3 * nextK - 2 * nextD;
+                        kArr.push(nextK); dArr.push(nextD); jArr.push(nextJ);
+                    }
+                    const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
+                    const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
+                    const isKdjBuy = (prevK <= prevD && curK > curD) || curJ < 5 || (curK < 40 && curK > prevK);
 
-        const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
-        const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
-        const isMacdBuy = (prevDIF <= prevDEA && curDIF > curDEA) || (curDIF > curDEA && curMACD >= prevMACD) || (curDIF < 0 && curMACD > prevMACD && prevMACD < 0);
+                    // 3. BOLL
+                    const bollSlice = closes.slice(-20);
+                    const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
+                    const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
+                    const bollUpper = bollMid + 2 * bollStd, bollLower = bollMid - 2 * bollStd;
+                    const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
+                    const isBollBuy = bollPct <= 25 || (latestPrice > bollMid && closes[N - 1] >= closes[N - 2]);
 
-        // 2. KDJ(9,3,3)
-        let kArr = [50], dArr = [50], jArr = [50];
-        for (let i = 8; i < N; i++) {
-          let periodHigh = Math.max(...highs.slice(i - 8, i + 1));
-          let periodLow = Math.min(...lows.slice(i - 8, i + 1));
-          let rsv = periodHigh === periodLow ? 50 : ((closes[i] - periodLow) / (periodHigh - periodLow)) * 100;
-          let nextK = (2 / 3) * kArr[kArr.length - 1] + (1 / 3) * rsv;
-          let nextD = (2 / 3) * dArr[dArr.length - 1] + (1 / 3) * nextK;
-          let nextJ = 3 * nextK - 2 * nextD;
-          kArr.push(nextK); dArr.push(nextD); jArr.push(nextJ);
+                    if (isMacdBuy && isKdjBuy && isBollBuy) {
+                        const chg = ((closes[N - 1] - closes[N - 2]) / closes[N - 2]) * 100;
+                        matchedItems.push({
+                            name: item.name, code: item.code, secid: querySecid, category: item.category,
+                            price: latestPrice.toFixed(2), chgRate: chg.toFixed(2)
+                        });
+                    }
+                }
+            } catch(e) {}
+            
+            // 更新进度条
+            completedCount++;
+            const fillEl = document.getElementById('scan-progress-fill');
+            const txtEl = document.getElementById('scan-progress-text');
+            if (fillEl && txtEl) {
+                fillEl.style.width = `${(completedCount / totalCount) * 100}%`;
+                txtEl.innerText = `${completedCount} / ${totalCount}`;
+            }
+        }));
+        
+        // 批次间平滑休眠，规避 WAF 防火墙封禁
+        if (i + batchSize < totalCount) {
+            await new Promise(resolve => setTimeout(resolve, 300));
         }
-        const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
-        const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
-        const isKdjBuy = (prevK <= prevD && curK > curD) || curJ < 5 || (curK < 40 && curK > prevK);
-
-        // 3. BOLL(20,2)
-        const bollSlice = closes.slice(-20);
-        const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
-        const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
-        const bollUpper = bollMid + 2 * bollStd;
-        const bollLower = bollMid - 2 * bollStd;
-        const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
-        const isBollBuy = bollPct <= 25 || (latestPrice > bollMid && closes[N - 1] >= closes[N - 2]);
-
-        // 三指标全部看多买入
-        if (isMacdBuy && isKdjBuy && isBollBuy) {
-          const chg = ((closes[N - 1] - closes[N - 2]) / closes[N - 2]) * 100;
-          matchedItems.push({
-            name: item.name,
-            code: item.code,
-            secid: querySecid,
-            category: item.category,
-            price: latestPrice.toFixed(2),
-            chgRate: chg.toFixed(2),
-            curJ: curJ.toFixed(1),
-            bollPct: bollPct.toFixed(0)
-          });
-        }
-      } catch(e) {}
-    }));
+    }
 
     if (matchedItems.length === 0) {
       container.innerHTML = `
@@ -3174,7 +3192,6 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
       return;
     }
 
-    // 渲染优股/优选 ETF 卡片
     container.innerHTML = matchedItems.map(s => {
       const col = parseFloat(s.chgRate) >= 0 ? 'red' : 'green';
       const sign = parseFloat(s.chgRate) > 0 ? '+' : '';
@@ -5314,7 +5331,7 @@ drawIntradayFlowCanvas(data) {
       }
   },
 
-  // 【全新重构】：MACD + KDJ + BOLL 三指标共振与量价分时技术面诊断引擎
+// 【全新重构】：MACD + KDJ + BOLL 三指标共振与量价分时技术面诊断引擎
   async runMarketTechnicalAnalysis(secid, name) {
     const btn = document.getElementById('m-tech-run-btn');
     btn.innerText = '📡 指标多维共振计算中...';
@@ -5331,22 +5348,62 @@ drawIntradayFlowCanvas(data) {
     resultBox.style.display = 'block';
 
     try {
-      // 1. 获取近 120 天日 K 线数据
       const klines = await this._fetchMarketHistoryKlines(secid, 120);
       if (!klines || klines.length < 35) throw new Error("历史 K 线样本不足，无法完成多指标共振拟合");
 
-      // 2. 异步获取分时与主力流向
-      let intradayTrends = [];
+      // ----------------- 【核心修复 1：正确获取主力流向数据】 -----------------
+      let mainFlowAmt = 0;
+      let flowStr = '--';
       try {
-        const trendRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53&_=${Date.now()}`, 'cb');
-        intradayTrends = trendRes?.data?.trends || [];
+        const zjlxUrl = `https://emdatah5.eastmoney.com/dc/ZJLX/getZJLXData?secid=${secid}&fields=f137&_=${Date.now()}`;
+        const flowRes = await this.fetchEMData(zjlxUrl);
+        if (flowRes && flowRes.data && flowRes.data.f137 !== undefined && flowRes.data.f137 !== '-') {
+            mainFlowAmt = parseFloat(flowRes.data.f137);
+        } else {
+            // 降级兜底 push2
+            const qRes = await this.fetchEMData(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62,f137&_=${Date.now()}`);
+            const val = qRes?.data?.f137 ?? qRes?.data?.f62;
+            if (val !== undefined && val !== '-') mainFlowAmt = parseFloat(val);
+        }
+        flowStr = this.formatFlowAmt(mainFlowAmt);
       } catch(e) {}
 
-      let mainFlowAmt = 0;
+      // ----------------- 【核心修复 2：正确计算分时均价 (VWAP) 走势】 -----------------
+      let intraDesc = '暂无日内分时微观数据。';
+      let volScore = 0;
       try {
-        const quoteRes = await fetchJSONP(`https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f62&_=${Date.now()}`, 'cb');
-        if (quoteRes?.data?.f62 && quoteRes.data.f62 !== '-') {
-          mainFlowAmt = parseFloat(quoteRes.data.f62);
+        const trendUrl = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56,f57,f58&_=${Date.now()}`;
+        const trendRes = await this.fetchEMData(trendUrl);
+        const trends = trendRes?.data?.trends || [];
+        if (trends.length > 0) {
+            let accAmount = 0;
+            let accVolume = 0;
+            let lastPrice = 0;
+            let lastVwap = 0;
+
+            for (let str of trends) {
+                const parts = str.split(',');
+                const price = parseFloat(parts[2]) || 0;
+                const vol = parseInt(parts[5]) || 0;
+                const amt = parseFloat(parts[6]) || 0;
+                let vwap = parseFloat(parts[7]) || 0;
+
+                accAmount += amt;
+                accVolume += vol;
+                if (vwap <= 0 && accVolume > 0) vwap = accAmount / (accVolume * 100);
+                if (vwap <= 0) vwap = price;
+
+                lastPrice = price;
+                lastVwap = vwap;
+            }
+
+            if (lastPrice > lastVwap * 1.003) {
+                volScore += 8; intraDesc = `收盘价站稳当日均价线上方，日内承接买盘有力，重心稳健抬升。`;
+            } else if (lastPrice < lastVwap * 0.997) {
+                volScore -= 8; intraDesc = `收盘价跌穿当日分时均价线，日内买盘承接不足，重心下移回落。`;
+            } else {
+                intraDesc = `日内价格紧随均价线缠绕，多空双方平稳换手。`;
+            }
         }
       } catch(e) {}
 
@@ -5357,15 +5414,13 @@ drawIntradayFlowCanvas(data) {
       const N = closes.length;
       const latestPrice = closes[N - 1];
 
-      // ----------------- 指标 1：MACD 计算 -----------------
+      // ----------------- 指标 1：MACD -----------------
       const calcEMA = (data, p) => {
-        let k = 2 / (p + 1);
-        let ema = [data[0]];
+        let k = 2 / (p + 1); let ema = [data[0]];
         for (let i = 1; i < data.length; i++) ema.push(data[i] * k + ema[i - 1] * (1 - k));
         return ema;
       };
-      const ema12 = calcEMA(closes, 12);
-      const ema26 = calcEMA(closes, 26);
+      const ema12 = calcEMA(closes, 12), ema26 = calcEMA(closes, 26);
       const dif = ema12.map((val, idx) => val - ema26[idx]);
       const dea = calcEMA(dif, 9);
       const macd = dif.map((val, idx) => (val - dea[idx]) * 2);
@@ -5373,108 +5428,69 @@ drawIntradayFlowCanvas(data) {
       const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
       const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
 
-      let macdSignal = 'HOLD'; // BUY, SELL, HOLD
-      let macdScore = 0;
-      let macdDesc = '';
-
+      let macdSignal = 'HOLD', macdScore = 0, macdDesc = '';
       if (prevDIF <= prevDEA && curDIF > curDEA) {
-        macdSignal = 'BUY';
-        macdScore = curDIF >= 0 ? 30 : 25;
+        macdSignal = 'BUY'; macdScore = curDIF >= 0 ? 30 : 25;
         macdDesc = curDIF >= 0 ? 'DIF 零轴上方强力金叉，主升浪上攻信号明确。' : 'DIF 零轴下方低位金叉，超跌反弹动能确立。';
       } else if (prevDIF >= prevDEA && curDIF < curDEA) {
-        macdSignal = 'SELL';
-        macdScore = curDIF >= 0 ? -25 : -30;
+        macdSignal = 'SELL'; macdScore = curDIF >= 0 ? -25 : -30;
         macdDesc = curDIF >= 0 ? '高位死叉成型，多头动能衰竭，面临见顶回落。' : '零轴下方加速死叉，空头力量发散，破位下行。';
       } else if (curDIF > curDEA) {
-        macdSignal = curMACD >= prevMACD ? 'BUY' : 'HOLD';
-        macdScore = curMACD >= prevMACD ? 15 : 5;
+        macdSignal = curMACD >= prevMACD ? 'BUY' : 'HOLD'; macdScore = curMACD >= prevMACD ? 15 : 5;
         macdDesc = curMACD >= prevMACD ? '处于多头运行区间，红柱持续发散增长。' : '多头区间红柱轻微收缩，上涨斜率放缓。';
       } else {
-        macdSignal = curMACD <= prevMACD ? 'SELL' : 'HOLD';
-        macdScore = curMACD <= prevMACD ? -15 : -5;
+        macdSignal = curMACD <= prevMACD ? 'SELL' : 'HOLD'; macdScore = curMACD <= prevMACD ? -15 : -5;
         macdDesc = curMACD <= prevMACD ? '处于空头弱势区间，绿柱延展，抛压沉重。' : '空头弱势区间绿柱收敛，砸盘动能开始钝化。';
       }
 
-      // ----------------- 指标 2：KDJ(9,3,3) 计算 -----------------
+      // ----------------- 指标 2：KDJ(9,3,3) -----------------
       let kArr = [50], dArr = [50], jArr = [50];
       for (let i = 8; i < N; i++) {
-        let periodHigh = Math.max(...highs.slice(i - 8, i + 1));
-        let periodLow = Math.min(...lows.slice(i - 8, i + 1));
+        let periodHigh = Math.max(...highs.slice(i - 8, i + 1)), periodLow = Math.min(...lows.slice(i - 8, i + 1));
         let rsv = periodHigh === periodLow ? 50 : ((closes[i] - periodLow) / (periodHigh - periodLow)) * 100;
-        let lastK = kArr[kArr.length - 1];
-        let lastD = dArr[dArr.length - 1];
-        let nextK = (2 / 3) * lastK + (1 / 3) * rsv;
-        let nextD = (2 / 3) * lastD + (1 / 3) * nextK;
+        let nextK = (2 / 3) * kArr[kArr.length - 1] + (1 / 3) * rsv;
+        let nextD = (2 / 3) * dArr[dArr.length - 1] + (1 / 3) * nextK;
         let nextJ = 3 * nextK - 2 * nextD;
         kArr.push(nextK); dArr.push(nextD); jArr.push(nextJ);
       }
       const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
       const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
 
-      let kdjSignal = 'HOLD';
-      let kdjScore = 0;
-      let kdjDesc = '';
-
+      let kdjSignal = 'HOLD', kdjScore = 0, kdjDesc = '';
       if (prevK <= prevD && curK > curD) {
-        if (curK <= 30) {
-          kdjSignal = 'BUY'; kdjScore = 30;
-          kdjDesc = `KDJ在超卖区 (${curK.toFixed(1)}) 形成黄金交叉，强反转拐点出现！`;
-        } else {
-          kdjSignal = 'BUY'; kdjScore = 18;
-          kdjDesc = `KDJ低位震荡金叉上行，多头短期回暖反弹。`;
-        }
+        if (curK <= 30) { kdjSignal = 'BUY'; kdjScore = 30; kdjDesc = `KDJ在超卖区 (${curK.toFixed(1)}) 形成黄金交叉，强反转拐点出现！`; } 
+        else { kdjSignal = 'BUY'; kdjScore = 18; kdjDesc = `KDJ低位震荡金叉上行，多头短期回暖反弹。`; }
       } else if (prevK >= prevD && curK < curD) {
-        if (curK >= 70) {
-          kdjSignal = 'SELL'; kdjScore = -30;
-          kdjDesc = `KDJ在超买区 (${curK.toFixed(1)}) 形成高位死叉，短线严重承压见顶。`;
-        } else {
-          kdjSignal = 'SELL'; kdjScore = -18;
-          kdjDesc = `KDJ形成高位死叉，下行拐点显现。`;
-        }
+        if (curK >= 70) { kdjSignal = 'SELL'; kdjScore = -30; kdjDesc = `KDJ在超买区 (${curK.toFixed(1)}) 形成高位死叉，短线严重承压见顶。`; } 
+        else { kdjSignal = 'SELL'; kdjScore = -18; kdjDesc = `KDJ形成死叉，下行风险显现。`; }
       } else {
-        if (curJ < 0) {
-          kdjSignal = 'BUY'; kdjScore = 20;
-          kdjDesc = `J值 (${curJ.toFixed(1)}) 进入极度负值钝化区，随时可能暴力反抽。`;
-        } else if (curJ > 100) {
-          kdjSignal = 'SELL'; kdjScore = -20;
-          kdjDesc = `J值 (${curJ.toFixed(1)}) 严重超买钝化，乖离率过大，谨防高台跳水。`;
-        } else {
-          kdjSignal = 'HOLD'; kdjScore = 0;
-          kdjDesc = `K/D/J 三线平稳居中运行 (${curK.toFixed(1)} / ${curD.toFixed(1)} / ${curJ.toFixed(1)})，方向中性。`;
-        }
+        if (curJ < 0) { kdjSignal = 'BUY'; kdjScore = 20; kdjDesc = `J值 (${curJ.toFixed(1)}) 进入极度负值钝化区，随时可能暴力反抽。`; } 
+        else if (curJ > 100) { kdjSignal = 'SELL'; kdjScore = -20; kdjDesc = `J值 (${curJ.toFixed(1)}) 严重超买钝化，乖离率过大，谨防高台跳水。`; } 
+        else { kdjSignal = 'HOLD'; kdjScore = 0; kdjDesc = `K/D/J 三线平稳居中运行 (${curK.toFixed(1)} / ${curD.toFixed(1)} / ${curJ.toFixed(1)})，方向中性。`; }
       }
 
-      // ----------------- 指标 3：BOLL(20,2) 计算 -----------------
+      // ----------------- 指标 3：BOLL(20,2) -----------------
       const bollSlice = closes.slice(-20);
       const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
       const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
-      const bollUpper = bollMid + 2 * bollStd;
-      const bollLower = bollMid - 2 * bollStd;
+      const bollUpper = bollMid + 2 * bollStd, bollLower = bollMid - 2 * bollStd;
       const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
 
-      let bollSignal = 'HOLD';
-      let bollScore = 0;
-      let bollDesc = '';
-
+      let bollSignal = 'HOLD', bollScore = 0, bollDesc = '';
       if (bollPct <= 10) {
-        bollSignal = 'BUY'; bollScore = 25;
-        bollDesc = `股价紧贴/跌破布林下轨 (轨道位置 ${bollPct.toFixed(1)}%)，超跌触底，支撑力极强。`;
+        bollSignal = 'BUY'; bollScore = 25; bollDesc = `股价紧贴/跌穿布林下轨 (轨道位置 ${bollPct.toFixed(1)}%)，超跌触底，支撑力极强。`;
       } else if (bollPct >= 90) {
-        bollSignal = 'SELL'; bollScore = -25;
-        bollDesc = `突破或刺穿布林上轨 (轨道位置 ${bollPct.toFixed(1)}%)，上方压力巨大，面临通道回归。`;
+        bollSignal = 'SELL'; bollScore = -25; bollDesc = `突破或刺穿布林上轨 (轨道位置 ${bollPct.toFixed(1)}%)，上方压力巨大，面临通道回归。`;
       } else if (latestPrice > bollMid) {
-        bollSignal = 'BUY'; bollScore = 10;
-        bollDesc = `运行于布林中轨上方，通道呈现良好向上发散态势。`;
+        bollSignal = 'BUY'; bollScore = 10; bollDesc = `运行于布林中轨上方，通道呈现良好向上发散态势。`;
       } else {
-        bollSignal = 'SELL'; bollScore = -10;
-        bollDesc = `受到布林中轨压制，位于弱势下行半区。`;
+        bollSignal = 'SELL'; bollScore = -10; bollDesc = `受到布林中轨压制，位于弱势下行半区。`;
       }
 
-      // ----------------- 量能、换手与分时评估 -----------------
+      // ----------------- 综合量能与换手评估 -----------------
       const avgVol5 = vols.slice(-6, -1).reduce((a, b) => a + b, 0) / 5;
       const volRatio = vols[N - 1] / (avgVol5 || 1);
       let volDesc = '';
-      let volScore = 0;
       const isTodayUp = closes[N - 1] >= closes[N - 2];
 
       if (volRatio > 1.3 && isTodayUp) {
@@ -5487,56 +5503,26 @@ drawIntradayFlowCanvas(data) {
         volDesc = `量比平稳 (<b>${volRatio.toFixed(2)}</b>)，无明显异动。`;
       }
 
-      // 分时重心
-      let intraDesc = '无日内分时数据。';
-      if (intradayTrends.length > 0) {
-        const lastP = intradayTrends[intradayTrends.length - 1].split(',');
-        const curPx = parseFloat(lastP[1]);
-        const vwap = parseFloat(lastP[2]);
-        if (curPx >= vwap * 1.003) {
-          volScore += 5; intraDesc = `收盘价站稳当日均价线上方，尾盘买盘有力，重心稳定抬升。`;
-        } else if (curPx <= vwap * 0.997) {
-          volScore -= 5; intraDesc = `收盘价跌破当日分时均价线，日内承接不足，重心回落。`;
-        } else {
-          intraDesc = `日内价格紧随均线缠绕，多空双方平稳换手。`;
-        }
-      }
+      if (mainFlowAmt > 0) volScore += 5; else if (mainFlowAmt < 0) volScore -= 5;
 
-      // 主力流向
-      if (mainFlowAmt > 0) volScore += 5;
-      else if (mainFlowAmt < 0) volScore -= 5;
-
-      // ----------------- 三指标共振总决断 -----------------
+      // ----------------- 汇总决策与视图渲染 -----------------
       const buyVotes = [macdSignal, kdjSignal, bollSignal].filter(s => s === 'BUY').length;
       const sellVotes = [macdSignal, kdjSignal, bollSignal].filter(s => s === 'SELL').length;
 
       let totalScore = 50 + macdScore + kdjScore + bollScore + volScore;
       totalScore = Math.max(5, Math.min(98, totalScore));
 
-      let actionTitle = '';
-      let actionColor = '';
-      let actionTag = '';
-
+      let actionTitle = '', actionColor = '', actionTag = '';
       if (buyVotes >= 3 || (buyVotes >= 2 && totalScore >= 75)) {
-        actionTitle = '🚀 强烈买入 (三指标多头共振)';
-        actionColor = '#f43f5e';
-        actionTag = '多头共振金叉，确定性极高，可果断建仓或重仓布局';
+        actionTitle = '🚀 强烈买入 (三指标多头共振)'; actionColor = '#f43f5e'; actionTag = '多头共振金叉，确定性极高，可果断建仓或重仓布局';
       } else if (buyVotes >= 2 || totalScore >= 60) {
-        actionTitle = '📈 偏多买入 / 分批加仓';
-        actionColor = '#f59e0b';
-        actionTag = '技术面拐点显现，两项以上指标看多，适合逢低逢回调吸纳';
+        actionTitle = '📈 偏多买入 / 分批加仓'; actionColor = '#f59e0b'; actionTag = '技术面拐点显现，两项以上指标看多，适合逢低逢回调吸纳';
       } else if (sellVotes >= 3 || (sellVotes >= 2 && totalScore <= 35)) {
-        actionTitle = '🚨 果断卖出 / 清仓避险';
-        actionColor = '#10b981';
-        actionTag = '空头三指标死叉共振，承压极重，强烈建议锁定利润或止损规避';
+        actionTitle = '🚨 果断卖出 / 清仓避险'; actionColor = '#10b981'; actionTag = '空头三指标死叉共振，承压极重，强烈建议锁定利润或止损规避';
       } else if (sellVotes >= 2 || totalScore <= 45) {
-        actionTitle = '📉 逢高减仓 / 谨慎防守';
-        actionColor = '#059669';
-        actionTag = '上涨动能乏力且现指标背离死叉，宜减仓规避潜在调整';
+        actionTitle = '📉 逢高减仓 / 谨慎防守'; actionColor = '#059669'; actionTag = '上涨动能乏力且现指标背离死叉，宜减仓规避潜在调整';
       } else {
-        actionTitle = '👀 持股观望 / 静待趋势';
-        actionColor = '#64748b';
-        actionTag = '多空力量对峙均衡，暂未出现明确共振拐点，维持底仓观望';
+        actionTitle = '👀 持股观望 / 静待趋势'; actionColor = '#64748b'; actionTag = '多空力量对峙均衡，暂未出现明确共振拐点，维持底仓观望';
       }
 
       const getTagHtml = (sig) => {
@@ -5545,10 +5531,8 @@ drawIntradayFlowCanvas(data) {
         return '<span style="color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:12px; font-weight:bold; font-size:11px;">中性震荡</span>';
       };
 
-      // 渲染最终结果看板
       resultBox.innerHTML = `
         <div class="card" style="border: 2px solid ${actionColor}; background: #fff; box-shadow: 0 10px 25px ${actionColor}15; margin-bottom: 12px; padding: 16px;">
-          <!-- 顶部总决策 -->
           <div style="text-align:center; padding-bottom: 14px; border-bottom: 1px dashed #e2e8f0;">
             <div style="font-size:12px; font-weight:bold; color:var(--text-sub); margin-bottom:4px;">三指标共振智能决策</div>
             <div style="font-size: 24px; font-weight: 900; color: ${actionColor}; margin-bottom: 6px;">${actionTitle}</div>
@@ -5556,42 +5540,28 @@ drawIntradayFlowCanvas(data) {
               综合得分: <span style="color:${actionColor}; font-size:16px;">${totalScore}</span> 分 | ${actionTag}
             </div>
           </div>
-
-          <!-- 三指标卡片分块 -->
           <div style="display:flex; flex-direction:column; gap:10px; margin-top: 14px;">
             <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #3b82f6;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:900; font-size:13px; color:var(--text-main);">📈 MACD 趋势动量判断</span>
-                ${getTagHtml(macdSignal)}
-              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;"><span style="font-weight:900; font-size:13px; color:var(--text-main);">📈 MACD 趋势动量判断</span>${getTagHtml(macdSignal)}</div>
               <div style="font-size:11px; color:#64748b; margin-bottom:4px;">DIF: <b>${curDIF.toFixed(2)}</b> | DEA: <b>${curDEA.toFixed(2)}</b> | MACD: <b>${curMACD.toFixed(2)}</b></div>
               <div style="font-size:12px; color:#1e293b; line-height:1.4;">${macdDesc}</div>
             </div>
-
             <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #f59e0b;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:900; font-size:13px; color:var(--text-main);">🎯 KDJ 超买超卖与拐点识别</span>
-                ${getTagHtml(kdjSignal)}
-              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;"><span style="font-weight:900; font-size:13px; color:var(--text-main);">🎯 KDJ 超买超卖与拐点识别</span>${getTagHtml(kdjSignal)}</div>
               <div style="font-size:11px; color:#64748b; margin-bottom:4px;">K: <b>${curK.toFixed(1)}</b> | D: <b>${curD.toFixed(1)}</b> | J: <b>${curJ.toFixed(1)}</b></div>
               <div style="font-size:12px; color:#1e293b; line-height:1.4;">${kdjDesc}</div>
             </div>
-
             <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #8b5cf6;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:900; font-size:13px; color:var(--text-main);">🌐 BOLL 布林带空间与支撑压力</span>
-                ${getTagHtml(bollSignal)}
-              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;"><span style="font-weight:900; font-size:13px; color:var(--text-main);">🌐 BOLL 布林带空间与支撑压力</span>${getTagHtml(bollSignal)}</div>
               <div style="font-size:11px; color:#64748b; margin-bottom:4px;">上轨: <b>${bollUpper.toFixed(2)}</b> | 中轨: <b>${bollMid.toFixed(2)}</b> | 下轨: <b>${bollLower.toFixed(2)}</b></div>
               <div style="font-size:12px; color:#1e293b; line-height:1.4;">${bollDesc}</div>
             </div>
-
             <div style="background:#f8fafc; padding:12px; border-radius:10px; border-left:4px solid #06b6d4;">
               <div style="font-weight:900; font-size:13px; color:var(--text-main); margin-bottom:6px;">📊 量能、换手与分时盘口评估</div>
               <div style="font-size:12px; color:#1e293b; line-height:1.6;">
                 <div>• <b>量能量比：</b>${volDesc}</div>
                 <div>• <b>分时走势：</b>${intraDesc}</div>
-                <div>• <b>主力动向：</b>今日主力净流入 <b>${mainFlowAmt >= 0 ? '+' : ''}${this.formatFlowAmt(mainFlowAmt)}</b>。</div>
+                <div>• <b>主力动向：</b>今日主力资金呈净流态势 (${mainFlowAmt >= 0 ? '+' : ''}${flowStr})。</div>
               </div>
             </div>
           </div>

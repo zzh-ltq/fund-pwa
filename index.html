@@ -1295,7 +1295,7 @@ const app = {
   marketSortDir: 'desc',     // 降序
   
   targetMarketSecid: '',     // 新增：用于记录当前正在绑定分组的行情代码
-  workerUrl: 'https://vercel-fund-proxy.vercel.app/api/proxy',  // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
+  workerUrl: 'https://myfunds.dpdns.org', // 替换为实际部署的 Worker 域名 https://myfunds.dpdns.org/    https://myworker.indevs.in    https://myworker.us.ci
 
    // 列表周期状态（用于动态最大回撤和夏普比率）
   listPeriod: '近1年',   // 可选 '近1月', '近3月', '近6月', '近1年'
@@ -1960,58 +1960,76 @@ rtManualRefreshMarket() {
     await this.dbSet('fund_pwa_full_data', { ...this.data, rtData: this.rtData }); 
     this.processGroupRisks(); 
   },
-  // 【终极修正版 4.0】：精准拦截 502 错误，优雅降级
+// 【终极防拦截版】：东方财富接口三擎自适应拉取引擎
   async fetchEMData(url) {
-      if (!this.workerUrl || this.workerUrl.includes('example.com')) {
-          console.error('❌ 请先配置有效的 Worker 地址');
-          return null;
-      }
-
+      let res = null;
+      
+      // 1. 原生 fetch 直连 (核心修复：增加 no-referrer 剥离来源，完美突破东财防盗链 WAF)
       try {
-          const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
           const controller = new AbortController();
-          const id = setTimeout(() => controller.abort(), 10000);
-          
-          const r = await fetch(proxyUrl, { 
+          const id = setTimeout(() => controller.abort(), 8000); // 延长至8秒，防大体积 K 线超时
+          const r = await fetch(url, { 
               signal: controller.signal,
-              referrerPolicy: 'no-referrer' 
+              referrerPolicy: 'no-referrer' // <--- 解决 ERR_EMPTY_RESPONSE 的核心
           });
           clearTimeout(id);
-
-          // 如果 Worker 返回了 500 错误，或者直接拿到了 502 响应
-          if (!r.ok) {
-              console.warn(`⚠️ Worker 代理请求失败, HTTP 状态码: ${r.status}`);
-              return null;
+          if (r.ok) {
+              const text = await r.text();
+              try { res = JSON.parse(text); } catch(e) { res = text; }
+              if (res) return res;
           }
+      } catch (e) {}
 
-          let text = await r.text();
-          
-          // 核心拦截：东财 WAF 返回的 502 错误文本
-          if (text.includes('error code: 502') || text.includes('error code: 403')) {
-              console.warn('⚠️ 遭遇东财风控拦截（502），请更换 Worker 节点或 Header。');
-              return null;
-          }
-
-          // 剥离 JSONP 外壳
-          let cleanText = text.trim();
-          if (cleanText.startsWith('jQuery') || (cleanText.includes('(') && cleanText.endsWith(')'))) {
-              const start = cleanText.indexOf('(');
-              const end = cleanText.lastIndexOf(')');
-              if (start !== -1 && end !== -1) {
-                  cleanText = cleanText.substring(start + 1, end);
-              }
-          }
-
+      // 2. 无缝降级原生 JSONP (同样附加 no-referrer 属性)
+      // 对于行情接口，绕开容易报 500 的代理，直接秒切 JSONP
+      if (!res && (url.includes('push2.eastmoney') || url.includes('push2his.eastmoney'))) {
           try {
-              return JSON.parse(cleanText);
-          } catch(e) {
-              console.error('❌ JSON 解析失败，原始返回前 100 字符:', text.substring(0, 100));
-              return null;
-          }
-      } catch (e) {
-          console.error('❌ Worker 代理网络异常:', e);
-          return null;
+              res = await new Promise((resolve) => {
+                  const cbName = 'jsonp_cb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+                  const script = document.createElement('script');
+                  const sep = url.includes('?') ? '&' : '?';
+                  script.src = `${url}${sep}cb=${cbName}`;
+                  
+                  let isDone = false;
+                  window[cbName] = (data) => {
+                      if(isDone) return; isDone = true;
+                      resolve(data);
+                      delete window[cbName]; script.remove();
+                  };
+                  script.onerror = () => {
+                      if(isDone) return; isDone = true;
+                      resolve(null);
+                      delete window[cbName]; script.remove();
+                  };
+                  setTimeout(() => {
+                      if(!isDone) { isDone = true; resolve(null); delete window[cbName]; script.remove(); }
+                  }, 8000);
+                  
+                  document.head.appendChild(script);
+              });
+              if (res) return res;
+          } catch (e) {}
       }
+
+      // 3. 终极兜底：Worker 代理 (同样隐身)
+      if (!res && this.workerUrl && !this.workerUrl.includes('example.com')) {
+          try {
+              const proxyUrl = `${this.workerUrl.replace(/\/+$/, '')}/?url=${encodeURIComponent(url)}`;
+              const controller = new AbortController();
+              const id = setTimeout(() => controller.abort(), 8000);
+              const r = await fetch(proxyUrl, { 
+                  signal: controller.signal,
+                  referrerPolicy: 'no-referrer' 
+              });
+              clearTimeout(id);
+              if (r.ok) {
+                  const text = await r.text();
+                  try { res = JSON.parse(text); } catch(e) { res = text; }
+              }
+          } catch (e) {}
+      }
+
+      return res;
   },
 
   async fetchEMHtmlData(url) {
@@ -3781,19 +3799,13 @@ getCorrectSecid(savedSecid, code, groupType) {
     const flowArea = document.getElementById('md-fund-flow-area');
     if (flowArea) flowArea.style.display = 'none'; 
     
+    // --- 1. 获取基础报价与盘口数据（扩充换手率、总市值、市盈率字段）---
     // --- 1. 获取基础报价与盘口数据 ---
-    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?ut=fa5fd1943c7b386f172d6893dbfba10b&fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170,f8,f20,f9,f115,f116,f162,f167,f168&_=${Date.now()}`; 
+    const pkUrl = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f50,f59,f60,f104,f105,f169,f170,f8,f20,f9,f115,f116,f162,f167,f168&_=${Date.now()}`; 
     try { 
+      // 【修改这里】使用新引擎
       const res = await this.fetchEMData(pkUrl); 
-      
-      // 核心修复：增加界面级报错，避免用户只看到一排 --
-      if (!res || !res.data) {
-          console.warn('⚠️ 基础行情数据为空，可能是 Referer 被拦截或接口参数错误');
-          document.getElementById('md-price').innerText = '数据源被拦截';
-          document.getElementById('md-price').style.color = 'var(--red)';
-          document.getElementById('md-chg-val').innerText = '请更换 Worker 节点';
-          return; 
-      }
+      const d = res?.data; 
       if (d) { 
         if (d.f59 !== undefined && !isNaN(d.f59)) {
             this.marketState.currentDecimals = parseInt(d.f59);
@@ -3882,9 +3894,7 @@ getCorrectSecid(savedSecid, code, groupType) {
         const dTime = new Date(); 
         document.getElementById('md-time').innerText = `刷新于 ${dTime.getHours()}:${String(dTime.getMinutes()).padStart(2,'0')}:${String(dTime.getSeconds()).padStart(2,'0')}`; 
       } 
-} catch(e) { 
-        console.error('基础行情解析异常:', e);
-    } 
+    } catch(e) {} 
 
     // --- 2. 获取资金流向（调用官方 getZJLXData 专用资金接口 + 历史资金无缝兜底）---
     const inOutEl = document.getElementById('ff-main-inout');
@@ -4105,42 +4115,27 @@ getCorrectSecid(savedSecid, code, groupType) {
           this.bindChartEvents(); 
         } 
       } catch(e) {} 
-            } else { 
+    } else { 
       // K 线图渲染逻辑
       const klt = parseInt(this.marketState.chartType) || 101; 
       
-      // 【核心修复 1】：智能判断标的类型，指数必须 fqt=0
+      // 【核心修复】：智能判断标的类型，大盘指数、板块、外盘期货绝对不能使用复权(fqt=1)，否则服务器会崩溃断开连接！
       const isIndex = (secid.startsWith('1.000') || secid.startsWith('0.399') || secid.startsWith('0.899') || secid.startsWith('90.') || parseInt(secid.split('.')[0]) >= 100);
       const fqt = isIndex ? 0 : 1;
       
-      // 【核心修复 2】：补全 ut 和 end 参数
-      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?ut=fa5fd1943c7b386f172d6893dbfba10b&secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=${fqt}&end=20500101&lmt=250&_=${Date.now()}`;  
-      
+      const kUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=${klt}&fqt=${fqt}&end=20500101&lmt=250&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`; 
       try { 
-        // 使用刚刚替换好的 fetchEMData 引擎
         const res = await this.fetchEMData(kUrl); 
-        
-        // 加一层容错
-        if (!res) {
-            console.error("K线数据获取失败，返回为空。请检查 Worker 是否配置正确。");
-            // 如果失败，绘制一个空图表提示，而不是卡死或白屏
-            this.marketChartData = { type: 'kline', prices: [], prevClose: 1, lastPrice: 1, ma5: [], ma10: [], ma20: [], ma60: [], dif: [], dea: [], macd: [], volumes: [] };
-            this.drawMarketChartWithCrosshair(false, -1);
-            return;
-        }
-
         const klines = res?.data?.klines || []; 
         let finalPrevClose = this.marketState.currentPrevClose;
         
         if (klines.length > 0) { 
-          // ... (后面的 K 线解析、MA 计算、MACD 计算代码保持你原来的完全不变即可) ...
           const parsed = klines.map(str => { 
             const parts = str.split(','); 
             return { date: parts[0], open: parseFloat(parts[1]) || 0, close: parseFloat(parts[2]) || 0, high: parseFloat(parts[3]) || 0, low: parseFloat(parts[4]) || 0, volume: parseInt(parts[5] || 0) }; 
           }); 
           if (finalPrevClose <= 0 && parsed.length > 0) finalPrevClose = parsed[0].close || 1;
 
-          // 这里保留你原有的计算逻辑
           const calcMA = (data, days) => { 
             let res = []; 
             for(let i=0; i<data.length; i++){ 
@@ -4162,23 +4157,39 @@ getCorrectSecid(savedSecid, code, groupType) {
           const closePrices = parsed.map(p => p.close);
           const ema12 = calcEMALocal(closePrices, 12);
           const ema26 = calcEMALocal(closePrices, 26);
-          const dif = []; for (let i = 0; i < closePrices.length; i++) { dif.push(ema12[i] - ema26[i]); }
+          const dif = [];
+          for (let i = 0; i < closePrices.length; i++) {
+            dif.push(ema12[i] - ema26[i]);
+          }
           const dea = calcEMALocal(dif, 9);
-          const macd = []; for (let i = 0; i < closePrices.length; i++) { macd.push((dif[i] - dea[i]) * 2); }
+          const macd = [];
+          for (let i = 0; i < closePrices.length; i++) {
+            macd.push((dif[i] - dea[i]) * 2);
+          }
 
           this.marketChartData = { 
-            type: 'kline', xLabels: parsed.map(p => p.date), prices: closePrices, opens: parsed.map(p => p.open),
-            highs: parsed.map(p => p.high), lows: parsed.map(p => p.low), ma5: calcMA(closePrices, 5), 
-            ma10: calcMA(closePrices, 10), ma20: calcMA(closePrices, 20), ma60: calcMA(closePrices, 60), 
-            dif: dif, dea: dea, macd: macd, volumes: parsed.map(p => p.volume), 
-            prevClose: finalPrevClose, lastPrice: parsed[parsed.length-1]?.close || 0, timeStr: new Date().toLocaleTimeString() 
+            type: 'kline', 
+            xLabels: parsed.map(p => p.date), 
+            prices: closePrices,
+            opens: parsed.map(p => p.open),
+            highs: parsed.map(p => p.high),
+            lows: parsed.map(p => p.low),
+            ma5: calcMA(closePrices, 5), 
+            ma10: calcMA(closePrices, 10), 
+            ma20: calcMA(closePrices, 20), 
+            ma60: calcMA(closePrices, 60), 
+            dif: dif,
+            dea: dea,
+            macd: macd,
+            volumes: parsed.map(p => p.volume), 
+            prevClose: finalPrevClose, 
+            lastPrice: parsed[parsed.length-1]?.close || 0, 
+            timeStr: new Date().toLocaleTimeString() 
           }; 
           this.drawMarketChartWithCrosshair(this.crosshair.active, this.crosshair.index); 
           this.bindChartEvents(); 
         } 
-      } catch(e) {
-        console.error("K线渲染异常:", e);
-      }
+      } catch(e) {}
     } 
   },
 
@@ -5114,17 +5125,14 @@ drawIntradayFlowCanvas(data) {
       `;
   },
 
-  // 3. 辅助：后台静默拉取历史日 K 线数据（AI预测专属，已集成新的代理引擎）
+// 3. 辅助：后台静默拉取历史日 K 线数据
   async _fetchMarketHistoryKlines(secid, days) {
       // 【核心修复】：智能判断标的类型，避开指数复权导致的服务器崩溃
       const isIndex = (secid.startsWith('1.000') || secid.startsWith('0.399') || secid.startsWith('0.899') || secid.startsWith('90.') || parseInt(secid.split('.')[0]) >= 100);
       const fqt = isIndex ? 0 : 1;
       
-      // 【核心修复】：补齐所有必要的请求参数，特别是 ut 和 end
-      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=${fqt}&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
-      
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=${fqt}&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
       try {
-          // 强制使用新的代理引擎请求
           const res = await this.fetchEMData(url);
           const klines = res?.data?.klines || [];
           if (klines.length === 0) return null;
@@ -5133,10 +5141,7 @@ drawIntradayFlowCanvas(data) {
               const p = str.split(',');
               return { date: p[0], open: parseFloat(p[1]), close: parseFloat(p[2]), high: parseFloat(p[3]), low: parseFloat(p[4]), vol: parseFloat(p[5]) };
           });
-      } catch (e) { 
-          console.error("AI 预测历史 K 线获取失败:", e);
-          return null; 
-      }
+      } catch (e) { return null; }
   },
 
   // 4. 执行行情大模型预测

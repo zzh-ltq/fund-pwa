@@ -4156,13 +4156,14 @@ getCorrectSecid(savedSecid, code, groupType) {
               const res = await fetch(tcUrl, { signal: controller.signal }).then(r => r.json()).catch(() => null);
               clearTimeout(tid);
               
-              // 3. 解析腾讯的特有数据结构
+              // 3. 解析腾讯的特有数据结构（核心修复：过滤掉混入的除权除息对象）
               if (res && res.data && res.data[tcSymbol]) {
                   const dataKey = tcFq ? `${tcFq}${tcPeriod}` : tcPeriod;
                   const dataArr = res.data[tcSymbol][dataKey] || res.data[tcSymbol][tcPeriod];
                   
                   if (dataArr && dataArr.length > 0) {
-                      klines = dataArr.map(arr => ({
+                      // 必须用 Array.isArray 过滤，因为腾讯会在数组里塞入 {"nd":"2025","fh_sh":"0.05"} 这种分红记录对象导致解析出 NaN！
+                      klines = dataArr.filter(item => Array.isArray(item)).map(arr => ({
                           date: arr[0], 
                           open: parseFloat(arr[1]), 
                           close: parseFloat(arr[2]), 
@@ -5203,7 +5204,8 @@ drawIntradayFlowCanvas(data) {
                   const dataArr = res.data[tcSymbol][dataKey] || res.data[tcSymbol]['day'];
                   
                   if (dataArr && dataArr.length > 0) {
-                      return dataArr.map(arr => ({
+                      // 同样加入 filter(item => Array.isArray(item)) 过滤异常对象
+                      return dataArr.filter(item => Array.isArray(item)).map(arr => ({
                           date: arr[0], 
                           open: parseFloat(arr[1]), 
                           close: parseFloat(arr[2]), 

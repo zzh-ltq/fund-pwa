@@ -4146,15 +4146,15 @@ getCorrectSecid(savedSecid, code, groupType) {
         } 
       } catch(e) {} 
       } else { 
-      // 【彻底重构】：双数据源 K 线引擎（解决变量名冲突，完美渲染图表）
+      // 【彻底重构】：双数据源 K 线引擎（采用腾讯财经现代跨域安全网关）
       const klt = parseInt(this.marketState.chartType) || 101; 
       const isIndex = (secid.startsWith('1.000') || secid.startsWith('0.399') || secid.startsWith('0.899') || secid.startsWith('90.') || parseInt(secid.split('.')[0]) >= 100);
       const fqt = isIndex ? 0 : 1;
       
-      let parsed = []; // 统一定义为 parsed，完美衔接下方的画图逻辑
+      let parsed = []; 
 
       try {
-          // 1. 优先尝试腾讯财经 API (无视拦截)
+          // 1. 优先尝试腾讯财经安全网关 API (无视拦截，解决 501 报错)
           const p = secid.split('.');
           const m = p[0], c = p[1];
           let tcSymbol = '';
@@ -4177,7 +4177,8 @@ getCorrectSecid(savedSecid, code, groupType) {
               if (klt === 103) tcPeriod = 'month';
               const tcFq = fqt === 1 ? 'qfq' : '';
               
-              const tcUrl = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tcSymbol},${tcPeriod},,,250,${tcFq}&_=${Date.now()}`;
+              // 【核心修复】：换用 proxy.finance.qq.com 官方现代跨域网关，杜绝 501 错误
+              const tcUrl = `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newiqkline/get?param=${tcSymbol},${tcPeriod},,,250,${tcFq}&_=${Date.now()}`;
               const tcRes = await this.fetchEMData(tcUrl);
               
               if (tcRes && tcRes.data && tcRes.data[tcSymbol]) {
@@ -4212,6 +4213,8 @@ getCorrectSecid(savedSecid, code, groupType) {
           let finalPrevClose = this.marketState.currentPrevClose;
           if (parsed.length > 0) { 
               if (finalPrevClose <= 0) finalPrevClose = parsed[0].close || 1;
+
+          // ... (下方紧接着原代码的 const calcMA = (data, days) => { ... 保持不变即可)
 
               const calcMA = (data, days) => { 
                 let res = []; 
@@ -5205,7 +5208,7 @@ drawIntradayFlowCanvas(data) {
       `;
   },
 
-// 【彻底重构】：后台静默拉取历史日 K 线数据（全面换用腾讯财经极速 API）
+// 【彻底重构】：后台静默拉取历史日 K 线数据（全面换用腾讯财经现代跨域网关）
   async _fetchMarketHistoryKlines(secid, days) {
       const isIndex = (secid.startsWith('1.000') || secid.startsWith('0.399') || secid.startsWith('0.899') || secid.startsWith('90.') || parseInt(secid.split('.')[0]) >= 100);
       const fqt = isIndex ? 0 : 1;
@@ -5228,19 +5231,16 @@ drawIntradayFlowCanvas(data) {
 
           if (tcSymbol) {
               const tcFq = fqt === 1 ? 'qfq' : '';
-              const tcUrl = `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tcSymbol},day,,,${days},${tcFq}&_=${Date.now()}`;
+              // 【核心修复】：换用 proxy.finance.qq.com
+              const tcUrl = `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newiqkline/get?param=${tcSymbol},day,,,${days},${tcFq}&_=${Date.now()}`;
               
-              const controller = new AbortController();
-              const tid = setTimeout(() => controller.abort(), 6000);
-              const res = await fetch(tcUrl, { signal: controller.signal }).then(r => r.json()).catch(() => null);
-              clearTimeout(tid);
+              const tcRes = await this.fetchEMData(tcUrl);
               
-              if (res && res.data && res.data[tcSymbol]) {
+              if (tcRes && tcRes.data && tcRes.data[tcSymbol]) {
                   const dataKey = tcFq ? `${tcFq}day` : 'day';
-                  const dataArr = res.data[tcSymbol][dataKey] || res.data[tcSymbol]['day'];
+                  const dataArr = tcRes.data[tcSymbol][dataKey] || tcRes.data[tcSymbol]['day'];
                   
                   if (dataArr && dataArr.length > 0) {
-                      // 同样加入 filter(item => Array.isArray(item)) 过滤异常对象
                       return dataArr.filter(item => Array.isArray(item)).map(arr => ({
                           date: arr[0], 
                           open: parseFloat(arr[1]), 
@@ -5252,6 +5252,17 @@ drawIntradayFlowCanvas(data) {
                   }
               }
           }
+
+          // 2. 兜底东财 API
+          const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=${fqt}&end=20500101&lmt=${days}&ut=fa5fd1943c7b386f172d6893dbfba10b&_=${Date.now()}`;
+          const res = await this.fetchEMData(url);
+          const klines = res?.data?.klines || [];
+          if (klines.length === 0) return null;
+          
+          return klines.map(str => {
+              const pts = str.split(',');
+              return { date: pts[0], open: parseFloat(pts[1]), close: parseFloat(pts[2]), high: parseFloat(pts[3]), low: parseFloat(pts[4]), vol: parseFloat(pts[5]) };
+          });
       } catch (e) {}
       return null;
   },

@@ -3069,7 +3069,7 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     }
   },
 
-// --- 优股扫描引擎：平滑限速、防封控、带进度条 ---
+// --- 优股扫描引擎：平滑限速、防封控、带进度条（严格对齐详情页诊断逻辑） ---
   async renderSuperStocksScan() {
     const container = document.getElementById('market-watched-list');
     const stockList = (this.data.marketGroups.stock || []).map(i => ({ ...i, category: '股票' }));
@@ -3082,13 +3082,11 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
       return;
     }
 
-    // 渲染带有进度条的加载 UI
     container.innerHTML = `
       <div style="text-align:center; padding:30px 20px; background:#fff; border-radius:12px; margin:10px 0; border:1px solid #e2e8f0; grid-column: 1 / -1; box-shadow: var(--shadow-sm);">
         <div class="loading-spinner" style="margin:0 auto 15px auto;"></div>
-        <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:12px;">MACD + KDJ + BOLL 全指标共振扫描中</div>
+        <div style="font-weight:900; color:#f59e0b; font-size:15px; margin-bottom:12px;">MACD + KDJ + BOLL 严密共振扫描中</div>
         
-        <!-- 进度条容器 -->
         <div style="width: 80%; margin: 0 auto; background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden; position: relative;">
             <div id="scan-progress-fill" style="width: 0%; background: #f59e0b; height: 100%; transition: width 0.3s ease-out;"></div>
         </div>
@@ -3100,7 +3098,6 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
     const matchedItems = [];
     let completedCount = 0;
     
-    // 【核心优化】：批处理并发控制 (Batch Size = 5) + 平滑延迟 (300ms)
     const batchSize = 5;
     for (let i = 0; i < totalCount; i += batchSize) {
         const batch = allTargets.slice(i, i + batchSize);
@@ -3118,7 +3115,7 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
                     const N = closes.length;
                     const latestPrice = closes[N - 1];
 
-                    // 1. MACD
+                    // 1. MACD 严格判定
                     const calcEMA = (data, p) => {
                         let k = 2 / (p + 1); let ema = [data[0]];
                         for (let j = 1; j < data.length; j++) ema.push(data[j] * k + ema[j - 1] * (1 - k));
@@ -3131,9 +3128,14 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
 
                     const curDIF = dif[N - 1], curDEA = dea[N - 1], curMACD = macd[N - 1];
                     const prevDIF = dif[N - 2], prevDEA = dea[N - 2], prevMACD = macd[N - 2];
-                    const isMacdBuy = (prevDIF <= prevDEA && curDIF > curDEA) || (curDIF > curDEA && curMACD >= prevMACD) || (curDIF < 0 && curMACD > prevMACD && prevMACD < 0);
+                    
+                    let macdSignal = 'HOLD';
+                    if (prevDIF <= prevDEA && curDIF > curDEA) macdSignal = 'BUY';
+                    else if (prevDIF >= prevDEA && curDIF < curDEA) macdSignal = 'SELL';
+                    else if (curDIF > curDEA) macdSignal = curMACD >= prevMACD ? 'BUY' : 'HOLD';
+                    else macdSignal = curMACD <= prevMACD ? 'SELL' : 'HOLD';
 
-                    // 2. KDJ
+                    // 2. KDJ 严格判定
                     let kArr = [50], dArr = [50], jArr = [50];
                     for (let j = 8; j < N; j++) {
                         let periodHigh = Math.max(...highs.slice(j - 8, j + 1)), periodLow = Math.min(...lows.slice(j - 8, j + 1));
@@ -3145,17 +3147,28 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
                     }
                     const curK = kArr[kArr.length - 1], curD = dArr[dArr.length - 1], curJ = jArr[jArr.length - 1];
                     const prevK = kArr[kArr.length - 2], prevD = dArr[dArr.length - 2];
-                    const isKdjBuy = (prevK <= prevD && curK > curD) || curJ < 5 || (curK < 40 && curK > prevK);
+                    
+                    let kdjSignal = 'HOLD';
+                    if (prevK <= prevD && curK > curD) kdjSignal = 'BUY';
+                    else if (prevK >= prevD && curK < curD) kdjSignal = 'SELL';
+                    else if (curJ < 0) kdjSignal = 'BUY';
+                    else if (curJ > 100) kdjSignal = 'SELL';
 
-                    // 3. BOLL
+                    // 3. BOLL 严格判定 (加入了 >=90 卖出风控，解决会稽山Bug)
                     const bollSlice = closes.slice(-20);
                     const bollMid = bollSlice.reduce((a, b) => a + b, 0) / 20;
                     const bollStd = Math.sqrt(bollSlice.reduce((sum, v) => sum + Math.pow(v - bollMid, 2), 0) / 20);
                     const bollUpper = bollMid + 2 * bollStd, bollLower = bollMid - 2 * bollStd;
                     const bollPct = bollUpper === bollLower ? 50 : ((latestPrice - bollLower) / (bollUpper - bollLower)) * 100;
-                    const isBollBuy = bollPct <= 25 || (latestPrice > bollMid && closes[N - 1] >= closes[N - 2]);
+                    
+                    let bollSignal = 'HOLD';
+                    if (bollPct <= 10) bollSignal = 'BUY';
+                    else if (bollPct >= 90) bollSignal = 'SELL';
+                    else if (latestPrice > bollMid) bollSignal = 'BUY';
+                    else bollSignal = 'SELL';
 
-                    if (isMacdBuy && isKdjBuy && isBollBuy) {
+                    // 只有当三个指标的严格信号全部为 'BUY' 时，才真正纳入优股名单！
+                    if (macdSignal === 'BUY' && kdjSignal === 'BUY' && bollSignal === 'BUY') {
                         const chg = ((closes[N - 1] - closes[N - 2]) / closes[N - 2]) * 100;
                         matchedItems.push({
                             name: item.name, code: item.code, secid: querySecid, category: item.category,
@@ -3175,12 +3188,12 @@ let sizeHtml = `<div class="rt-card-row" style="justify-content:space-between; m
             }
         }));
         
-        // 批次间平滑休眠，规避 WAF 防火墙封禁
         if (i + batchSize < totalCount) {
             await new Promise(resolve => setTimeout(resolve, 300));
         }
     }
 
+    // 后续渲染逻辑保持不变...
     if (matchedItems.length === 0) {
       container.innerHTML = `
         <div style="text-align:center; padding:50px 20px; color:#94a3b8; grid-column:1 / -1;">
